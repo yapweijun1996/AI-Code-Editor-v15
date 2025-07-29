@@ -194,11 +194,18 @@ Analyze the code and provide the necessary changes to resolve these issues.
                 Editor.updateTabId(oldPath, newPath, newName);
             }
 
-            await UI.refreshFileTree(appState.rootDirectoryHandle, appState.onFileSelect, appState);
+            // Defer the refresh to prevent call stack explosion from jstree event
+            setTimeout(() => {
+                UI.refreshFileTree(appState.rootDirectoryHandle, appState.onFileSelect, appState);
+            }, 0);
+
         } catch (error) {
             console.error('Error renaming entry:', error);
             UI.showError(`Failed to rename: ${error.message}`);
-            await UI.refreshFileTree(appState.rootDirectoryHandle, appState.onFileSelect, appState);
+            // Also defer the refresh on error to ensure consistency
+            setTimeout(() => {
+                UI.refreshFileTree(appState.rootDirectoryHandle, appState.onFileSelect, appState);
+            }, 0);
         }
     };
 
