@@ -48,52 +48,53 @@ export function renderTree(treeData, onFileSelect, appState) {
             },
             plugins: ['types', 'contextmenu', 'dnd'],
             contextmenu: {
-                show_at_node: false,
-                items: function (node, appState) { // Add appState here
+                items: function (node) {
                     const tree = $('#file-tree').jstree(true);
-                    const isRoot = node.parent === '#';
-
-                    const items = {
-                        createFile: {
-                            separator_before: false,
-                            separator_after: false,
-                            label: "New File",
-                            action: async function (obj) {
+                    var items = {
+                        "createFile": {
+                            "separator_before": false,
+                            "separator_after": false,
+                            "label": "New File",
+                            "icon": "fas fa-file-medical",
+                            "action": function (obj) {
                                 const parentNode = tree.get_node(node);
                                 const newFileName = prompt("Enter new file name:");
                                 if (newFileName) {
-                                    await appState.handleCreateFile(parentNode, newFileName);
+                                    appState.handleCreateFile(parentNode, newFileName);
                                 }
                             }
                         },
-                        createFolder: {
-                            separator_before: false,
-                            separator_after: false,
-                            label: "New Folder",
-                            action: async function (obj) {
+                        "createFolder": {
+                            "separator_before": false,
+                            "separator_after": false,
+                            "label": "New Folder",
+                            "icon": "fas fa-folder-plus",
+                            "action": function (obj) {
                                 const parentNode = tree.get_node(node);
                                 const newFolderName = prompt("Enter new folder name:");
                                 if (newFolderName) {
-                                    await appState.handleCreateFolder(parentNode, newFolderName);
+                                    appState.handleCreateFolder(parentNode, newFolderName);
                                 }
                             }
                         },
-                        rename: {
-                            separator_before: true,
-                            separator_after: false,
-                            label: "Rename",
-                            action: function (obj) {
+                        "rename": {
+                            "separator_before": true,
+                            "separator_after": false,
+                            "label": "Rename",
+                            "icon": "fas fa-pencil-alt",
+                            "action": function (obj) {
                                 tree.edit(node);
                             }
                         },
                         "delete": {
-                            separator_before: false,
-                            separator_after: false,
-                            label: "Delete",
-                            action: async function (obj) {
-                                if (confirm(`Are you sure you want to delete ${node.text}?`)) {
+                            "separator_before": false,
+                            "separator_after": false,
+                            "label": "Delete",
+                            "icon": "fas fa-trash-alt",
+                            "action": function (obj) {
+                                if (confirm('Are you sure you want to delete ' + node.text + '?')) {
                                     const nodeToDelete = tree.get_node(node);
-                                    await appState.handleDeleteEntry(nodeToDelete);
+                                    appState.handleDeleteEntry(nodeToDelete);
                                 }
                             }
                         }
@@ -103,34 +104,15 @@ export function renderTree(treeData, onFileSelect, appState) {
                         delete items.createFile;
                         delete items.createFolder;
                     }
-                    if (isRoot) {
-                        delete items.rename;
-                        delete items.delete;
-                    }
-
 
                     return items;
                 }
             },
-            _appState: appState // Pass appState to the contextmenu plugin
         })
-        .on('contextmenu', function (e) {
-            e.preventDefault();
-            const tree = $(this).jstree(true);
-            const node = tree.get_node(e.target);
-            if (node) {
-                // Pass appState to show_contextmenu as well
-                tree.show_contextmenu(node, e.pageX, e.pageY, tree.settings._appState);
-            }
-        })
-        .on('rename_node.jstree', async function (e, data) {
-            const newPath = data.text;
-            const oldPath = data.old;
-            if(newPath !== oldPath) {
-                await appState.handleRenameEntry(data.node, newPath);
-            }
+        .on('rename_node.jstree', function (e, data) {
+            appState.handleRenameEntry(data.node, data.text);
         });
-};
+}
 
 export async function refreshFileTree(rootDirectoryHandle, onFileSelect, appState) {
     if (rootDirectoryHandle) {
@@ -138,6 +120,9 @@ export async function refreshFileTree(rootDirectoryHandle, onFileSelect, appStat
         if (treeInstance) {
             treeInstance.destroy();
         }
+
+        const projectName = rootDirectoryHandle.name;
+        document.getElementById('project-name').textContent = projectName;
 
         const ignorePatterns = await getIgnorePatterns(rootDirectoryHandle);
         const treeData = await buildTree(rootDirectoryHandle, ignorePatterns);

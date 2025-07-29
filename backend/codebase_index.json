@@ -112,6 +112,7 @@
     "#search-tab",
     "#tasks-tab",
     "#files-content",
+    "#project-name",
     "#directory-controls",
     "#open-directory-button",
     "#reconnect-button",
