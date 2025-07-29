@@ -66,6 +66,20 @@ export class MonacoModelManager {
     }
 
     /**
+     * Renames a model in the manager
+     * @param {string} oldFilename - The old file path
+     * @param {string} newFilename - The new file path
+     */
+    renameModel(oldFilename, newFilename) {
+        if (this.models.has(oldFilename)) {
+            const modelInfo = this.models.get(oldFilename);
+            this.models.delete(oldFilename);
+            this.models.set(newFilename, modelInfo);
+            console.log(`Renamed Monaco model from ${oldFilename} to ${newFilename}`);
+        }
+    }
+
+    /**
      * Ensure we have capacity for a new model
      * @param {number} newContentSize - Size of the new content
      */

@@ -231,6 +231,27 @@ export async function switchTab(filePath, tabBarContainer, focusEditor = true) {
     renderTabs(tabBarContainer, onTabClick, onTabClose);
 }
 
+export function updateTabId(oldPath, newPath, newName) {
+    if (openFiles.has(oldPath)) {
+        const fileData = openFiles.get(oldPath);
+        openFiles.delete(oldPath);
+
+        fileData.name = newName;
+        openFiles.set(newPath, fileData);
+
+        monacoModelManager.renameModel(oldPath, newPath);
+
+        if (activeFilePath === oldPath) {
+            activeFilePath = newPath;
+        }
+
+        const tabBarContainer = document.getElementById('tab-bar');
+        const onTabClick = (fp) => switchTab(fp, tabBarContainer);
+        const onTabClose = (fp) => closeTab(fp, tabBarContainer);
+        renderTabs(tabBarContainer, onTabClick, onTabClose);
+    }
+}
+
 export function closeTab(filePath, tabBarContainer) {
     const fileData = openFiles.get(filePath);
     if (fileData && fileData.model) {
