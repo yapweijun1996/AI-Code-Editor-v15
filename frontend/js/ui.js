@@ -97,7 +97,7 @@ export function renderTree(treeData, onFileSelect, appState) {
             },
         })
         .on('rename_node.jstree', function (e, data) {
-            appState.handleRenameEntry(data.node, data.text);
+            appState.handleRenameEntry(data.node, data.text, data.old);
         });
 }
 

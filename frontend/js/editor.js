@@ -252,6 +252,35 @@ export function updateTabId(oldPath, newPath, newName) {
     }
 }
 
+export function updateTabPathsForFolderRename(oldFolderPath, newFolderPath) {
+    const tabBarContainer = document.getElementById('tab-bar');
+    const onTabClick = (fp) => switchTab(fp, tabBarContainer);
+    const onTabClose = (fp) => closeTab(fp, tabBarContainer);
+    const pathsToUpdate = [];
+
+    for (const [filePath, fileData] of openFiles.entries()) {
+        if (filePath.startsWith(oldFolderPath + '/')) {
+            pathsToUpdate.push(filePath);
+        }
+    }
+
+    if (pathsToUpdate.length > 0) {
+        for (const oldPath of pathsToUpdate) {
+            const newPath = oldPath.replace(oldFolderPath, newFolderPath);
+            const fileData = openFiles.get(oldPath);
+            
+            openFiles.delete(oldPath);
+            openFiles.set(newPath, fileData);
+            monacoModelManager.renameModel(oldPath, newPath);
+
+            if (activeFilePath === oldPath) {
+                activeFilePath = newPath;
+            }
+        }
+        renderTabs(tabBarContainer, onTabClick, onTabClose);
+    }
+}
+
 export function closeTab(filePath, tabBarContainer) {
     const fileData = openFiles.get(filePath);
     if (fileData && fileData.model) {
