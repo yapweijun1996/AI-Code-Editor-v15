@@ -108,9 +108,6 @@ export async function refreshFileTree(rootDirectoryHandle, onFileSelect, appStat
             treeInstance.destroy();
         }
 
-        const projectName = rootDirectoryHandle.name;
-        document.getElementById('project-name').textContent = projectName;
-
         const ignorePatterns = await getIgnorePatterns(rootDirectoryHandle);
         const treeData = await buildTree(rootDirectoryHandle, ignorePatterns);
         renderTree(treeData, onFileSelect, appState);
