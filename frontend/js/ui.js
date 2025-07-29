@@ -50,12 +50,11 @@ export function renderTree(treeData, onFileSelect, appState) {
             contextmenu: {
                 items: function (node) {
                     const tree = $('#file-tree').jstree(true);
-                    var items = {
-                        "createFile": {
-                            "separator_before": false,
-                            "separator_after": false,
-                            "label": "New File",
-                            "icon": "fas fa-file-medical",
+                    var items = {};
+
+                    if (node.type === 'folder') {
+                        items.createFile = {
+                            "label": "<i class='fas fa-file-medical'></i><span class='vakata-contextmenu-sep'>|</span>New File",
                             "action": function (obj) {
                                 const parentNode = tree.get_node(node);
                                 const newFileName = prompt("Enter new file name:");
@@ -63,12 +62,9 @@ export function renderTree(treeData, onFileSelect, appState) {
                                     appState.handleCreateFile(parentNode, newFileName);
                                 }
                             }
-                        },
-                        "createFolder": {
-                            "separator_before": false,
-                            "separator_after": false,
-                            "label": "New Folder",
-                            "icon": "fas fa-folder-plus",
+                        };
+                        items.createFolder = {
+                            "label": "<i class='fas fa-folder-plus'></i><span class='vakata-contextmenu-sep'>|</span>New Folder",
                             "action": function (obj) {
                                 const parentNode = tree.get_node(node);
                                 const newFolderName = prompt("Enter new folder name:");
@@ -76,34 +72,25 @@ export function renderTree(treeData, onFileSelect, appState) {
                                     appState.handleCreateFolder(parentNode, newFolderName);
                                 }
                             }
-                        },
-                        "rename": {
-                            "separator_before": true,
-                            "separator_after": false,
-                            "label": "Rename",
-                            "icon": "fas fa-pencil-alt",
-                            "action": function (obj) {
-                                tree.edit(node);
-                            }
-                        },
-                        "delete": {
-                            "separator_before": false,
-                            "separator_after": false,
-                            "label": "Delete",
-                            "icon": "fas fa-trash-alt",
-                            "action": function (obj) {
-                                if (confirm('Are you sure you want to delete ' + node.text + '?')) {
-                                    const nodeToDelete = tree.get_node(node);
-                                    appState.handleDeleteEntry(nodeToDelete);
-                                }
+                        };
+                    }
+
+                    items.rename = {
+                        "separator_before": node.type === 'folder',
+                        "label": "<i class='fas fa-pencil-alt'></i><span class='vakata-contextmenu-sep'>|</span>Rename",
+                        "action": function (obj) {
+                            tree.edit(node);
+                        }
+                    };
+                    items.delete = {
+                        "label": "<i class='fas fa-trash-alt'></i><span class='vakata-contextmenu-sep'>|</span>Delete",
+                        "action": function (obj) {
+                            if (confirm('Are you sure you want to delete ' + node.text + '?')) {
+                                const nodeToDelete = tree.get_node(node);
+                                appState.handleDeleteEntry(nodeToDelete);
                             }
                         }
                     };
-
-                    if (node.type === 'file') {
-                        delete items.createFile;
-                        delete items.createFolder;
-                    }
 
                     return items;
                 }

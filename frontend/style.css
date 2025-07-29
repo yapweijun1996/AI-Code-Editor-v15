@@ -1219,8 +1219,24 @@ button:hover {
     padding: 6px 12px !important;
     font-size: 0.9rem;
 }
-.vakata-context i {
-    display: none; /* Hide default icons */
+.vakata-context li > a i {
+    margin-right: 8px;
+    font-size: 1em;
+    width: 16px;
+    text-align: center;
+}
+
+.vakata-context .vakata-contextmenu-sep {
+    width: 1px;
+    height: 16px;
+    background: var(--border);
+    margin: 0 8px;
+    display: none; /* Hide default separator */
+}
+
+.vakata-context li > a {
+    display: flex !important;
+    align-items: center !important;
 }
 
 /* Enhanced Thinking Message Styles */
