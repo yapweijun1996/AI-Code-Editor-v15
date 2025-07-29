@@ -915,6 +915,64 @@ async function _duckduckgoSearch({ query }) {
     }
 }
 
+async function _performResearch({ query, max_results = 3, depth = 1 }) {
+    if (!query) throw new Error("The 'query' parameter is required for perform_research.");
+
+    let visitedUrls = new Set();
+    let allLinks = [];
+    let allContent = [];
+    let references = [];
+
+    async function searchAndRead(currentQuery, currentDepth) {
+        if (currentDepth > depth) return;
+
+        UI.appendMessage(document.getElementById('chat-messages'), `Performing search for: "${currentQuery}" (Depth: ${currentDepth})`, 'ai');
+        const searchResults = await _duckduckgoSearch({ query: currentQuery });
+        
+        if (!searchResults.results || searchResults.results.length === 0) {
+            return;
+        }
+
+        const linksToRead = searchResults.results
+            .map(r => r.link)
+            .filter(link => link && !visitedUrls.has(link))
+            .slice(0, max_results);
+
+        for (const link of linksToRead) {
+            if (visitedUrls.has(link)) continue;
+            visitedUrls.add(link);
+            references.push(link);
+
+            try {
+                UI.appendMessage(document.getElementById('chat-messages'), `Reading URL: ${link}`, 'ai');
+                const urlContent = await _readUrl({ url: link });
+                
+                if (urlContent.content) {
+                    allContent.push(`--- START OF CONTENT FROM ${link} ---\n${urlContent.content}\n--- END OF CONTENT FROM ${link} ---\n`);
+                }
+                
+                if (urlContent.links && urlContent.links.length > 0) {
+                    allLinks.push(...urlContent.links);
+                }
+            } catch (error) {
+                console.warn(`Failed to read URL ${link}:`, error.message);
+                allContent.push(`--- FAILED TO READ CONTENT FROM ${link} ---\nError: ${error.message}\n--- END OF FAILED CONTENT ---`);
+            }
+        }
+    }
+
+    await searchAndRead(query, 1);
+
+    // Here, you could add logic for the AI to decide to go deeper
+    // For now, it just does one level of search and read.
+
+    return {
+        summary: `Research for "${query}" complete. The following content was gathered.`,
+        full_content: allContent.join('\n\n'),
+        references: references,
+    };
+}
+
 async function _getOpenFileContent() {
     const activeFile = Editor.getActiveFile();
     if (!activeFile) throw new Error('No file is currently open in the editor.');
@@ -1197,6 +1255,7 @@ const toolRegistry = {
     // Non-project / Editor tools
     read_url: { handler: _readUrl, requiresProject: false, createsCheckpoint: false },
     duckduckgo_search: { handler: _duckduckgoSearch, requiresProject: false, createsCheckpoint: false },
+    perform_research: { handler: _performResearch, requiresProject: false, createsCheckpoint: false },
     get_open_file_content: { handler: _getOpenFileContent, requiresProject: false, createsCheckpoint: false },
     get_selected_text: { handler: _getSelectedText, requiresProject: false, createsCheckpoint: false },
     replace_selected_text: { handler: _replaceSelectedText, requiresProject: false, createsCheckpoint: false },
@@ -1325,6 +1384,7 @@ export function getToolDefinitions() {
             { name: 'replace_selected_text', description: 'Replaces the currently selected text in the editor with new text.', parameters: { type: 'OBJECT', properties: { new_text: { type: 'STRING', description: 'The raw text to replace the selection with. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['new_text'] } },
             { name: 'get_project_structure', description: 'Gets the entire file and folder structure of the project. CRITICAL: Always use this tool before attempting to read or create a file to ensure you have the correct file path.' },
             { name: 'duckduckgo_search', description: 'Performs a search using DuckDuckGo and returns the results.', parameters: { type: 'OBJECT', properties: { query: { type: 'STRING' } }, required: ['query'] } },
+            { name: 'perform_research', description: 'Performs an autonomous, multi-step research on a given query. It searches the web, reads the most relevant pages, and can recursively explore links to gather comprehensive information.', parameters: { type: 'OBJECT', properties: { query: { type: 'STRING' }, max_results: { type: 'NUMBER', description: 'Maximum number of search results to read per level. Default is 3.' }, depth: { type: 'NUMBER', description: 'How many levels of links to follow. Default is 1.' } }, required: ['query'] } },
             { name: 'search_code', description: 'Searches for a specific string in all files in the project (like grep).', parameters: { type: 'OBJECT', properties: { search_term: { type: 'STRING' } }, required: ['search_term'] } },
             { name: 'run_terminal_command', description: 'Executes a shell command on the backend and returns the output.', parameters: { type: 'OBJECT', properties: { command: { type: 'STRING' } }, required: ['command'] } },
             { name: 'build_or_update_codebase_index', description: 'Scans the entire codebase to build a searchable index. Slow, run once per session.' },
