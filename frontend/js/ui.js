@@ -54,7 +54,7 @@ export function renderTree(treeData, onFileSelect, appState) {
 
                     if (node.type === 'folder') {
                         items.createFile = {
-                            "label": "<i class='fas fa-file-medical'></i><span class='vakata-contextmenu-sep'>|</span>New File",
+                            "label": "<i class='fas fa-file-alt'></i>New File",
                             "action": function (obj) {
                                 const parentNode = tree.get_node(node);
                                 const newFileName = prompt("Enter new file name:");
@@ -64,7 +64,7 @@ export function renderTree(treeData, onFileSelect, appState) {
                             }
                         };
                         items.createFolder = {
-                            "label": "<i class='fas fa-folder-plus'></i><span class='vakata-contextmenu-sep'>|</span>New Folder",
+                            "label": "<i class='fas fa-folder-plus'></i>New Folder",
                             "action": function (obj) {
                                 const parentNode = tree.get_node(node);
                                 const newFolderName = prompt("Enter new folder name:");
@@ -77,13 +77,13 @@ export function renderTree(treeData, onFileSelect, appState) {
 
                     items.rename = {
                         "separator_before": node.type === 'folder',
-                        "label": "<i class='fas fa-pencil-alt'></i><span class='vakata-contextmenu-sep'>|</span>Rename",
+                        "label": "<i class='fas fa-edit'></i>Rename",
                         "action": function (obj) {
                             tree.edit(node);
                         }
                     };
                     items.delete = {
-                        "label": "<i class='fas fa-trash-alt'></i><span class='vakata-contextmenu-sep'>|</span>Delete",
+                        "label": "<i class='fas fa-trash-alt'></i>Delete",
                         "action": function (obj) {
                             if (confirm('Are you sure you want to delete ' + node.text + '?')) {
                                 const nodeToDelete = tree.get_node(node);

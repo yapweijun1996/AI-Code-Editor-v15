@@ -183,12 +183,24 @@ Analyze the code and provide the necessary changes to resolve these issues.
         const oldPath = node.id;
         const parentPath = node.parent === '#' ? '' : node.parent;
         const newPath = parentPath ? `${parentPath}/${newName}` : newName;
+
         try {
             await FileSystem.renameEntry(appState.rootDirectoryHandle, oldPath, newPath);
-            await UI.refreshFileTree(appState.rootDirectoryHandle, appState.onFileSelect, appState);
+            
+            // Instead of a full refresh, just update the node in the tree
+            const tree = $('#file-tree').jstree(true);
+            if (tree) {
+                tree.set_id(node, newPath);
+                tree.set_text(node, newName);
+            }
+
+            // If the renamed node was an open tab, update its path
+            Editor.updateTabId(oldPath, newPath, newName);
+
         } catch (error) {
             console.error('Error renaming entry:', error);
             UI.showError(`Failed to rename: ${error.message}`);
+            // On failure, refresh the tree to ensure UI consistency
             await UI.refreshFileTree(appState.rootDirectoryHandle, appState.onFileSelect, appState);
         }
     };

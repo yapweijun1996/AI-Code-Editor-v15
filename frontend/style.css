@@ -1218,9 +1218,12 @@ button:hover {
     color: var(--text) !important;
     padding: 6px 12px !important;
     font-size: 0.9rem;
+    text-shadow: none;
 }
 .vakata-context li > a i {
     margin-right: 8px;
+    padding-right: 8px;
+    border-right: 1px solid var(--border);
     font-size: 1em;
     width: 16px;
     text-align: center;
