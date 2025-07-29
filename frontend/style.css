@@ -1218,12 +1218,11 @@ button:hover {
     color: var(--text) !important;
     padding: 6px 12px !important;
     font-size: 0.9rem;
-    text-shadow: none;
+    text-shadow: none !important;
 }
 .vakata-context li > a i {
     margin-right: 8px;
     padding-right: 8px;
-    border-right: 1px solid var(--border);
     font-size: 1em;
     width: 16px;
     text-align: center;
@@ -1232,9 +1231,10 @@ button:hover {
 .vakata-context .vakata-contextmenu-sep {
     width: 1px;
     height: 16px;
-    background: var(--border);
+    background: none !important;
     margin: 0 8px;
     display: none; /* Hide default separator */
+    border-left: 0px solid #e2e3e3 !important;
 }
 
 .vakata-context li > a {

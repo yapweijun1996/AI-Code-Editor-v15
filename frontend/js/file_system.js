@@ -54,61 +54,57 @@ async function getDirectoryHandleFromPath(dirHandle, path) {
     return currentHandle;
 }
 
-export async function renameEntry(rootDirHandle, oldPath, newPath) {
+async function getEntryHandleFromPath(rootDirHandle, path) {
     try {
-        const oldFileHandle = await getFileHandleFromPath(rootDirHandle, oldPath);
-        const file = await oldFileHandle.getFile();
-        const content = await file.arrayBuffer();
+        const handle = await getDirectoryHandleFromPath(rootDirHandle, path);
+        return { handle, isDirectory: true };
+    } catch (e) {
+        if (e.name === 'TypeMismatchError' || e.name === 'NotFoundError') {
+            try {
+                const handle = await getFileHandleFromPath(rootDirHandle, path);
+                return { handle, isDirectory: false };
+            } catch (fileError) {
+                throw new Error(`Entry not found at path: ${path}`);
+            }
+        }
+        throw e;
+    }
+}
 
+export async function renameEntry(rootDirHandle, oldPath, newPath) {
+    const { handle: oldHandle, isDirectory } = await getEntryHandleFromPath(rootDirHandle, oldPath);
+
+    if (isDirectory) {
+        await createDirectoryFromPath(rootDirHandle, newPath);
+        for await (const entry of oldHandle.values()) {
+            await renameEntry(
+                rootDirHandle,
+                `${oldPath}/${entry.name}`,
+                `${newPath}/${entry.name}`
+            );
+        }
+    } else {
+        const file = await oldHandle.getFile();
+        const content = await file.arrayBuffer();
         const newFileHandle = await getFileHandleFromPath(rootDirHandle, newPath, { create: true });
         const writable = await newFileHandle.createWritable();
         await writable.write(content);
         await writable.close();
-
-        const { parentHandle, entryName } = await getParentDirectoryHandle(rootDirHandle, oldPath);
-        await parentHandle.removeEntry(entryName);
-    } catch (fileError) {
-        if (fileError.name === 'TypeMismatchError') {
-            try {
-                const oldDirHandle = await getDirectoryHandleFromPath(rootDirHandle, oldPath);
-                const newDirHandle = await createDirectoryFromPath(rootDirHandle, newPath);
-
-                for await (const entry of oldDirHandle.values()) {
-                    await renameEntry(
-                        rootDirHandle,
-                        `${oldPath}/${entry.name}`,
-                        `${newPath}/${entry.name}`
-                    );
-                }
-
-                const { parentHandle, entryName: dirNameToDelete } = await getParentDirectoryHandle(rootDirHandle, oldPath);
-                await parentHandle.removeEntry(dirNameToDelete, { recursive: true });
-            } catch (dirError) {
-                throw new Error(`Failed to rename directory: ${dirError.message}`);
-            }
-        } else {
-            throw new Error(`Failed to rename file: ${fileError.message}`);
-        }
     }
+
+    await deleteEntry(rootDirHandle, oldPath);
 }
 
 export async function deleteEntry(rootDirHandle, path) {
+    const { parentHandle, entryName } = await getParentDirectoryHandle(rootDirHandle, path);
+    let isDirectory = false;
     try {
-        const { parentHandle, entryName } = await getParentDirectoryHandle(rootDirHandle, path);
-        
-        // Check if it's a file or directory
-        let isDirectory = false;
-        try {
-            await parentHandle.getDirectoryHandle(entryName);
-            isDirectory = true;
-        } catch (e) {
-            // Not a directory, assume file
-        }
-
-        await parentHandle.removeEntry(entryName, { recursive: isDirectory });
-    } catch (error) {
-        throw new Error(`Failed to delete entry: ${error.message}`);
+        await parentHandle.getDirectoryHandle(entryName);
+        isDirectory = true;
+    } catch (e) {
+        // It's a file
     }
+    await parentHandle.removeEntry(entryName, { recursive: isDirectory });
 }
 
 
