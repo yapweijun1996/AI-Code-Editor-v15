@@ -180,7 +180,7 @@ Analyze the code and provide the necessary changes to resolve these issues.
     };
 
     appState.handleRenameEntry = async (node, newName, oldName) => {
-        const parentPath = node.parent === '#' ? '' : node.parent;
+        const parentPath = (node.parent === '#' || node.parent === appState.rootDirectoryHandle.name) ? '' : node.parent;
         const oldPath = parentPath ? `${parentPath}/${oldName}` : oldName;
         const newPath = parentPath ? `${parentPath}/${newName}` : newName;
         const isFolder = node.type === 'folder';
