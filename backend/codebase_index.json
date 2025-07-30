@@ -29484,9 +29484,6 @@
     "highWaterMarkFrom",
     "getHighWaterMark"
   ],
-  "frontend\\js\\tool_executor.js": [
-    "stripMarkdownCodeBlock"
-  ],
   "frontend\\index.html": [
     "#error-container",
     "#toast-container",
