@@ -635,6 +635,257 @@ class SemanticIndexer {
                 symbolCount: data.symbols.size
             }));
     }
+
+    /**
+     * Check if the semantic index has been built
+     */
+    isIndexBuilt() {
+        return this.semanticIndex.size > 0;
+    }
+
+    /**
+     * Search for files semantically related to a query
+     */
+    searchSemanticFiles(query, maxResults = 20) {
+        if (!this.isIndexBuilt()) {
+            return [];
+        }
+
+        const results = [];
+        const queryLower = query.toLowerCase();
+        const queryTerms = queryLower.split(/\s+/).filter(term => term.length > 2);
+
+        // Score files based on concept matches
+        const fileScores = new Map();
+
+        // Direct concept matches
+        for (const [concept, data] of this.semanticIndex) {
+            let conceptScore = 0;
+
+            // Exact concept match
+            if (concept.toLowerCase() === queryLower) {
+                conceptScore = 1.0;
+            }
+            // Partial concept match
+            else if (concept.toLowerCase().includes(queryLower)) {
+                conceptScore = 0.8;
+            }
+            // Term-based matching
+            else {
+                const conceptTerms = concept.toLowerCase().split(/[_\-\s]+/);
+                const matchingTerms = queryTerms.filter(term => 
+                    conceptTerms.some(cTerm => cTerm.includes(term) || term.includes(cTerm))
+                );
+                if (matchingTerms.length > 0) {
+                    conceptScore = 0.6 * (matchingTerms.length / queryTerms.length);
+                }
+            }
+
+            if (conceptScore > 0) {
+                // Add score to all files associated with this concept
+                for (const filePath of data.files) {
+                    const currentScore = fileScores.get(filePath) || 0;
+                    const weightedScore = conceptScore * (data.weight / 10); // Normalize weight
+                    fileScores.set(filePath, currentScore + weightedScore);
+                }
+            }
+        }
+
+        // Convert to results array with additional metadata
+        for (const [filePath, relevance] of fileScores) {
+            if (relevance > 0.1) { // Minimum relevance threshold
+                const matchingConcepts = this.getFileMatchingConcepts(filePath, queryTerms);
+                
+                results.push({
+                    path: filePath,
+                    relevance: Math.min(relevance, 1.0), // Cap at 1.0
+                    matchingConcepts: matchingConcepts,
+                    score: relevance
+                });
+            }
+        }
+
+        // Sort by relevance and return top results
+        return results
+            .sort((a, b) => b.relevance - a.relevance)
+            .slice(0, maxResults);
+    }
+
+    /**
+     * Get concepts from a file that match query terms
+     */
+    getFileMatchingConcepts(filePath, queryTerms) {
+        const matchingConcepts = [];
+
+        for (const [concept, data] of this.semanticIndex) {
+            if (data.files.has(filePath)) {
+                const conceptLower = concept.toLowerCase();
+                const conceptTerms = conceptLower.split(/[_\-\s]+/);
+                
+                const hasMatch = queryTerms.some(term => 
+                    conceptLower.includes(term) || 
+                    conceptTerms.some(cTerm => cTerm.includes(term) || term.includes(cTerm))
+                );
+                
+                if (hasMatch) {
+                    matchingConcepts.push(concept);
+                }
+            }
+        }
+
+        return matchingConcepts.slice(0, 5); // Limit to 5 concepts
+    }
+
+    /**
+     * Get related files for a given file path
+     */
+    getRelatedFiles(filePath, maxResults = 10) {
+        if (!this.isIndexBuilt()) {
+            return [];
+        }
+
+        const fileConcepts = this.getFileConceptsFromIndex(filePath);
+        if (fileConcepts.length === 0) {
+            return [];
+        }
+
+        const relatedFiles = new Map();
+
+        // Find files that share concepts
+        fileConcepts.forEach(concept => {
+            const conceptData = this.semanticIndex.get(concept);
+            if (conceptData) {
+                conceptData.files.forEach(relatedFile => {
+                    if (relatedFile !== filePath) {
+                        const currentScore = relatedFiles.get(relatedFile) || 0;
+                        relatedFiles.set(relatedFile, currentScore + conceptData.weight);
+                    }
+                });
+            }
+        });
+
+        // Convert to array and sort by similarity
+        return Array.from(relatedFiles.entries())
+            .map(([path, score]) => ({
+                path,
+                similarity: Math.min(score / fileConcepts.length, 1.0)
+            }))
+            .sort((a, b) => b.similarity - a.similarity)
+            .slice(0, maxResults);
+    }
+
+    /**
+     * Get concepts associated with a file
+     */
+    getFileConceptsFromIndex(filePath) {
+        const concepts = [];
+        
+        for (const [concept, data] of this.semanticIndex) {
+            if (data.files.has(filePath)) {
+                concepts.push(concept);
+            }
+        }
+
+        return concepts.sort((a, b) => {
+            const aData = this.semanticIndex.get(a);
+            const bData = this.semanticIndex.get(b);
+            return bData.weight - aData.weight;
+        });
+    }
+
+    /**
+     * Generate code suggestions based on semantic analysis
+     */
+    generateCodeSuggestions(filePath) {
+        const suggestions = [];
+        
+        try {
+            const fileConcepts = this.getFileConceptsFromIndex(filePath);
+            const relatedFiles = this.getRelatedFiles(filePath, 5);
+
+            // Suggest exploring related files
+            if (relatedFiles.length > 0) {
+                suggestions.push({
+                    type: 'exploration',
+                    title: 'Explore Related Files',
+                    description: `Files with similar concepts: ${relatedFiles.map(f => f.path.split('/').pop()).join(', ')}`,
+                    files: relatedFiles.map(f => f.path)
+                });
+            }
+
+            // Suggest concepts to explore
+            if (fileConcepts.length > 0) {
+                const topConcepts = fileConcepts.slice(0, 3);
+                suggestions.push({
+                    type: 'concepts',
+                    title: 'Key Concepts in This File',
+                    description: `Main concepts: ${topConcepts.join(', ')}`,
+                    concepts: topConcepts
+                });
+            }
+
+            // Suggest similar patterns
+            const patterns = this.findPatternsInFile(filePath);
+            if (patterns.length > 0) {
+                suggestions.push({
+                    type: 'patterns',
+                    title: 'Design Patterns Detected',
+                    description: `Patterns found: ${patterns.join(', ')}`,
+                    patterns: patterns
+                });
+            }
+
+        } catch (error) {
+            console.warn(`Error generating suggestions for ${filePath}:`, error);
+        }
+
+        return suggestions;
+    }
+
+    /**
+     * Find design patterns in a specific file
+     */
+    findPatternsInFile(filePath) {
+        const patterns = [];
+        
+        for (const [pattern, data] of this.codePatterns) {
+            if (data.files && data.files.has(filePath)) {
+                patterns.push(pattern);
+            }
+        }
+
+        return patterns;
+    }
+
+    /**
+     * Clear all indexes and caches
+     */
+    clearIndex() {
+        this.semanticIndex.clear();
+        this.symbolGraph.clear();
+        this.conceptGraph.clear();
+        this.codePatterns.clear();
+        this.apiIndex.clear();
+        this.cache.clear();
+        this.conceptClusters = null;
+    }
+
+    /**
+     * Get debug information about the index
+     */
+    getDebugInfo() {
+        return {
+            semanticIndexSize: this.semanticIndex.size,
+            symbolGraphSize: this.symbolGraph.size,
+            conceptGraphSize: this.conceptGraph.size,
+            codePatternsSize: this.codePatterns.size,
+            apiIndexSize: this.apiIndex.size,
+            cacheSize: this.cache.size || 0,
+            conceptClustersSize: this.conceptClusters?.size || 0,
+            sampleConcepts: Array.from(this.semanticIndex.keys()).slice(0, 5),
+            indexStats: this.getIndexStats()
+        };
+    }
 }
 
 // Export singleton instance

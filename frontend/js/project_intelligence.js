@@ -584,6 +584,245 @@ class ProjectIntelligence {
         this.symbolIndex.clear();
         this.architecturePatterns.clear();
     }
+
+    /**
+     * Check if a file should be ignored
+     */
+    isIrrelevantFile(fileName) {
+        const irrelevantPatterns = [
+            // Temporary files
+            /^\.#/, /~$/, /\.tmp$/, /\.temp$/,
+            // OS files
+            /^\.DS_Store$/, /^Thumbs\.db$/, /^desktop\.ini$/,
+            // IDE files
+            /^\.vscode/, /^\.idea/, /^\.eclipse/, /^\.project$/,
+            // Version control
+            /^\.git/, /^\.svn/, /^\.hg/, /^CVS$/,
+            // Build outputs
+            /^node_modules/, /^dist/, /^build/, /^out/, /^target/,
+            // Logs
+            /\.log$/, /^logs/,
+            // Cache
+            /^\.cache/, /^\.parcel-cache/, /^\.next/,
+            // Lock files
+            /package-lock\.json$/, /yarn\.lock$/, /composer\.lock$/,
+            // Minified files
+            /\.min\.(js|css)$/, /\.bundle\.(js|css)$/,
+            // Map files
+            /\.map$/,
+            // Backup files
+            /\.bak$/, /\.backup$/, /\.old$/,
+            // Archive files
+            /\.(zip|rar|7z|tar|gz|bz2)$/,
+            // Large data files that shouldn't be analyzed
+            /\.(sqlite|db|mdb)$/,
+            // Documentation that's not code
+            /^README/, /^CHANGELOG/, /^LICENSE/, /^CONTRIBUTING/
+        ];
+
+        return irrelevantPatterns.some(pattern => pattern.test(fileName));
+    }
+
+    /**
+     * Index symbols and APIs from analyzed files
+     */
+    async indexSymbolsAndAPIs(allFiles) {
+        this.updateProgress('Indexing symbols and APIs...', 85);
+        
+        try {
+            // Clear existing index
+            this.symbolIndex.clear();
+            
+            let processedFiles = 0;
+            const totalFiles = allFiles.length;
+            
+            // Process files in batches for better performance
+            const batchSize = 10;
+            for (let i = 0; i < allFiles.length; i += batchSize) {
+                const batch = allFiles.slice(i, i + batchSize);
+                
+                await Promise.all(batch.map(async (file) => {
+                    if (!file.shouldAnalyze) return;
+                    
+                    try {
+                        const analysis = this.projectMap.get(file.path);
+                        if (!analysis) return;
+                        
+                        // Index exports (public API)
+                        analysis.exports.forEach(exportName => {
+                            if (!this.symbolIndex.has(exportName)) {
+                                this.symbolIndex.set(exportName, []);
+                            }
+                            this.symbolIndex.get(exportName).push({
+                                file: file.path,
+                                type: 'export',
+                                language: file.language
+                            });
+                        });
+                        
+                        // Index functions
+                        analysis.functions.forEach(funcName => {
+                            if (!this.symbolIndex.has(funcName)) {
+                                this.symbolIndex.set(funcName, []);
+                            }
+                            this.symbolIndex.get(funcName).push({
+                                file: file.path,
+                                type: 'function',
+                                language: file.language
+                            });
+                        });
+                        
+                        // Index classes
+                        analysis.classes.forEach(className => {
+                            if (!this.symbolIndex.has(className)) {
+                                this.symbolIndex.set(className, []);
+                            }
+                            this.symbolIndex.get(className).push({
+                                file: file.path,
+                                type: 'class',
+                                language: file.language
+                            });
+                        });
+                        
+                        // Index APIs
+                        analysis.apis.forEach(api => {
+                            const apiName = typeof api === 'string' ? api : api.name;
+                            if (!this.symbolIndex.has(apiName)) {
+                                this.symbolIndex.set(apiName, []);
+                            }
+                            this.symbolIndex.get(apiName).push({
+                                file: file.path,
+                                type: 'api',
+                                language: file.language,
+                                details: api
+                            });
+                        });
+                        
+                        processedFiles++;
+                        
+                        // Update progress periodically
+                        if (processedFiles % 50 === 0) {
+                            const progress = 85 + (processedFiles / totalFiles) * 10;
+                            this.updateProgress(`Indexing symbols... ${processedFiles}/${totalFiles}`, progress);
+                        }
+                        
+                    } catch (error) {
+                        console.warn(`Error indexing symbols for ${file.path}:`, error);
+                    }
+                }));
+                
+                // Small delay between batches to prevent blocking
+                if (i + batchSize < allFiles.length) {
+                    await new Promise(resolve => setTimeout(resolve, 5));
+                }
+            }
+            
+            // Build dependency relationships from imports/exports
+            this.buildDependencyRelationships(allFiles);
+            
+            console.log(`Symbol indexing complete. Indexed ${this.symbolIndex.size} unique symbols from ${processedFiles} files.`);
+            
+        } catch (error) {
+            console.error('Error during symbol indexing:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Build dependency relationships from imports and exports
+     */
+    buildDependencyRelationships(allFiles) {
+        try {
+            // Create a map of exports to files
+            const exportMap = new Map();
+            
+            allFiles.forEach(file => {
+                const analysis = this.projectMap.get(file.path);
+                if (!analysis) return;
+                
+                analysis.exports.forEach(exportName => {
+                    if (!exportMap.has(exportName)) {
+                        exportMap.set(exportName, []);
+                    }
+                    exportMap.get(exportName).push(file.path);
+                });
+            });
+            
+            // Build dependency relationships
+            allFiles.forEach(file => {
+                const analysis = this.projectMap.get(file.path);
+                if (!analysis) return;
+                
+                const dependencies = new Set();
+                
+                analysis.imports.forEach(importName => {
+                    // Handle relative imports
+                    if (importName.startsWith('./') || importName.startsWith('../')) {
+                        const resolvedPath = this.resolveRelativeImport(file.path, importName);
+                        if (resolvedPath) {
+                            dependencies.add(resolvedPath);
+                        }
+                    } else {
+                        // Handle named imports
+                        const exportingFiles = exportMap.get(importName);
+                        if (exportingFiles) {
+                            exportingFiles.forEach(exportingFile => {
+                                if (exportingFile !== file.path) {
+                                    dependencies.add(exportingFile);
+                                }
+                            });
+                        }
+                    }
+                });
+                
+                if (dependencies.size > 0) {
+                    this.dependencyGraph.set(file.path, Array.from(dependencies));
+                }
+            });
+            
+        } catch (error) {
+            console.warn('Error building dependency relationships:', error);
+        }
+    }
+
+    /**
+     * Resolve relative import paths
+     */
+    resolveRelativeImport(currentFile, importPath) {
+        try {
+            const currentDir = currentFile.split('/').slice(0, -1).join('/');
+            const parts = importPath.split('/');
+            const dirParts = currentDir.split('/');
+            
+            for (const part of parts) {
+                if (part === '.') {
+                    continue;
+                } else if (part === '..') {
+                    dirParts.pop();
+                } else {
+                    dirParts.push(part);
+                }
+            }
+            
+            const resolvedPath = dirParts.join('/');
+            
+            // Try common extensions if no extension provided
+            if (!resolvedPath.includes('.')) {
+                const commonExtensions = ['.js', '.ts', '.jsx', '.tsx', '/index.js', '/index.ts'];
+                for (const ext of commonExtensions) {
+                    const candidate = resolvedPath + ext;
+                    if (this.projectMap.has(candidate)) {
+                        return candidate;
+                    }
+                }
+            }
+            
+            return this.projectMap.has(resolvedPath) ? resolvedPath : null;
+            
+        } catch (error) {
+            return null;
+        }
+    }
 }
 
 // Export singleton instance
