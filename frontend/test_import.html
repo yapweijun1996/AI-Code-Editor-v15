@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Import</title>
+</head>
+<body>
+    <h1>Testing file_tree_search.js import</h1>
+    <div id="status">Loading...</div>
+    
+    <script type="module">
+        try {
+            const { fileTreeSearch } = await import('./js/file_tree_search.js');
+            document.getElementById('status').textContent = 'Success: file_tree_search.js loaded successfully!';
+            console.log('fileTreeSearch:', fileTreeSearch);
+        } catch (error) {
+            document.getElementById('status').textContent = 'Error: ' + error.message;
+            console.error('Import error:', error);
+        }
+    </script>
+</body>
+</html>
