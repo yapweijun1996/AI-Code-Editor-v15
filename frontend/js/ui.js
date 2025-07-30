@@ -366,7 +366,7 @@ export function showError(message, duration = 5000) {
 
 export function renderToolLogs(logsListContainer, logs, filterText = '') {
     logsListContainer.innerHTML = '';
-    if (!logs || logs.length === 0) {
+    if (!Array.isArray(logs) || logs.length === 0) {
         logsListContainer.innerHTML = '<p>No tool executions have been logged yet.</p>';
         return;
     }

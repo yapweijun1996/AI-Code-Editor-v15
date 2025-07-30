@@ -41,10 +41,14 @@ export class ToolLogger {
     }
 
     async getLogs(limit = 100) {
-        if (!this.logDb) return [];
-        const tx = this.logDb.transaction('tool_logs', 'readonly');
-        const store = tx.objectStore('tool_logs');
-        return store.getAll(null, limit);
+        if (!this.logDb) return Promise.resolve([]);
+        return new Promise((resolve, reject) => {
+            const tx = this.logDb.transaction('tool_logs', 'readonly');
+            const store = tx.objectStore('tool_logs');
+            const request = store.getAll(null, limit);
+            request.onerror = () => reject('Error fetching logs.');
+            request.onsuccess = () => resolve(request.result || []);
+        });
     }
 
     async clearLogs() {
