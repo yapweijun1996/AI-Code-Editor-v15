@@ -141,210 +141,164 @@ class TaskManager {
     }
 
     /**
-     * AI-driven function to break a main goal into subtasks with intelligent context analysis.
+     * AI-driven function to break a main goal into subtasks using LLM intelligence.
      */
     async breakdownGoal(mainTask) {
         console.log(`[TaskManager] Breaking down goal: "${mainTask.title}"`);
         
-        // Enhanced task patterns with more comprehensive coverage and context awareness
-        const taskPatterns = {
-            'color|theme|design|style|ui|appearance|visual': {
-                steps: [
-                    { title: 'Identify relevant CSS and style files', priority: 'high', description: 'Locate all files containing styling for the target component', estimatedTime: 15 },
-                    { title: 'Analyze current color scheme and styling', priority: 'high', description: 'Review existing colors, themes, and design patterns', estimatedTime: 20 },
-                    { title: 'Plan color scheme changes', priority: 'high', description: 'Define specific color values and affected elements', estimatedTime: 15 },
-                    { title: 'Update CSS styles with new color scheme', priority: 'high', description: 'Apply the new colors to all relevant CSS rules', estimatedTime: 30 },
-                    { title: 'Test visual changes across components', priority: 'medium', description: 'Verify the new design looks correct and is consistent', estimatedTime: 20 }
-                ],
-                riskLevel: 'low',
-                complexity: 'medium'
-            },
-            'dashboard|interface|layout|component': {
-                steps: [
-                    { title: 'Locate dashboard files and components', priority: 'high', description: 'Find HTML, CSS, and JS files related to the dashboard', estimatedTime: 15 },
-                    { title: 'Analyze dashboard structure and styling', priority: 'high', description: 'Understand the current layout and design implementation', estimatedTime: 25 },
-                    { title: 'Implement requested changes', priority: 'high', description: 'Apply the specific modifications to the dashboard', estimatedTime: 45 },
-                    { title: 'Verify changes work correctly', priority: 'medium', description: 'Test that the dashboard functions properly with changes', estimatedTime: 15 }
-                ],
-                riskLevel: 'low',
-                complexity: 'medium'
-            },
-            'optimize|refactor|improve|enhance|performance': {
-                steps: [
-                    { title: 'Analyze current implementation and identify issues', priority: 'high', description: 'Review existing code and performance bottlenecks', estimatedTime: 30 },
-                    { title: 'Plan optimization strategy', priority: 'high', description: 'Define approach and expected improvements', estimatedTime: 20 },
-                    { title: 'Implement optimizations', priority: 'high', description: 'Apply performance improvements and refactoring', estimatedTime: 60 },
-                    { title: 'Test and verify improvements', priority: 'medium', description: 'Validate that optimizations work correctly', estimatedTime: 30 },
-                    { title: 'Document changes and cleanup', priority: 'low', description: 'Update documentation and remove dead code', estimatedTime: 15 }
-                ],
-                riskLevel: 'medium',
-                complexity: 'high'
-            },
-            'implement|create|add|build|develop': {
-                steps: [
-                    { title: 'Analyze requirements and plan approach', priority: 'high', description: 'Understand what needs to be built and how', estimatedTime: 25 },
-                    { title: 'Set up project structure and files', priority: 'high', description: 'Create necessary files and directories', estimatedTime: 15 },
-                    { title: 'Implement core functionality', priority: 'high', description: 'Write the main logic and features', estimatedTime: 90 },
-                    { title: 'Add error handling and validation', priority: 'medium', description: 'Ensure robust error handling', estimatedTime: 30 },
-                    { title: 'Test implementation', priority: 'medium', description: 'Verify functionality works as expected', estimatedTime: 45 },
-                    { title: 'Update documentation', priority: 'low', description: 'Document the new functionality', estimatedTime: 20 }
-                ],
-                riskLevel: 'medium',
-                complexity: 'high'
-            },
-            'fix|debug|resolve|repair|solve': {
-                steps: [
-                    { title: 'Reproduce and understand the issue', priority: 'urgent', description: 'Identify the exact problem and conditions', estimatedTime: 20 },
-                    { title: 'Analyze root cause', priority: 'high', description: 'Find the underlying cause of the issue', estimatedTime: 30 },
-                    { title: 'Design and implement solution', priority: 'high', description: 'Create a fix for the identified problem', estimatedTime: 45 },
-                    { title: 'Test the fix thoroughly', priority: 'high', description: 'Ensure the fix works and doesn\'t break anything', estimatedTime: 25 },
-                    { title: 'Add preventive measures', priority: 'medium', description: 'Add tests or checks to prevent regression', estimatedTime: 20 }
-                ],
-                riskLevel: 'high',
-                complexity: 'medium'
-            },
-            'review|audit|analyze|examine|inspect': {
-                steps: [
-                    { title: 'Gather and examine all relevant files', priority: 'high', description: 'Collect and review all related code/documents', estimatedTime: 40 },
-                    { title: 'Analyze structure and implementation', priority: 'high', description: 'Understand the current architecture and design', estimatedTime: 60 },
-                    { title: 'Identify issues and improvements', priority: 'medium', description: 'Document problems and potential enhancements', estimatedTime: 30 },
-                    { title: 'Provide recommendations', priority: 'medium', description: 'Suggest specific improvements and next steps', estimatedTime: 25 }
-                ],
-                riskLevel: 'low',
-                complexity: 'medium'
-            },
-            'test|validate|verify|check': {
-                steps: [
-                    { title: 'Plan testing strategy', priority: 'high', description: 'Define what and how to test', estimatedTime: 20 },
-                    { title: 'Create test cases', priority: 'high', description: 'Write comprehensive test scenarios', estimatedTime: 45 },
-                    { title: 'Execute tests', priority: 'medium', description: 'Run tests and collect results', estimatedTime: 30 },
-                    { title: 'Analyze results and report findings', priority: 'medium', description: 'Document test outcomes and issues found', estimatedTime: 25 }
-                ],
-                riskLevel: 'low',
-                complexity: 'medium'
-            }
-        };
-
-        const goalLower = mainTask.title.toLowerCase();
-        let matchedPattern = null;
-        let matchedKeyword = '';
-        let confidence = 0.0;
-        
-        // Enhanced pattern matching with confidence scoring and multi-word support
-        for (const [keyword, pattern] of Object.entries(taskPatterns)) {
-            const keywords = keyword.split('|');
-            let matchScore = 0;
-            let matchedWords = 0;
+        try {
+            // Use AI to intelligently break down the task
+            const subtasks = await this._aiDrivenTaskBreakdown(mainTask);
             
-            for (const k of keywords) {
-                if (goalLower.includes(k)) {
-                    // Base score for keyword match
-                    const baseScore = k.length / goalLower.length;
-                    
-                    // Bonus for exact word boundaries
-                    const wordBoundaryRegex = new RegExp(`\\b${k}\\b`, 'i');
-                    const wordBoundaryBonus = wordBoundaryRegex.test(goalLower) ? 0.2 : 0;
-                    
-                    // Bonus for multiple keyword matches in same pattern
-                    matchScore += baseScore + wordBoundaryBonus;
-                    matchedWords++;
+            // Enhanced breakdown note with metadata
+            const breakdownNote = {
+                id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                content: `Task broken down into ${subtasks.length} subtasks using AI-driven analysis (estimated time: ${subtasks.reduce((sum, t) => sum + (t.estimatedTime || 30), 0)}min)`,
+                type: 'system',
+                timestamp: Date.now(),
+                metadata: {
+                    method: 'ai-driven',
+                    subtaskCount: subtasks.length,
+                    totalEstimatedTime: subtasks.reduce((sum, t) => sum + (t.estimatedTime || 30), 0)
                 }
-            }
-            
-            // Apply multiplier for multiple matched keywords
-            if (matchedWords > 1) {
-                matchScore *= (1 + (matchedWords - 1) * 0.3);
-            }
-            
-            if (matchScore > confidence) {
-                matchedPattern = pattern;
-                matchedKeyword = keyword;
-                confidence = matchScore;
-            }
-        }
-
-        // Intelligent fallback with context analysis - only use if confidence is very low
-        if (!matchedPattern || confidence < 0.1) {
-            // Analyze context for better fallback
-            const contextClues = this._analyzeTaskContext(mainTask);
-            
-            // Create more specific generic tasks based on context
-            const genericSteps = this._createContextualGenericSteps(mainTask, contextClues);
-            
-            matchedPattern = {
-                steps: genericSteps,
-                riskLevel: contextClues.riskLevel || 'medium',
-                complexity: contextClues.complexity || 'medium'
             };
-            matchedKeyword = 'generic';
-            confidence = 0.3; // Set minimum confidence for generic
+            
+            mainTask.notes = mainTask.notes || [];
+            mainTask.notes.push(breakdownNote);
+            
+            const totalEstimatedTime = subtasks.reduce((sum, t) => sum + (t.estimatedTime || 30), 0);
+            
+            await this.updateTask(mainTask.id, {
+                status: 'in_progress',
+                estimatedTime: totalEstimatedTime,
+                context: {
+                    ...mainTask.context,
+                    breakdown: {
+                        method: 'ai-driven',
+                        subtaskCount: subtasks.length,
+                        totalEstimatedTime: totalEstimatedTime
+                    }
+                }
+            });
+
+            this.notifyListeners('tasks_updated', { mainTask, subtasks });
+            console.log(`[TaskManager] Created ${subtasks.length} subtasks for "${mainTask.title}" (${totalEstimatedTime}min estimated)`);
+            return subtasks;
+        } catch (error) {
+            console.error('[TaskManager] AI-driven breakdown failed:', error);
+            // Fallback to simple breakdown
+            return await this._fallbackTaskBreakdown(mainTask);
         }
+    }
 
-        console.log(`[TaskManager] Using pattern "${matchedKeyword}" for breakdown (confidence: ${confidence.toFixed(2)})`);
+    /**
+     * AI-driven task breakdown using LLM intelligence
+     */
+    async _aiDrivenTaskBreakdown(mainTask) {
+        // Import ChatService dynamically to avoid circular dependency
+        const { ChatService } = await import('./chat_service.js');
+        const chatService = new ChatService();
+        
+        const prompt = `You are an expert project manager. Break down this task into specific, actionable subtasks.
 
+TASK: "${mainTask.title}"
+DESCRIPTION: "${mainTask.description || 'No additional description provided'}"
+
+REQUIREMENTS:
+1. Create 3-6 specific, actionable subtasks
+2. Each subtask should be concrete and executable
+3. Avoid generic tasks like "analyze requirements" or "plan approach"
+4. Focus on specific actions like "locate CSS files", "update color variables", "test changes"
+5. Estimate time in minutes for each subtask
+6. Set appropriate priority (low, medium, high, urgent)
+
+Return ONLY a JSON array of subtasks in this exact format:
+[
+  {
+    "title": "Specific actionable task title",
+    "description": "Detailed description of what to do",
+    "priority": "high",
+    "estimatedTime": 20
+  }
+]
+
+Do not include any other text or explanation.`;
+
+        try {
+            const response = await chatService.sendMessage(prompt, [], false);
+            
+            // Extract JSON from response
+            let jsonMatch = response.match(/\[[\s\S]*\]/);
+            if (!jsonMatch) {
+                throw new Error('No JSON array found in AI response');
+            }
+            
+            const aiSubtasks = JSON.parse(jsonMatch[0]);
+            
+            // Validate and create actual subtasks
+            const subtasks = [];
+            let prevTaskId = null;
+            
+            for (const aiSubtask of aiSubtasks) {
+                const subtask = await this.createTask({
+                    title: aiSubtask.title,
+                    description: aiSubtask.description || '',
+                    priority: aiSubtask.priority || 'medium',
+                    parentId: mainTask.id,
+                    listId: mainTask.listId,
+                    dependencies: prevTaskId ? [prevTaskId] : [],
+                    estimatedTime: aiSubtask.estimatedTime || 30,
+                    tags: ['ai-generated', 'subtask', 'ai-driven'],
+                    context: {
+                        ...mainTask.context,
+                        method: 'ai-driven',
+                        aiGenerated: true
+                    }
+                });
+                subtasks.push(subtask);
+                prevTaskId = subtask.id;
+            }
+            
+            return subtasks;
+        } catch (error) {
+            console.error('[TaskManager] AI breakdown parsing failed:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Fallback task breakdown when AI fails
+     */
+    async _fallbackTaskBreakdown(mainTask) {
+        console.log('[TaskManager] Using fallback breakdown method');
+        
+        const contextClues = this._analyzeTaskContext(mainTask);
+        const genericSteps = this._createContextualGenericSteps(mainTask, contextClues);
+        
         const subtasks = [];
         let prevTaskId = null;
-        let totalEstimatedTime = 0;
-
-        for (let i = 0; i < matchedPattern.steps.length; i++) {
-            const step = matchedPattern.steps[i];
+        
+        for (const step of genericSteps) {
             const subtask = await this.createTask({
                 title: step.title,
                 description: step.description || '',
                 priority: step.priority || 'medium',
-                confidence: step.confidence || confidence,
                 parentId: mainTask.id,
                 listId: mainTask.listId,
                 dependencies: prevTaskId ? [prevTaskId] : [],
                 estimatedTime: step.estimatedTime || 30,
-                tags: ['ai-generated', 'subtask', `pattern:${matchedKeyword}`],
+                tags: ['ai-generated', 'subtask', 'fallback'],
                 context: {
                     ...mainTask.context,
-                    patternUsed: matchedKeyword,
-                    patternConfidence: confidence,
-                    riskLevel: matchedPattern.riskLevel,
-                    complexity: matchedPattern.complexity
+                    method: 'fallback',
+                    riskLevel: contextClues.riskLevel,
+                    complexity: contextClues.complexity
                 }
             });
             subtasks.push(subtask);
             prevTaskId = subtask.id;
-            totalEstimatedTime += step.estimatedTime || 30;
         }
-
-        // Enhanced breakdown note with metadata
-        const breakdownNote = {
-            id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            content: `Task broken down into ${subtasks.length} subtasks using "${matchedKeyword}" pattern (confidence: ${confidence.toFixed(2)}, estimated time: ${totalEstimatedTime}min)`,
-            type: 'system',
-            timestamp: Date.now(),
-            metadata: {
-                patternUsed: matchedKeyword,
-                confidence: confidence,
-                totalEstimatedTime: totalEstimatedTime,
-                riskLevel: matchedPattern.riskLevel,
-                complexity: matchedPattern.complexity
-            }
-        };
         
-        mainTask.notes = mainTask.notes || [];
-        mainTask.notes.push(breakdownNote);
-        
-        await this.updateTask(mainTask.id, {
-            status: 'in_progress',
-            estimatedTime: totalEstimatedTime,
-            context: {
-                ...mainTask.context,
-                breakdown: {
-                    patternUsed: matchedKeyword,
-                    confidence: confidence,
-                    subtaskCount: subtasks.length,
-                    totalEstimatedTime: totalEstimatedTime
-                }
-            }
-        });
-
-        this.notifyListeners('tasks_updated', { mainTask, subtasks });
-        console.log(`[TaskManager] Created ${subtasks.length} subtasks for "${mainTask.title}" (${totalEstimatedTime}min estimated)`);
         return subtasks;
     }
 

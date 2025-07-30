@@ -133,7 +133,7 @@ export const ChatService = {
     /**
      * Analyze user query and inject context if needed
      */
-    _analyzeAndInjectContext(userPrompt) {
+    async _analyzeAndInjectContext(userPrompt) {
         const result = {
             contextInjected: false,
             enhancedPrompt: userPrompt,
@@ -143,7 +143,7 @@ export const ChatService = {
 
         try {
             // Skip auto-context for task-based queries to avoid workflow interference
-            if (this._isTaskBasedQuery(userPrompt)) {
+            if (await this._isTaskBasedQuery(userPrompt)) {
                 console.log(`[Context Analysis] Skipping auto-context for task-based query`);
                 return result;
             }
@@ -188,37 +188,62 @@ export const ChatService = {
     },
 
     /**
-     * Check if query is task-based and should skip auto-context
+     * AI-driven check if query is task-based and should skip auto-context
      */
-    _isTaskBasedQuery(userPrompt) {
-        const taskIndicators = [
-            // Task creation patterns
-            /create\s+.*task/i,
-            /make\s+.*dashboard/i,
-            /build\s+.*application/i,
-            /develop\s+.*feature/i,
-            /implement\s+.*system/i,
-            
-            // Multi-step project patterns
-            /review\s+all\s+files/i,
-            /analyze\s+the\s+entire/i,
-            /update\s+all/i,
-            /change\s+all/i,
-            /modify\s+the\s+whole/i,
-            
-            // Project-wide operations
-            /refactor\s+the\s+project/i,
-            /optimize\s+the\s+application/i,
-            /redesign\s+the/i,
-            /restructure/i,
-            
-            // Complex multi-file operations
-            /color\s+.*style\s+design/i,
-            /theme\s+.*change/i,
-            /ui\s+.*update/i
+    async _isTaskBasedQuery(userPrompt) {
+        // Quick heuristic check first for performance
+        const quickIndicators = [
+            'review all', 'make', 'create', 'build', 'implement', 'develop',
+            'update all', 'change all', 'modify', 'refactor', 'optimize',
+            'redesign', 'restructure', 'dashboard', 'application', 'system'
         ];
+        
+        const hasQuickIndicator = quickIndicators.some(indicator =>
+            userPrompt.toLowerCase().includes(indicator)
+        );
+        
+        // If no quick indicators, it's likely not task-based
+        if (!hasQuickIndicator) {
+            return false;
+        }
+        
+        // For queries with indicators, use AI to make a more intelligent decision
+        try {
+            const analysisPrompt = `Analyze this user query and determine if it's a task-based request that requires breaking down into multiple steps:
 
-        return taskIndicators.some(pattern => pattern.test(userPrompt));
+QUERY: "${userPrompt}"
+
+A task-based query is one that:
+- Requires multiple sequential steps to complete
+- Involves complex operations across multiple files
+- Needs project-wide changes or analysis
+- Would benefit from being broken down into subtasks
+
+Examples of task-based queries:
+- "review all files, make erp dashboard to blue color design"
+- "create a new user authentication system"
+- "refactor the entire project structure"
+- "implement a shopping cart feature"
+
+Examples of NON-task-based queries:
+- "explain this function"
+- "fix this specific error"
+- "what does this code do?"
+- "help me understand this concept"
+
+Return ONLY "true" or "false" (no quotes, no explanation).`;
+
+            const response = await this.sendMessage(analysisPrompt, [], false);
+            const isTaskBased = response.trim().toLowerCase() === 'true';
+            
+            console.log(`[Context Analysis] AI determined query is ${isTaskBased ? 'task-based' : 'not task-based'}`);
+            return isTaskBased;
+            
+        } catch (error) {
+            console.warn('[Context Analysis] AI analysis failed, using heuristic:', error);
+            // Fallback to heuristic if AI fails
+            return hasQuickIndicator && userPrompt.split(' ').length > 5; // Complex queries are likely task-based
+        }
     },
 
     /**
