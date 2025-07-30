@@ -29543,7 +29543,6 @@
     "#image-upload-button",
     "#chat-send-button",
     "#chat-cancel-button",
-    "#thinking-indicator",
     "#llm-settings-panel",
     "#gemini-settings",
     "#gemini-api-keys",
