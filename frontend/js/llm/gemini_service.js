@@ -70,7 +70,10 @@ export class GeminiService extends BaseLLMService {
                         stack: streamError.stack,
                         name: streamError.name
                     });
-                    throw streamError;
+                    // Re-throw as a retriable error so key rotation can handle it
+                    const retriableError = new Error(`Stream error: ${streamError.message}`);
+                    retriableError.originalError = streamError;
+                    throw retriableError;
                 }
 
                 // If we get here, the request was successful
@@ -79,13 +82,27 @@ export class GeminiService extends BaseLLMService {
             } catch (error) {
                 // Check if this is a rate limit or API key related error
                 const isRetryableError = this._isRetryableError(error);
+                const triedAllKeys = this.apiKeyManager.hasTriedAllKeys();
                 
-                if (isRetryableError && !this.apiKeyManager.hasTriedAllKeys()) {
-                    console.warn(`Gemini API error with current key: ${error.message}. Trying next key...`);
+                console.log(`Gemini error analysis:`, {
+                    errorMessage: error.message,
+                    isRetryableError,
+                    triedAllKeys,
+                    currentKeyIndex: this.apiKeyManager.currentIndex,
+                    totalKeys: this.apiKeyManager.keys.length,
+                    triedKeysCount: this.apiKeyManager.triedKeys.size
+                });
+                
+                if (isRetryableError && !triedAllKeys) {
+                    console.warn(`Gemini API error with current key (index ${this.apiKeyManager.currentIndex}): ${error.message}. Trying next key...`);
                     this.apiKeyManager.rotateKey();
+                    console.log(`Rotated to key index: ${this.apiKeyManager.currentIndex}`);
                     continue; // Try with next key
                 } else {
                     // Either not a retryable error, or we've tried all keys
+                    if (triedAllKeys) {
+                        console.error(`All ${this.apiKeyManager.keys.length} Gemini API keys have been tried. Giving up.`);
+                    }
                     throw error;
                 }
             }
@@ -95,6 +112,14 @@ export class GeminiService extends BaseLLMService {
     _isRetryableError(error) {
         const errorMessage = error.message || '';
         const errorString = errorMessage.toLowerCase();
+        
+        // Check for streaming/parsing errors (often API key or quota related)
+        if (errorString.includes('failed to parse stream') || 
+            errorString.includes('stream error') ||
+            errorString.includes('parsing error') ||
+            errorString.includes('malformed response')) {
+            return true;
+        }
         
         // Check for rate limit errors (429)
         if (errorString.includes('429') || errorString.includes('quota') || errorString.includes('rate limit')) {
@@ -111,6 +136,13 @@ export class GeminiService extends BaseLLMService {
         // Check for service unavailable errors (503)
         if (errorString.includes('503') || errorString.includes('overloaded') || 
             errorString.includes('service unavailable')) {
+            return true;
+        }
+        
+        // Check for network/connection errors
+        if (errorString.includes('network error') ||
+            errorString.includes('connection') ||
+            errorString.includes('timeout')) {
             return true;
         }
         
