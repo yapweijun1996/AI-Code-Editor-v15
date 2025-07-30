@@ -118,34 +118,37 @@ export function renderTree(treeData, onFileSelect, appState) {
 
 // Lazy load folder children when expanded
 async function lazyLoadFolderChildren(node, appState) {
+    const tree = $('#file-tree').jstree(true);
+    const path = node.li_attr['data-path'];
+    const originalText = node.text;
+
     try {
-        const tree = $('#file-tree').jstree(true);
-        const path = node.li_attr['data-path'];
-        
         // Show loading indicator
-        tree.set_text(node, `${node.text} (loading...)`);
+        tree.set_text(node, `${originalText} (loading...)`);
         
-        // Get directory handle
+        // Get directory handle and ignore patterns
         const dirHandle = await getDirectoryHandleFromPath(appState.rootDirectoryHandle, path);
         const ignorePatterns = await getIgnorePatterns(appState.rootDirectoryHandle);
         
-        // Load children
+        // Load children using the worker
         const children = await loadDirectoryChildren(dirHandle, ignorePatterns, path);
         
-        // Update node
+        // Clear the dummy node and add the actual children
         tree.delete_node(tree.get_children_dom(node));
         children.forEach(child => {
             tree.create_node(node, child, 'last');
         });
         
-        // Remove lazy loading flag and restore text
-        node.li_attr['data-lazy'] = 'false';
-        tree.set_text(node, node.text.replace(' (loading...)', ''));
+        // Update the node state in jstree
+        const treeNode = tree.get_node(node, true);
+        if (treeNode) {
+            treeNode.li_attr['data-lazy'] = 'false';
+        }
+        tree.set_text(node, originalText);
         
     } catch (error) {
-        console.error('Error lazy loading folder:', error);
-        const tree = $('#file-tree').jstree(true);
-        tree.set_text(node, `${node.text} (error loading)`);
+        console.error(`Error lazy loading folder "${path}":`, error);
+        tree.set_text(node, `${originalText} (error)`);
     }
 }
 

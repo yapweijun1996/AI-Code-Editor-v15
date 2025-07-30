@@ -1,3 +1,48 @@
+let fsWorker;
+const inflightRequests = new Map();
+let requestIdCounter = 0;
+
+function getFileSystemWorker() {
+    if (!fsWorker) {
+        fsWorker = new Worker('/js/workers/file-system.worker.js', { type: 'module' });
+
+        fsWorker.onmessage = (event) => {
+            const { status, command, result, error, requestId } = event.data;
+            if (inflightRequests.has(requestId)) {
+                const { resolve, reject } = inflightRequests.get(requestId);
+                if (status === 'success') {
+                    resolve(result);
+                } else {
+                    const err = new Error(error.message);
+                    err.stack = error.stack;
+                    reject(err);
+                }
+                inflightRequests.delete(requestId);
+            }
+        };
+
+        fsWorker.onerror = (error) => {
+            console.error('File System Worker Error:', error);
+            // Reject all pending promises
+            for (const [id, { reject }] of inflightRequests.entries()) {
+                reject(new Error('File System Worker encountered an unrecoverable error.'));
+                inflightRequests.delete(id);
+            }
+            fsWorker = null; // Allow re-initialization
+        };
+    }
+    return fsWorker;
+}
+
+function postMessageToWorker(command, payload) {
+    const worker = getFileSystemWorker();
+    const requestId = requestIdCounter++;
+    return new Promise((resolve, reject) => {
+        inflightRequests.set(requestId, { resolve, reject });
+        worker.postMessage({ command, payload, requestId });
+    });
+}
+
 export async function getIgnorePatterns(rootDirHandle) {
     try {
         const ignoreFileHandle = await rootDirHandle.getFileHandle('.ai_ignore');
@@ -169,166 +214,26 @@ export async function searchInDirectory(
 }
 
 
-// Lazy loading configuration
-const LAZY_LOADING_CONFIG = {
-    maxDepth: 2, // Only load 2 levels deep initially
-    maxChildrenPerDirectory: 1000, // Limit children per directory for performance
-    batchSize: 500, // Load files in batches of 500
-    enableProgressiveLoading: true
+/**
+ * Builds the file tree using a web worker to avoid blocking the main thread.
+ * @param {FileSystemDirectoryHandle} dirHandle - The root directory handle.
+ * @param {Array<string>} ignorePatterns - An array of patterns to ignore.
+ * @param {object} options - Additional options for building the tree.
+ * @returns {Promise<Array<object>>} A promise that resolves with the file tree data.
+ */
+export const buildTree = (dirHandle, ignorePatterns, options = {}) => {
+    return postMessageToWorker('buildTree', { dirHandle, ignorePatterns, options });
 };
 
-export const buildTree = async (dirHandle, ignorePatterns, currentPath = '', options = {}) => {
-    const config = { ...LAZY_LOADING_CONFIG, ...options };
-    
-    const buildChildren = async (currentDirHandle, pathPrefix, depth = 0) => {
-        const children = [];
-        let childCount = 0;
-        
-        // Progress callback for large directories
-        const progressCallback = options.progressCallback;
-        
-        for await (const entry of currentDirHandle.values()) {
-            // Limit children per directory to prevent UI freeze
-            if (childCount >= config.maxChildrenPerDirectory) {
-                console.warn(`Directory ${pathPrefix} has more than ${config.maxChildrenPerDirectory} children. Some files may not be shown.`);
-                children.push({
-                    id: `${pathPrefix}/__more__`,
-                    text: `... (${await countRemainingEntries(currentDirHandle, childCount)} more items)`,
-                    type: 'placeholder',
-                    li_attr: {
-                        'data-path': pathPrefix,
-                        'data-remaining': await countRemainingEntries(currentDirHandle, childCount),
-                        'data-loaded': config.maxChildrenPerDirectory
-                    }
-                });
-                break;
-            }
-            
-            const newPath = pathPrefix ? `${pathPrefix}/${entry.name}` : entry.name;
-            if (ignorePatterns.some(pattern => newPath.startsWith(pattern.replace(/\/$/, '')))) {
-                continue;
-            }
-            
-            if (entry.kind === 'directory') {
-                const folderNode = {
-                    id: newPath,
-                    text: entry.name,
-                    type: 'folder',
-                    li_attr: { 'data-path': newPath, 'data-handle': entry }
-                };
-                
-                // Lazy loading: only load children up to maxDepth
-                if (depth < config.maxDepth) {
-                    folderNode.children = await buildChildren(entry, newPath, depth + 1);
-                } else {
-                    // Mark as lazy-loadable
-                    folderNode.children = true; // JSTree lazy loading indicator
-                    folderNode.li_attr['data-lazy'] = 'true';
-                }
-                
-                children.push(folderNode);
-            } else {
-                children.push({
-                    id: newPath,
-                    text: entry.name,
-                    type: 'file',
-                    li_attr: { 'data-path': newPath, 'data-handle': entry },
-                });
-            }
-            
-            childCount++;
-            
-            // Progress reporting
-            if (progressCallback && childCount % 50 === 0) {
-                progressCallback(childCount, pathPrefix);
-                // Yield to UI thread periodically
-                await new Promise(resolve => setTimeout(resolve, 0));
-            }
-        }
-        
-        children.sort((a, b) => {
-            if (a.type === 'folder' && b.type !== 'folder') return -1;
-            if (a.type !== 'folder' && b.type === 'folder') return 1;
-            return a.text.localeCompare(b.text);
-        });
-        return children;
-    };
-
-    const rootChildren = await buildChildren(dirHandle, '', 0);
-    return [{
-        id: dirHandle.name,
-        text: dirHandle.name,
-        type: 'folder',
-        state: { opened: true },
-        children: rootChildren,
-    }];
-};
-
-// Helper function to count remaining entries
-async function countRemainingEntries(dirHandle, skipCount) {
-    let count = 0;
-    let current = 0;
-    for await (const entry of dirHandle.values()) {
-        if (current >= skipCount) {
-            count++;
-        }
-        current++;
-    }
-    return count;
-}
-
-// New function for lazy loading directory children
-export const loadDirectoryChildren = async (dirHandle, ignorePatterns, pathPrefix = '') => {
-    const children = [];
-    let childCount = 0;
-    
-    for await (const entry of dirHandle.values()) {
-        if (childCount >= LAZY_LOADING_CONFIG.maxChildrenPerDirectory) {
-            children.push({
-                id: `${pathPrefix}/__more__`,
-                text: `... (${await countRemainingEntries(dirHandle, childCount)} more items)`,
-                type: 'placeholder',
-                li_attr: {
-                    'data-path': pathPrefix,
-                    'data-remaining': await countRemainingEntries(dirHandle, childCount),
-                    'data-loaded': LAZY_LOADING_CONFIG.maxChildrenPerDirectory
-                }
-            });
-            break;
-        }
-        
-        const newPath = pathPrefix ? `${pathPrefix}/${entry.name}` : entry.name;
-        if (ignorePatterns.some(pattern => newPath.startsWith(pattern.replace(/\/$/, '')))) {
-            continue;
-        }
-        
-        if (entry.kind === 'directory') {
-            children.push({
-                id: newPath,
-                text: entry.name,
-                type: 'folder',
-                children: true, // Lazy loading indicator
-                li_attr: { 'data-path': newPath, 'data-handle': entry, 'data-lazy': 'true' }
-            });
-        } else {
-            children.push({
-                id: newPath,
-                text: entry.name,
-                type: 'file',
-                li_attr: { 'data-path': newPath, 'data-handle': entry },
-            });
-        }
-        
-        childCount++;
-    }
-    
-    children.sort((a, b) => {
-        if (a.type === 'folder' && b.type !== 'folder') return -1;
-        if (a.type !== 'folder' && b.type === 'folder') return 1;
-        return a.text.localeCompare(b.text);
-    });
-    
-    return children;
+/**
+ * Loads the children of a directory for lazy loading, using a web worker.
+ * @param {FileSystemDirectoryHandle} dirHandle - The directory handle to load children from.
+ * @param {Array<string>} ignorePatterns - An array of patterns to ignore.
+ * @param {string} pathPrefix - The path of the directory.
+ * @returns {Promise<Array<object>>} A promise that resolves with the children nodes.
+ */
+export const loadDirectoryChildren = (dirHandle, ignorePatterns, pathPrefix = '') => {
+    return postMessageToWorker('loadDirectoryChildren', { dirHandle, ignorePatterns, pathPrefix });
 };
 export async function verifyAndRequestPermission(fileHandle, withWrite = false) {
     const options = { mode: withWrite ? 'readwrite' : 'read' };
