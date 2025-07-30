@@ -16,7 +16,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const chatSendButton = document.getElementById('chat-send-button');
     const chatCancelButton = document.getElementById('chat-cancel-button');
     const apiKeysTextarea = document.getElementById('api-keys-textarea');
-    const thinkingIndicator = document.getElementById('thinking-indicator');
     const imagePreviewContainer = document.getElementById('image-preview-container');
 
     // --- App State ---
@@ -151,7 +150,7 @@ Analyze the code and provide the necessary changes to resolve these issues.
         `;
 
         chatInput.value = prompt.trim();
-        ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, thinkingIndicator, null, () => {});
+        ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, null, () => {});
     };
 
     appState.handleCreateFile = async (parentNode, newFileName) => {

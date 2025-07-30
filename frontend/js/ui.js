@@ -181,198 +181,6 @@ export function appendMessage(chatMessages, text, sender, isStreaming = false) {
     chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-export function appendThinkingMessage(chatMessages, text, isStreaming = false) {
-    let thinkingDiv;
-    if (isStreaming) {
-        const lastMessage = chatMessages.lastElementChild;
-        if (lastMessage && lastMessage.classList.contains('thinking-message')) {
-            thinkingDiv = lastMessage;
-        }
-    }
-
-    if (!thinkingDiv) {
-        thinkingDiv = document.createElement('div');
-        thinkingDiv.className = 'chat-message thinking-message active';
-        thinkingDiv.setAttribute('role', 'region');
-        thinkingDiv.setAttribute('aria-label', 'AI thinking process');
-        
-        // Create header with enhanced elements
-        const header = document.createElement('div');
-        header.className = 'thinking-header';
-        
-        const statusDiv = document.createElement('div');
-        statusDiv.className = 'thinking-status';
-        
-        const icon = document.createElement('span');
-        icon.className = 'thinking-icon spinning';
-        icon.textContent = '🧠';
-        icon.setAttribute('aria-hidden', 'true');
-        
-        const statusText = document.createElement('span');
-        statusText.innerHTML = '<strong>AI is thinking...</strong>';
-        
-        statusDiv.appendChild(icon);
-        statusDiv.appendChild(statusText);
-        
-        // Create meta information section
-        const metaDiv = document.createElement('div');
-        metaDiv.className = 'thinking-meta';
-        
-        const timer = document.createElement('div');
-        timer.className = 'thinking-timer';
-        timer.innerHTML = '⏱️ <span class="timer-value">0s</span>';
-        
-        const wordCount = document.createElement('div');
-        wordCount.className = 'thinking-word-count';
-        wordCount.textContent = '0 words';
-        
-        const toggle = document.createElement('button');
-        toggle.className = 'thinking-toggle';
-        toggle.textContent = 'Show reasoning';
-        toggle.setAttribute('aria-expanded', 'false');
-        toggle.setAttribute('aria-controls', 'thinking-content-' + Date.now());
-        
-        metaDiv.appendChild(timer);
-        metaDiv.appendChild(wordCount);
-        metaDiv.appendChild(toggle);
-        
-        header.appendChild(statusDiv);
-        header.appendChild(metaDiv);
-        
-        // Create content area
-        const content = document.createElement('div');
-        content.className = 'thinking-content collapsed';
-        content.id = toggle.getAttribute('aria-controls');
-        content.setAttribute('aria-hidden', 'true');
-        
-        // Enhanced toggle functionality with animations
-        toggle.onclick = () => {
-            const isCollapsed = content.classList.contains('collapsed');
-            
-            if (isCollapsed) {
-                content.classList.remove('collapsed');
-                content.classList.add('expanding');
-                content.setAttribute('aria-hidden', 'false');
-                toggle.textContent = 'Hide reasoning';
-                toggle.classList.add('expanded');
-                toggle.setAttribute('aria-expanded', 'true');
-                
-                setTimeout(() => {
-                    content.classList.remove('expanding');
-                }, 300);
-            } else {
-                content.classList.add('collapsing');
-                toggle.textContent = 'Show reasoning';
-                toggle.classList.remove('expanded');
-                toggle.setAttribute('aria-expanded', 'false');
-                
-                setTimeout(() => {
-                    content.classList.remove('collapsing');
-                    content.classList.add('collapsed');
-                    content.setAttribute('aria-hidden', 'true');
-                }, 300);
-            }
-        };
-        
-        // Add progress indicator
-        const progress = document.createElement('div');
-        progress.className = 'thinking-progress';
-        progress.style.width = '0%';
-        
-        thinkingDiv.appendChild(header);
-        thinkingDiv.appendChild(content);
-        thinkingDiv.appendChild(progress);
-        
-        // Start timer
-        const startTime = Date.now();
-        const timerInterval = setInterval(() => {
-            if (!thinkingDiv.classList.contains('active')) {
-                clearInterval(timerInterval);
-                return;
-            }
-            const elapsed = Math.floor((Date.now() - startTime) / 1000);
-            const timerValue = timer.querySelector('.timer-value');
-            if (timerValue) {
-                timerValue.textContent = elapsed + 's';
-            }
-        }, 1000);
-        
-        // Store timer reference for cleanup
-        thinkingDiv._timerInterval = timerInterval;
-        
-        chatMessages.appendChild(thinkingDiv);
-    }
-
-    const content = thinkingDiv.querySelector('.thinking-content');
-    const wordCount = thinkingDiv.querySelector('.thinking-word-count');
-    const progress = thinkingDiv.querySelector('.thinking-progress');
-    
-    if (content && text) {
-        content.innerHTML = DOMPurify.sanitize(marked.parse(text || ''));
-        
-        // Update word count
-        if (wordCount) {
-            const words = text.trim().split(/\s+/).length;
-            wordCount.textContent = words + ' words';
-        }
-        
-        // Update progress (simulate based on content length)
-        if (progress) {
-            const maxLength = 2000; // Estimated max thinking length
-            const currentLength = text.length;
-            const progressPercent = Math.min(100, (currentLength / maxLength) * 100);
-            progress.style.width = progressPercent + '%';
-        }
-    }
-    
-    thinkingDiv.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    
-    return thinkingDiv;
-}
-
-export function finalizeThinkingMessage(thinkingDiv) {
-    if (thinkingDiv && thinkingDiv.classList.contains('thinking-message')) {
-        // Clear timer
-        if (thinkingDiv._timerInterval) {
-            clearInterval(thinkingDiv._timerInterval);
-        }
-        
-        // Update status
-        const statusDiv = thinkingDiv.querySelector('.thinking-status');
-        const icon = thinkingDiv.querySelector('.thinking-icon');
-        const progress = thinkingDiv.querySelector('.thinking-progress');
-        
-        if (statusDiv) {
-            statusDiv.innerHTML = `
-                <span class="thinking-icon">💡</span>
-                <span><strong>AI reasoning complete</strong></span>
-            `;
-        }
-        
-        if (icon) {
-            icon.classList.remove('spinning');
-        }
-        
-        if (progress) {
-            progress.style.width = '100%';
-        }
-        
-        // Add completion styling
-        thinkingDiv.classList.remove('active');
-        thinkingDiv.classList.add('thinking-complete');
-        
-        // Update accessibility
-        thinkingDiv.setAttribute('aria-label', 'AI reasoning complete');
-        
-        // Add a subtle completion animation
-        setTimeout(() => {
-            thinkingDiv.style.transform = 'scale(1.02)';
-            setTimeout(() => {
-                thinkingDiv.style.transform = 'scale(1)';
-            }, 200);
-        }, 100);
-    }
-}
 
 
 export function appendToolLog(chatMessages, toolName, params) {
@@ -617,12 +425,8 @@ export async function saveLLMSettings() {
         'llm.provider': provider,
         'llm.gemini.apiKey': document.getElementById('gemini-api-keys').value,
         'llm.gemini.model': document.getElementById('gemini-model-selector').value,
-        'llm.gemini.thinkingMode': document.getElementById('gemini-thinking-mode').checked,
-        'llm.gemini.showThinking': document.getElementById('gemini-show-thinking').checked,
         'llm.openai.apiKey': document.getElementById('openai-api-key').value,
         'llm.openai.model': document.getElementById('openai-model-selector').value,
-        'llm.openai.thinkingMode': document.getElementById('openai-thinking-mode').checked,
-        'llm.openai.showThinking': document.getElementById('openai-show-thinking').checked,
         'llm.ollama.baseURL': document.getElementById('ollama-base-url').value,
         'llm.ollama.model': document.getElementById('ollama-model-name').value,
     };
@@ -637,12 +441,8 @@ export function loadLLMSettings() {
     // Populate UI from cached settings
     document.getElementById('gemini-api-keys').value = Settings.get('llm.gemini.apiKey') || '';
     document.getElementById('gemini-model-selector').value = Settings.get('llm.gemini.model');
-    document.getElementById('gemini-thinking-mode').checked = Settings.get('llm.gemini.thinkingMode') || false;
-    document.getElementById('gemini-show-thinking').checked = Settings.get('llm.gemini.showThinking') !== false;
     document.getElementById('openai-api-key').value = Settings.get('llm.openai.apiKey') || '';
     document.getElementById('openai-model-selector').value = Settings.get('llm.openai.model');
-    document.getElementById('openai-thinking-mode').checked = Settings.get('llm.openai.thinkingMode') || false;
-    document.getElementById('openai-show-thinking').checked = Settings.get('llm.openai.showThinking') !== false;
     document.getElementById('ollama-base-url').value = Settings.get('llm.ollama.baseURL');
     document.getElementById('ollama-model-name').value = Settings.get('llm.ollama.model');
     

@@ -30,7 +30,6 @@ export function initializeEventListeners(appState) {
     const chatInput = document.getElementById('chat-input');
     const chatSendButton = document.getElementById('chat-send-button');
     const chatCancelButton = document.getElementById('chat-cancel-button');
-    const thinkingIndicator = document.getElementById('thinking-indicator');
     const toggleFilesButton = document.getElementById('toggle-files-button');
     const imageUploadButton = document.getElementById('image-upload-button');
     const imageInput = document.getElementById('image-input');
@@ -134,13 +133,13 @@ export function initializeEventListeners(appState) {
         }
     });
 
-    chatSendButton.addEventListener('click', () => ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, thinkingIndicator, appState.uploadedImage, clearImagePreview));
+    chatSendButton.addEventListener('click', () => ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, appState.uploadedImage, clearImagePreview));
     chatCancelButton.addEventListener('click', () => ChatService.cancelMessage());
 
     chatInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, thinkingIndicator, appState.uploadedImage, clearImagePreview);
+            ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, appState.uploadedImage, clearImagePreview);
         }
     });
 
