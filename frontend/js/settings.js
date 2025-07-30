@@ -10,6 +10,12 @@ export const Settings = {
         'llm.ollama.model': 'llama3',
         'llm.ollama.baseURL': 'http://localhost:11434',
         'ui.theme': 'dark',
+        'custom.amend.rules': `You are in "Amend Mode". Your primary goal is to make precise, surgical changes to existing code.
+- NEVER rewrite entire files. Use 'apply_diff' or 'insert_content' to modify specific lines.
+- ALWAYS use 'search_files' to locate the target code before reading it.
+- ALWAYS use 'read_file' to get context before making a change.
+- If you are unsure, ALWAYS ask for clarification using 'ask_followup_question'.
+- The 'write_to_file' tool is forbidden in this mode.`,
     },
 
     // In-memory cache for settings

@@ -110,7 +110,6 @@ export class TodoListUI {
                                     <option value="in_progress">⚡ In Progress</option>
                                     <option value="completed">✅ Completed</option>
                                     <option value="failed">❌ Failed</option>
-                                    <option value="awaiting_approval">🤔 Awaiting Approval</option>
                                 </select>
                             </div>
                             <div class="filter-group">
@@ -633,8 +632,7 @@ export class TodoListUI {
         
         if (stats.total === 0) {
             detailText = 'All up to date';
-        } else if (stats.awaiting_approval > 0) {
-            detailText = `${stats.awaiting_approval} awaiting approval`;
+        } else if (stats.in_progress > 0) {
         } else if (stats.in_progress > 0) {
             detailText = `${stats.in_progress} in progress`;
         } else if (stats.pending > 0) {
@@ -715,14 +713,6 @@ export class TodoListUI {
                 });
             }
 
-            const approveBtn = item.querySelector('.todo-approve-btn');
-            if (approveBtn) {
-                approveBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    taskManager.updateTask(todoId, { status: 'pending' });
-                    UI.showToast('Task approved and moved to pending.');
-                });
-            }
             
             const editBtn = item.querySelector('.todo-edit-btn');
             if (editBtn) {
@@ -748,7 +738,7 @@ export class TodoListUI {
         const isCompleted = todo.status === 'completed';
         const isOverdue = todo.dueDate && todo.dueDate < Date.now() && !isCompleted;
         const priorityClass = `priority-${todo.priority}`;
-        const statusClass = `status-${todo.status} ${todo.status === 'awaiting_approval' ? 'awaiting-approval' : ''}`;
+        const statusClass = `status-${todo.status}`;
         const isSubtask = todo.parentId;
         const hasSubtasks = (todo.subtasks || []).length > 0;
         
@@ -784,7 +774,7 @@ export class TodoListUI {
             <div class="todo-item ${priorityClass} ${statusClass} ${isSubtask ? 'is-subtask' : ''} ${hasSubtasks ? 'has-subtasks' : ''}" data-todo-id="${todo.id}">
                 <div class="todo-item-left">
                     <input type="checkbox" class="todo-select" />
-                    ${todo.status !== 'awaiting_approval' ? `<input type="checkbox" class="todo-checkbox" ${isCompleted ? 'checked' : ''} />` : '<i class="fas fa-user-shield todo-approval-icon"></i>'}
+                    <input type="checkbox" class="todo-checkbox" ${isCompleted ? 'checked' : ''} />
                     ${isSubtask ? '<span class="subtask-indicator">↳</span>' : ''}
                 </div>
                 <div class="todo-content">
@@ -801,7 +791,6 @@ export class TodoListUI {
                     </div>
                 </div>
                 <div class="todo-item-actions">
-                    ${todo.status === 'awaiting_approval' ? `<button class="todo-approve-btn btn-primary-modern" title="Approve Task"><i class="fas fa-check"></i> Approve</button>` : ''}
                     ${todo.status === 'pending' ? `<button class="todo-start-btn btn-icon" title="Start">▶</button>` : ''}
                     <button class="todo-edit-btn btn-icon" title="Edit">✏</button>
                     <button class="todo-delete-btn btn-icon" title="Delete">🗑</button>
@@ -840,7 +829,6 @@ export class TodoListUI {
             in_progress: 'fas fa-play-circle',
             completed: 'fas fa-check-circle',
             failed: 'fas fa-times-circle',
-            awaiting_approval: 'fas fa-user-shield'
         };
         
         const priorityIcons = {

@@ -26,36 +26,23 @@ function stripMarkdownCodeBlock(content) {
 
 // Enhanced syntax validation using the new validator
 async function validateSyntaxBeforeWrite(filename, content) {
-    try {
-        const validation = await syntaxValidator.validateSyntax(filename, content);
-        
-        if (!validation.valid) {
-            const errorMessages = validation.errors.map(e => `Line ${e.line}: ${e.message}`).join('\n');
-            
-            // Show warnings but don't block
-            if (validation.warnings && validation.warnings.length > 0) {
-                console.warn('Syntax warnings:', validation.warnings);
-            }
-            
-            // Show suggestions
-            if (validation.suggestions && validation.suggestions.length > 0) {
-                console.info('Suggestions:', validation.suggestions);
-            }
-            
-            throw new Error(`Syntax validation failed:\n${errorMessages}\n\nSuggestions: ${validation.suggestions?.join(', ') || 'Check syntax manually'}`);
-        }
-        
-        // Log warnings even if validation passes
-        if (validation.warnings && validation.warnings.length > 0) {
-            console.warn(`Syntax warnings in ${filename}:`, validation.warnings);
-        }
-        
-        return true;
-    } catch (error) {
-        console.warn('Syntax validation error:', error);
-        // Don't block file writing for validation errors, just warn
-        return true;
+    const validation = await syntaxValidator.validateSyntax(filename, content);
+
+    if (validation.warnings && validation.warnings.length > 0) {
+        console.warn(`Syntax warnings found in ${filename}:`, validation.warnings);
     }
+
+    if (!validation.valid) {
+        const errorMessages = validation.errors.map(e => `Line ${e.line}: ${e.message}`).join('\n');
+        const suggestionMessages = validation.suggestions ? `\n\nSuggestions:\n- ${validation.suggestions.join('\n- ')}` : '';
+        
+        // This error will now be caught by the main tool execution logic,
+        // preventing the file from being written.
+        throw new Error(`Syntax validation failed for ${filename}:\n${errorMessages}${suggestionMessages}`);
+    }
+
+    console.log(`Syntax validation passed for ${filename}.`);
+    return true;
 }
 
 // Streaming file processing for large files
@@ -482,21 +469,26 @@ async function _smartEditFile({ filename, edits }, rootHandle) {
     let lines = originalContent.split(/\r?\n/);
     const originalLineCount = lines.length;
     
-    // Enhanced validation with better error messages
+    // Enhanced validation with better error messages and graceful clamping
     for (const edit of edits) {
         if (edit.type === 'replace_lines') {
-            const { start_line, end_line } = edit;
+            let { start_line, end_line } = edit;
             if (typeof start_line !== 'number' || typeof end_line !== 'number') {
                 throw new Error(`Invalid line numbers in edit: start_line=${start_line}, end_line=${end_line}`);
             }
             if (start_line < 1 || end_line < 1) {
                 throw new Error(`Line numbers must be >= 1: start_line=${start_line}, end_line=${end_line}`);
             }
-            if (start_line > originalLineCount || end_line > originalLineCount) {
-                throw new Error(`Line numbers exceed file length (${originalLineCount}): start_line=${start_line}, end_line=${end_line}`);
-            }
             if (start_line > end_line) {
                 throw new Error(`start_line (${start_line}) cannot be greater than end_line (${end_line})`);
+            }
+            if (start_line > originalLineCount) {
+                 throw new Error(`start_line (${start_line}) exceeds file length (${originalLineCount}).`);
+            }
+            // Gracefully clamp the end_line if it exceeds the file length
+            if (end_line > originalLineCount) {
+                console.warn(`Warning: end_line (${end_line}) exceeds file length (${originalLineCount}). Clamping to ${originalLineCount}.`);
+                edit.end_line = originalLineCount;
             }
         } else if (edit.type === 'insert_lines') {
             const { line_number } = edit;
@@ -549,6 +541,9 @@ async function _smartEditFile({ filename, edits }, rootHandle) {
     const lineEnding = originalContent.includes('\r\n') ? '\r\n' : '\n';
     const newContent = lines.join(lineEnding);
     
+    // Final validation of the fully assembled content before writing
+    await validateSyntaxBeforeWrite(filename, newContent);
+
     const writable = await fileHandle.createWritable();
     await writable.write(newContent);
     await writable.close();
@@ -1406,6 +1401,11 @@ async function executeTool(toolCall, rootDirectoryHandle) {
 
 export async function execute(toolCall, rootDirectoryHandle, silent = false) {
     const toolName = toolCall.name;
+    const mode = document.getElementById('agent-mode-selector').value;
+
+    if (mode === 'amend' && toolName === 'rewrite_file') {
+        throw new Error("The 'rewrite_file' tool is not allowed in 'Amend' mode. Use 'edit_file' with the 'edits' parameter for targeted changes.");
+    }
     const parameters = toolCall.args;
     const groupTitle = `AI Tool Call: ${toolName}`;
     const groupContent = parameters && Object.keys(parameters).length > 0 ? parameters : 'No parameters';

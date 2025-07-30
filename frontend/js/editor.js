@@ -2,6 +2,7 @@ import { getFileHandleFromPath } from './file_system.js';
 import { ChatService } from './chat_service.js';
 import * as UI from './ui.js';
 import { monacoModelManager } from './monaco_model_manager.js';
+import { appState } from './main.js';
 
 const MONACO_CDN_PATH = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs';
 
@@ -68,7 +69,7 @@ export function clearEditor() {
     openFiles = new Map();
 }
 
-export function initializeEditor(editorContainer, tabBarContainer) {
+export function initializeEditor(editorContainer, tabBarContainer, appState) {
     return new Promise((resolve) => {
         require.config({ paths: { 'vs': MONACO_CDN_PATH } });
         require(['vs/editor/editor.main'], () => {
@@ -169,7 +170,7 @@ export function initializeEditor(editorContainer, tabBarContainer) {
                     const thinkingIndicator = document.getElementById('thinking-indicator');
                     
                     chatInput.value = prompt;
-                    ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, thinkingIndicator, null, () => {});
+                    ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, null, appState.clearImagePreview);
                 }
             });
 

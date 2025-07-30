@@ -1,3 +1,5 @@
+console.log("This is a test.");
+console.log("This is a test.");
 import { Settings, dispatchLLMSettingsUpdated } from './settings.js';
 import { ChatService } from './chat_service.js';
 import * as Editor from './editor.js';
@@ -7,6 +9,22 @@ import { initializeEventListeners } from './events.js';
 import { DbManager } from './db.js';
 import { taskManager } from './task_manager.js';
 import { todoListUI } from './todo_list_ui.js';
+
+export const appState = {
+    rootDirectoryHandle: null,
+    uploadedImage: null,
+    isFileTreeCollapsed: false,
+    editor: null,
+    onFileSelect: null,
+    saveCurrentSession: null,
+    clearImagePreview: null,
+    handleFixErrors: null,
+    handleImageUpload: null,
+    handleCreateFile: null,
+    handleCreateFolder: null,
+    handleRenameEntry: null,
+    handleDeleteEntry: null,
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -20,25 +38,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const apiKeysTextarea = document.getElementById('api-keys-textarea');
     const imagePreviewContainer = document.getElementById('image-preview-container');
 
-    // --- App State ---
-    const appState = {
-        rootDirectoryHandle: null,
-        uploadedImage: null,
-        isFileTreeCollapsed: false,
-        editor: null,
-        onFileSelect: null,
-        saveCurrentSession: null,
-        clearImagePreview: null,
-        handleFixErrors: null,
-        handleImageUpload: null,
-        handleCreateFile: null,
-        handleCreateFolder: null,
-        handleRenameEntry: null,
-        handleDeleteEntry: null,
-    };
-
     // --- Initialization ---
-    appState.editor = await Editor.initializeEditor(editorContainer, tabBarContainer);
+    appState.editor = await Editor.initializeEditor(editorContainer, tabBarContainer, appState);
     UI.initResizablePanels(appState.editor);
     
     // Initialize task management UI
