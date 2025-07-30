@@ -130,7 +130,7 @@ async function _readFile({ filename }, rootHandle) {
             filename: filename,
             file_size: file.size,
             truncated: true,
-            guidance: "The file content was not returned to prevent exceeding the context window. The file has been opened in the editor. Use surgical tools like 'create_and_apply_diff' to modify it based on the visible content."
+            guidance: "The file content was not returned to prevent exceeding the context window. The file has been opened in the editor. Use 'edit_file' with targeted 'edits' array to modify specific sections efficiently."
         };
     }
 
@@ -339,129 +339,11 @@ async function _renameFile({ old_path, new_path }, rootHandle) {
     return { message: `File '${old_path}' renamed to '${new_path}' successfully.` };
 }
 
-async function _insertContent({ filename, line_number, content }, rootHandle) {
-    if (!filename) throw new Error("The 'filename' parameter is required for insert_content.");
-    if (typeof line_number !== 'number') throw new Error("The 'line_number' parameter is required and must be a number for insert_content.");
-    const cleanContent = stripMarkdownCodeBlock(content);
-    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
-    
-    // Check permissions before modifying content
-    if (!await FileSystem.verifyAndRequestPermission(fileHandle, true)) {
-        throw new Error('Permission to write to the file was denied.');
-    }
-    
-    const file = await fileHandle.getFile();
-    const originalContent = await file.text();
-    UndoManager.push(filename, originalContent);
-    const lines = originalContent.split('\n');
-    const insertionPoint = Math.max(0, line_number - 1);
-    lines.splice(insertionPoint, 0, cleanContent);
-    const newContent = lines.join('\n');
-    const writable = await fileHandle.createWritable();
-     await writable.write(newContent);
-     await writable.close();
-    if (Editor.getOpenFiles().has(filename)) {
-        Editor.getOpenFiles().get(filename)?.model.setValue(newContent);
-    }
-    await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
-    document.getElementById('chat-input').focus();
-    return { message: `Content inserted into '${filename}' at line ${line_number}.` };
-}
+// REMOVED: insert_content function - simplified to use only rewrite_file for clarity
 
-async function _replaceLines({ filename, start_line, end_line, new_content }, rootHandle) {
-    if (!filename) throw new Error("The 'filename' parameter is required.");
-    if (typeof start_line !== 'number' || typeof end_line !== 'number') {
-        throw new Error("The 'start_line' and 'end_line' parameters must be numbers.");
-    }
-    if (start_line > end_line) {
-        throw new Error("The 'start_line' must not be after the 'end_line'.");
-    }
+// REMOVED: replace_lines function - was causing conflicts and bugs with complex indentation logic
 
-    const cleanNewContent = stripMarkdownCodeBlock(new_content);
-    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
-    if (!await FileSystem.verifyAndRequestPermission(fileHandle, true)) {
-        throw new Error('Permission to write to the file was denied.');
-    }
-
-    const file = await fileHandle.getFile();
-    const originalContent = await file.text();
-    UndoManager.push(filename, originalContent);
-    const lines = originalContent.split(/\r?\n/); // Handle both \n and \r\n
-
-    // Clamp the line numbers to the file's bounds
-    const clampedStart = Math.max(1, Math.min(lines.length, start_line));
-    const clampedEnd = Math.max(clampedStart, Math.min(lines.length, end_line));
-
-    // Preserve indentation from the first line being replaced
-    const firstLineIndent = lines[clampedStart - 1]?.match(/^(\s*)/)?.[1] || '';
-    
-    const before = lines.slice(0, clampedStart - 1);
-    const after = lines.slice(clampedEnd);
-    const newLines = cleanNewContent.split(/\r?\n/);
-    
-    // Apply consistent indentation to new content if needed
-    const indentedNewLines = newLines.map((line, index) => {
-        if (index === 0 || line.trim() === '') return line;
-        // Only add indentation if the line doesn't already have proper indentation
-        return line.startsWith(firstLineIndent) ? line : firstLineIndent + line.trimStart();
-    });
-
-    // Preserve original line endings
-    const lineEnding = originalContent.includes('\r\n') ? '\r\n' : '\n';
-    const updatedContent = [...before, ...indentedNewLines, ...after].join(lineEnding);
-
-    // Validate syntax before applying changes
-    await validateSyntaxBeforeWrite(filename, updatedContent);
-
-    const writable = await fileHandle.createWritable();
-    await writable.write(updatedContent);
-    await writable.close();
-
-    if (Editor.getOpenFiles().has(filename)) {
-        Editor.getOpenFiles().get(filename)?.model.setValue(updatedContent);
-    }
-    await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
-    document.getElementById('chat-input').focus();
-
-    return { message: `Lines ${clampedStart}-${clampedEnd} in '${filename}' were replaced successfully.` };
-}
-
-async function _applyDiff({ filename, patch_content }, rootHandle) {
-    if (!filename) throw new Error("The 'filename' parameter is required for apply_diff.");
-    if (!patch_content) throw new Error("The 'patch_content' parameter is required for apply_diff.");
-
-    const dmp = new diff_match_patch();
-    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
-    const file = await fileHandle.getFile();
-    const originalContent = await file.text();
-    UndoManager.push(filename, originalContent);
-    
-    let patchText = patch_content;
-    if (typeof patch_content !== 'string') {
-        patchText = String(patch_content);
-    }
-    
-    const patches = dmp.patch_fromText(patchText);
-    const [newContent, results] = dmp.patch_apply(patches, originalContent);
-
-    if (results.some(r => !r)) {
-        throw new Error(`Failed to apply patch to '${filename}'. The patch may not be valid.`);
-    }
-
-    if (!await FileSystem.verifyAndRequestPermission(fileHandle, true)) {
-        throw new Error('Permission to write to the file was denied.');
-    }
-    const writable = await fileHandle.createWritable();
-    await writable.write(newContent);
-    await writable.close();
-
-    if (Editor.getOpenFiles().has(filename)) {
-        Editor.getOpenFiles().get(filename)?.model.setValue(newContent);
-    }
-    await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
-    document.getElementById('chat-input').focus();
-    return { message: `Patch applied to '${filename}' successfully.` };
-}
+// REMOVED: apply_diff function - was causing conflicts, simplified to use only rewrite_file
 
 async function _createDiff({ original_content, new_content }) {
     if (original_content === undefined) throw new Error("The 'original_content' parameter is required for create_diff.");
@@ -480,132 +362,96 @@ async function _createDiff({ original_content, new_content }) {
     return { patch_content: patchText };
 }
 
-async function _createAndApplyDiff({ filename, new_content }, rootHandle) {
-    if (!filename) throw new Error("The 'filename' parameter is required for create_and_apply_diff.");
-    if (new_content === undefined) throw new Error("The 'new_content' parameter is required for create_and_apply_diff.");
-
+// Smart file editing - efficient for large files, safe for small ones
+async function _smartEditFile({ filename, edits }, rootHandle) {
+    if (!filename) throw new Error("The 'filename' parameter is required.");
+    if (!edits || !Array.isArray(edits)) throw new Error("The 'edits' parameter is required and must be an array.");
+    
     const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
     if (!await FileSystem.verifyAndRequestPermission(fileHandle, true)) {
         throw new Error('Permission to write to the file was denied.');
     }
-
+    
     const file = await fileHandle.getFile();
     const originalContent = await file.text();
     UndoManager.push(filename, originalContent);
-    const cleanNewContent = stripMarkdownCodeBlock(new_content);
-
-    // Smart thresholds based on file size and content complexity
-    const PROGRESSIVE_DIFF_THRESHOLD = 1000000; // 1MB - use streaming
-    const LINE_DIFF_THRESHOLD = 100000; // 100KB - use line-based diff
-    const SIMPLE_DIFF_THRESHOLD = 50000; // 50KB - use standard diff
-
-    let finalContent = cleanNewContent;
-    let method = 'rewrite';
-
-    // Validate syntax before processing
-    await validateSyntaxBeforeWrite(filename, cleanNewContent);
-
-    if (file.size > PROGRESSIVE_DIFF_THRESHOLD) {
-        // For very large files, use streaming with chunked processing
-        console.log(`Using streaming diff for large file: ${filename}`);
-        finalContent = await streamFileUpdate(filename, cleanNewContent);
-        method = 'stream';
-    } else if (file.size > LINE_DIFF_THRESHOLD) {
-        // For moderately large files, use optimized line-based diff
-        method = await performOptimizedLineDiff(originalContent, cleanNewContent, filename);
-        finalContent = method.success ? method.content : cleanNewContent;
-        method = method.success ? 'line-diff' : 'rewrite';
-    } else if (file.size > SIMPLE_DIFF_THRESHOLD) {
-        // For smaller files, use standard diff but with better error handling
-        method = await performStandardDiff(originalContent, cleanNewContent, filename);
-        finalContent = method.success ? method.content : cleanNewContent;
-        method = method.success ? 'diff' : 'rewrite';
-    }
-    // For very small files, just rewrite (it's faster than diffing)
-
-    const writable = await fileHandle.createWritable();
-    await writable.write(finalContent);
-    await writable.close();
-
-    if (Editor.getOpenFiles().has(filename)) {
-        const openFile = Editor.getOpenFiles().get(filename);
-        if (openFile?.model) {
-            // Use batch operations for large content updates
-            if (finalContent.length > 100000) {
-                openFile.model.pushEditOperations([], [{
-                    range: openFile.model.getFullModelRange(),
-                    text: finalContent
-                }], () => null);
-            } else {
-                openFile.model.setValue(finalContent);
+    
+    let lines = originalContent.split(/\r?\n/);
+    const originalLineCount = lines.length;
+    
+    // Validate all edits first to prevent partial failures
+    for (const edit of edits) {
+        if (edit.type === 'replace_lines') {
+            const { start_line, end_line } = edit;
+            if (typeof start_line !== 'number' || typeof end_line !== 'number') {
+                throw new Error(`Invalid line numbers: start_line=${start_line}, end_line=${end_line}`);
+            }
+            if (start_line < 1 || end_line < 1) {
+                throw new Error(`Line numbers must be >= 1: start_line=${start_line}, end_line=${end_line}`);
+            }
+            if (start_line > originalLineCount || end_line > originalLineCount) {
+                throw new Error(`Line numbers exceed file length (${originalLineCount}): start_line=${start_line}, end_line=${end_line}`);
+            }
+            if (start_line > end_line) {
+                throw new Error(`start_line (${start_line}) cannot be greater than end_line (${end_line})`);
             }
         }
     }
+    
+    // Apply edits in reverse order to maintain line numbers
+    const sortedEdits = edits.sort((a, b) => {
+        if (a.type === 'replace_lines' && b.type === 'replace_lines') {
+            return b.start_line - a.start_line; // Reverse order
+        }
+        return 0;
+    });
+    
+    for (const edit of sortedEdits) {
+        if (edit.type === 'replace_lines') {
+            const { start_line, end_line, new_content } = edit;
+            const cleanContent = stripMarkdownCodeBlock(new_content || '');
+            const newLines = cleanContent.split(/\r?\n/);
+            
+            // Replace the specified lines
+            const before = lines.slice(0, start_line - 1);
+            const after = lines.slice(end_line);
+            lines = [...before, ...newLines, ...after];
+        }
+    }
+    
+    // Preserve original line endings
+    const lineEnding = originalContent.includes('\r\n') ? '\r\n' : '\n';
+    const newContent = lines.join(lineEnding);
+    
+    const writable = await fileHandle.createWritable();
+    await writable.write(newContent);
+    await writable.close();
+    
+    if (Editor.getOpenFiles().has(filename)) {
+        Editor.getOpenFiles().get(filename)?.model.setValue(newContent);
+    }
     await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
     document.getElementById('chat-input').focus();
-    return { message: `File '${filename}' updated successfully (Method: ${method}).` };
+    
+    const appliedEdits = edits.length;
+    return { message: `Applied ${appliedEdits} edit(s) to '${filename}' successfully.` };
 }
 
-// Optimized line-based diff for moderately large files
-async function performOptimizedLineDiff(originalContent, newContent, filename) {
-    try {
-        const dmp = new diff_match_patch();
-        dmp.Diff_Timeout = 2; // 2 second timeout
-        
-        const a = dmp.diff_linesToChars_(originalContent, newContent);
-        const lineText1 = a.chars1;
-        const lineText2 = a.chars2;
-        const lineArray = a.lineArray;
-        
-        const diffs = dmp.diff_main(lineText1, lineText2, false);
-        dmp.diff_charsToLines_(diffs, lineArray);
-        dmp.diff_cleanupSemantic(diffs);
-        
-        const patches = dmp.patch_make(originalContent, diffs);
-        
-        if (patches.length === 0 && originalContent !== newContent) {
-            return { success: false };
-        }
-        
-        const [patchedContent, results] = dmp.patch_apply(patches, originalContent);
-        
-        if (results.some(r => !r)) {
-            return { success: false };
-        }
-        
-        return { success: true, content: patchedContent };
-    } catch (error) {
-        console.warn(`Optimized line diff failed for ${filename}:`, error.message);
-        return { success: false };
+// Intelligent file size-based tool selection
+async function _editFile({ filename, content, edits }, rootHandle) {
+    if (!filename) throw new Error("The 'filename' parameter is required.");
+    
+    // If full content provided, use rewrite (for small files or complete rewrites)
+    if (content !== undefined) {
+        return await _rewriteFile({ filename, content }, rootHandle);
     }
-}
-
-// Standard diff with improved error handling
-async function performStandardDiff(originalContent, newContent, filename) {
-    try {
-        const dmp = new diff_match_patch();
-        dmp.Diff_Timeout = 1; // 1 second timeout for smaller files
-        
-        const diffs = dmp.diff_main(originalContent, newContent);
-        dmp.diff_cleanupSemantic(diffs);
-        
-        const patches = dmp.patch_make(originalContent, diffs);
-        
-        if (patches.length === 0 && originalContent !== newContent) {
-            return { success: false };
-        }
-        
-        const [patchedContent, results] = dmp.patch_apply(patches, originalContent);
-        
-        if (results.some(r => !r)) {
-            return { success: false };
-        }
-        
-        return { success: true, content: patchedContent };
-    } catch (error) {
-        console.warn(`Standard diff failed for ${filename}:`, error.message);
-        return { success: false };
+    
+    // If edits provided, use smart editing (for large files)
+    if (edits !== undefined) {
+        return await _smartEditFile({ filename, edits }, rootHandle);
     }
+    
+    throw new Error("Either 'content' (for full rewrite) or 'edits' (for targeted changes) must be provided.");
 }
 
 async function _createFolder({ folder_path }, rootHandle) {
@@ -1108,79 +954,15 @@ async function _traceVariableFlow({ variable_name, file_path }, rootHandle) {
 
 // --- Precise Code Modification Tools ---
 
-async function _modifyFunction({ file_path, function_name, new_implementation }, rootHandle) {
-    if (!file_path) throw new Error("The 'file_path' parameter is required.");
-    if (!function_name) throw new Error("The 'function_name' parameter is required.");
-    if (!new_implementation) throw new Error("The 'new_implementation' parameter is required.");
-    
-    const cleanImplementation = stripMarkdownCodeBlock(new_implementation);
-    const result = await preciseEditor.modifyFunction(file_path, function_name, cleanImplementation, rootHandle);
-    
-    await Editor.openFile(await FileSystem.getFileHandleFromPath(rootHandle, file_path), file_path, document.getElementById('tab-bar'), false);
-    document.getElementById('chat-input').focus();
-    
-    return result;
-}
+// REMOVED: modify_function - use rewrite_file for simplicity
 
-async function _modifyClass({ file_path, class_name, new_implementation }, rootHandle) {
-    if (!file_path) throw new Error("The 'file_path' parameter is required.");
-    if (!class_name) throw new Error("The 'class_name' parameter is required.");
-    if (!new_implementation) throw new Error("The 'new_implementation' parameter is required.");
-    
-    const cleanImplementation = stripMarkdownCodeBlock(new_implementation);
-    const result = await preciseEditor.modifyClass(file_path, class_name, cleanImplementation, rootHandle);
-    
-    await Editor.openFile(await FileSystem.getFileHandleFromPath(rootHandle, file_path), file_path, document.getElementById('tab-bar'), false);
-    document.getElementById('chat-input').focus();
-    
-    return result;
-}
+// REMOVED: modify_class - use rewrite_file for simplicity
 
-async function _renameSymbol({ old_name, new_name, file_paths }, rootHandle) {
-    if (!old_name) throw new Error("The 'old_name' parameter is required.");
-    if (!new_name) throw new Error("The 'new_name' parameter is required.");
-    if (!file_paths || !Array.isArray(file_paths)) throw new Error("The 'file_paths' parameter is required and must be an array.");
-    
-    const result = await preciseEditor.renameSymbol(old_name, new_name, file_paths, rootHandle);
-    
-    // Open the first modified file
-    if (result.successful > 0) {
-        const firstSuccessful = result.details.find(d => d.status === 'success');
-        if (firstSuccessful) {
-            await Editor.openFile(await FileSystem.getFileHandleFromPath(rootHandle, firstSuccessful.file), firstSuccessful.file, document.getElementById('tab-bar'), false);
-        }
-    }
-    
-    document.getElementById('chat-input').focus();
-    return result;
-}
+// REMOVED: rename_symbol - use manual find/replace with rewrite_file
 
-async function _addMethodToClass({ file_path, class_name, method_name, method_implementation }, rootHandle) {
-    if (!file_path) throw new Error("The 'file_path' parameter is required.");
-    if (!class_name) throw new Error("The 'class_name' parameter is required.");
-    if (!method_name) throw new Error("The 'method_name' parameter is required.");
-    if (!method_implementation) throw new Error("The 'method_implementation' parameter is required.");
-    
-    const cleanImplementation = stripMarkdownCodeBlock(method_implementation);
-    const result = await preciseEditor.addMethodToClass(file_path, class_name, method_name, cleanImplementation, rootHandle);
-    
-    await Editor.openFile(await FileSystem.getFileHandleFromPath(rootHandle, file_path), file_path, document.getElementById('tab-bar'), false);
-    document.getElementById('chat-input').focus();
-    
-    return result;
-}
+// REMOVED: add_method_to_class - use rewrite_file for simplicity
 
-async function _updateImports({ file_path, import_changes }, rootHandle) {
-    if (!file_path) throw new Error("The 'file_path' parameter is required.");
-    if (!import_changes || !Array.isArray(import_changes)) throw new Error("The 'import_changes' parameter is required and must be an array.");
-    
-    const result = await preciseEditor.updateImports(file_path, import_changes, rootHandle);
-    
-    await Editor.openFile(await FileSystem.getFileHandleFromPath(rootHandle, file_path), file_path, document.getElementById('tab-bar'), false);
-    document.getElementById('chat-input').focus();
-    
-    return result;
-}
+// REMOVED: update_imports - use rewrite_file for simplicity
 
 // --- Enhanced Analysis Tools ---
 
@@ -1216,12 +998,7 @@ const toolRegistry = {
     trace_variable_flow: { handler: _traceVariableFlow, requiresProject: true, createsCheckpoint: false },
     validate_syntax: { handler: _validateSyntax, requiresProject: true, createsCheckpoint: false },
     
-    // Precise code modification tools
-    modify_function: { handler: _modifyFunction, requiresProject: true, createsCheckpoint: true },
-    modify_class: { handler: _modifyClass, requiresProject: true, createsCheckpoint: true },
-    rename_symbol: { handler: _renameSymbol, requiresProject: true, createsCheckpoint: true },
-    add_method_to_class: { handler: _addMethodToClass, requiresProject: true, createsCheckpoint: true },
-    update_imports: { handler: _updateImports, requiresProject: true, createsCheckpoint: true },
+    // REMOVED: Precise code modification tools - simplified to use rewrite_file only
     read_file: { handler: _readFile, requiresProject: true, createsCheckpoint: false },
     read_file_lines: { handler: _readFileLines, requiresProject: true, createsCheckpoint: false },
     search_in_file: { handler: _searchInFile, requiresProject: true, createsCheckpoint: false },
@@ -1239,15 +1016,12 @@ const toolRegistry = {
     build_backend_index: { handler: build_backend_index, requiresProject: true, createsCheckpoint: false },
     query_backend_index: { handler: query_backend_index, requiresProject: true, createsCheckpoint: false },
 
-    // Filesystem modification tools
+    // Smart file modification tools
     create_file: { handler: _createFile, requiresProject: true, createsCheckpoint: true },
+    edit_file: { handler: _editFile, requiresProject: true, createsCheckpoint: true },
     rewrite_file: { handler: _rewriteFile, requiresProject: true, createsCheckpoint: true },
     delete_file: { handler: _deleteFile, requiresProject: true, createsCheckpoint: true },
-    rename_file: { handler: _renameFile, requiresProject: true, createsCheckpoint: true },
-    insert_content: { handler: _insertContent, requiresProject: true, createsCheckpoint: true },
-    apply_diff: { handler: _applyDiff, requiresProject: true, createsCheckpoint: true },
-    replace_lines: { handler: _replaceLines, requiresProject: true, createsCheckpoint: true },
-    create_and_apply_diff: { handler: _createAndApplyDiff, requiresProject: true, createsCheckpoint: true },
+    rename_file: { handler: _renameFile, requiresProject: true, createsCheckpoint: true }
     create_folder: { handler: _createFolder, requiresProject: true, createsCheckpoint: true },
     delete_folder: { handler: _deleteFolder, requiresProject: true, createsCheckpoint: true },
     rename_folder: { handler: _renameFolder, requiresProject: true, createsCheckpoint: true },
@@ -1301,7 +1075,7 @@ async function executeTool(toolCall, rootDirectoryHandle) {
     return tool.handler(parameters, rootDirectoryHandle);
 }
 
-const TOOLS_REQUIRING_SYNTAX_CHECK = ['rewrite_file', 'insert_content', 'replace_selected_text', 'apply_diff', 'replace_lines'];
+// REMOVED: TOOLS_REQUIRING_SYNTAX_CHECK - no longer using automatic syntax checking
 
 export async function execute(toolCall, rootDirectoryHandle) {
     const toolName = toolCall.name;
@@ -1326,37 +1100,8 @@ export async function execute(toolCall, rootDirectoryHandle) {
         ToolLogger.log(toolName, parameters, 'Error', { message: error.message, stack: error.stack });
     }
 
-    if (isSuccess && TOOLS_REQUIRING_SYNTAX_CHECK.includes(toolName)) {
-        const filePath = parameters.filename || Editor.getActiveFilePath();
-        if (filePath) {
-            await new Promise(resolve => setTimeout(resolve, 200));
-            const markers = Editor.getModelMarkers(filePath);
-            const errors = markers.filter(m => m.severity === monaco.MarkerSeverity.Error);
-
-            if (errors.length > 0) {
-               const errorSignature = errors.map(e => `L${e.startLineNumber}:${e.message}`).join('|');
-               ChatService.trackError(filePath, errorSignature);
-               const attemptCount = ChatService.getConsecutiveErrorCount(filePath, errorSignature);
-               const MAX_ATTEMPTS = 3;
-
-               if (attemptCount >= MAX_ATTEMPTS) {
-                   const circuitBreakerMsg = `The AI has failed to fix the same error in '${filePath}' ${MAX_ATTEMPTS} times. The automatic feedback loop has been stopped to prevent an infinite loop. Please review the errors manually or try a different approach.`;
-                   resultForModel = { error: circuitBreakerMsg, feedback: 'STOP' };
-                   UI.showError(circuitBreakerMsg, 10000);
-                   console.error(circuitBreakerMsg);
-               } else {
-                   isSuccess = false;
-                   const errorMessages = errors.map(e => `L${e.startLineNumber}: ${e.message}`).join('\n');
-                   const attemptMessage = `This is attempt #${attemptCount} to fix this issue. The previous attempt failed. Please analyze the problem differently.`;
-                   const errorMessage = `The tool '${toolName}' ran, but the code now has syntax errors. ${attemptCount > 1 ? attemptMessage : ''}\n\nFile: ${filePath}\nErrors:\n${errorMessages}`;
-                   resultForModel = { error: errorMessage };
-                   UI.showError(`Syntax errors detected in ${filePath}. Attempting to fix... (${attemptCount}/${MAX_ATTEMPTS})`);
-                   console.error(errorMessage);
-               }
-            } else {
-            }
-        }
-    }
+    // REMOVED: Automatic syntax checking feedback loop - was causing infinite loops and conflicts
+    // Tools now report success/failure directly without automatic error detection
 
     const resultForLog = isSuccess ? { status: 'Success', ...resultForModel } : { status: 'Error', message: resultForModel.error };
     console.log('Result:', resultForLog);
@@ -1390,12 +1135,11 @@ export function getToolDefinitions() {
             { name: 'build_or_update_codebase_index', description: 'Scans the entire codebase to build a searchable index. Slow, run once per session.' },
             { name: 'query_codebase', description: 'Searches the pre-built codebase index.', parameters: { type: 'OBJECT', properties: { query: { type: 'STRING' } }, required: ['query'] } },
             { name: 'get_file_history', description: "Gets a file's git history. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
-            { name: 'insert_content', description: "Inserts content at a specific line number in a file. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, line_number: { type: 'NUMBER' }, content: { type: 'STRING', description: 'The raw text content to insert. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'line_number', 'content'] } },
-            { name: 'create_and_apply_diff', description: "Efficiently modifies a file by generating and applying a diff. WARNING: This requires generating the FULL file content. For smaller, targeted changes, PREFER the 'replace_lines' tool.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, new_content: { type: 'STRING', description: 'The new, raw text content of the file. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'new_content'] } },
-            { name: 'replace_lines', description: "Replaces a specific range of lines in a file. PREFERRED METHOD for targeted edits. Use this for refactoring functions or updating specific parts of a file to save time and tokens.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, start_line: { type: 'NUMBER' }, end_line: { type: 'NUMBER' }, new_content: { type: 'STRING', description: 'The raw text to insert. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'start_line', 'end_line', 'new_content'] } },
+            // REMOVED: insert_content, create_and_apply_diff, replace_lines - simplified to use rewrite_file only
             { name: 'format_code', description: "Formats a file with Prettier. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
             { name: 'analyze_code', description: "Analyzes a JavaScript file's structure. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
-            { name: 'rewrite_file', description: "DANGEROUS: Rewrites a file with new content. Use this ONLY as a last resort when 'replace_lines' or 'create_and_apply_diff' are not suitable. This is inefficient and can lead to errors.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'The new, raw text content of the file. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'content'] } },
+            { name: 'edit_file', description: "Smart file editing - use 'content' for small files (rewrites entire file) or 'edits' for large files (targeted line changes). EFFICIENT for large files.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'Complete file content for small files. CRITICAL: Do NOT wrap in markdown backticks.' }, edits: { type: 'ARRAY', items: { type: 'OBJECT', properties: { type: { type: 'STRING', enum: ['replace_lines'] }, start_line: { type: 'NUMBER' }, end_line: { type: 'NUMBER' }, new_content: { type: 'STRING' } } }, description: 'Array of targeted edits for large files. Each edit replaces lines start_line to end_line with new_content.' } }, required: ['filename'], oneOf: [{ required: ['content'] }, { required: ['edits'] }] } },
+            { name: 'rewrite_file', description: "Legacy method - rewrites entire file. Use edit_file instead for better performance.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'The new, raw text content of the file. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'content'] } },
             
             // Enhanced code comprehension tools
             { name: 'analyze_symbol', description: 'Analyzes a symbol (variable, function, class) across the entire codebase to understand its usage, definition, and relationships.', parameters: { type: 'OBJECT', properties: { symbol_name: { type: 'STRING', description: 'The name of the symbol to analyze' }, file_path: { type: 'STRING', description: 'The file path where the symbol is used or defined' } }, required: ['symbol_name', 'file_path'] } },
@@ -1403,12 +1147,7 @@ export function getToolDefinitions() {
             { name: 'trace_variable_flow', description: 'Traces the data flow of a variable through the codebase to understand how data moves and transforms.', parameters: { type: 'OBJECT', properties: { variable_name: { type: 'STRING' }, file_path: { type: 'STRING' } }, required: ['variable_name', 'file_path'] } },
             { name: 'validate_syntax', description: 'Validates the syntax of a file and provides detailed errors, warnings, and suggestions.', parameters: { type: 'OBJECT', properties: { file_path: { type: 'STRING' } }, required: ['file_path'] } },
             
-            // Precise code modification tools (safer alternatives to rewrite_file)
-            { name: 'modify_function', description: 'Modifies a specific function in a file without rewriting the entire file. Much safer than rewrite_file.', parameters: { type: 'OBJECT', properties: { file_path: { type: 'STRING' }, function_name: { type: 'STRING' }, new_implementation: { type: 'STRING', description: 'The new function implementation' } }, required: ['file_path', 'function_name', 'new_implementation'] } },
-            { name: 'modify_class', description: 'Modifies a specific class in a file without rewriting the entire file. Much safer than rewrite_file.', parameters: { type: 'OBJECT', properties: { file_path: { type: 'STRING' }, class_name: { type: 'STRING' }, new_implementation: { type: 'STRING', description: 'The new class implementation' } }, required: ['file_path', 'class_name', 'new_implementation'] } },
-            { name: 'rename_symbol', description: 'Safely renames a symbol (variable, function, class) across multiple files with validation.', parameters: { type: 'OBJECT', properties: { old_name: { type: 'STRING' }, new_name: { type: 'STRING' }, file_paths: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Array of file paths to search and replace in' } }, required: ['old_name', 'new_name', 'file_paths'] } },
-            { name: 'add_method_to_class', description: 'Adds a new method to an existing class without rewriting the entire file.', parameters: { type: 'OBJECT', properties: { file_path: { type: 'STRING' }, class_name: { type: 'STRING' }, method_name: { type: 'STRING' }, method_implementation: { type: 'STRING' } }, required: ['file_path', 'class_name', 'method_name', 'method_implementation'] } },
-            { name: 'update_imports', description: 'Updates import statements in a file (add, remove, or modify imports).', parameters: { type: 'OBJECT', properties: { file_path: { type: 'STRING' }, import_changes: { type: 'ARRAY', items: { type: 'OBJECT' }, description: 'Array of import changes with action (add/remove/modify), from, imports, newImports properties' } }, required: ['file_path', 'import_changes'] } },
+            // Smart editing system - efficient for both small and large files
         ],
     };
 }
