@@ -538,7 +538,9 @@ export function initializeEventListeners(appState) {
                 <h3>Task Management</h3>
                 <div class="tasks-actions">
                     <button id="open-todo-overlay" class="btn-primary">
-                        <i class="fas fa-tasks"></i> Open Todo List (Ctrl+T)
+                        <i class="fas fa-tasks" style="
+    font-size: 12px;
+"></i> Open Todo List (Ctrl+T)
                     </button>
                     <button id="add-quick-task" class="btn-secondary">
                         <i class="fas fa-plus"></i> Quick Add

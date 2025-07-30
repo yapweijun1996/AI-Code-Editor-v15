@@ -42,8 +42,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     UI.initResizablePanels(appState.editor);
     
     // Initialize task management UI
-    console.log('[Main] TodoListUI available:', !!todoListUI);
-    console.log('[Main] TaskManager available:', !!taskManager);
+    if (window.todoListUI) {
+        window.todoListUI.initialize();
+        console.log('[Main] TodoListUI initialized.');
+    } else {
+        console.error('[Main] TodoListUI not found on window object.');
+    }
 
     appState.onFileSelect = async (filePath) => {
         const fileHandle = await FileSystem.getFileHandleFromPath(appState.rootDirectoryHandle, filePath);

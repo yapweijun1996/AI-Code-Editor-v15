@@ -49,8 +49,9 @@ class TaskManager {
             listId: targetListId,
             title: data.title.trim(),
             description: (data.description || '').trim(),
-            status: data.status || 'pending', // pending, in_progress, completed, failed
+            status: data.status || 'pending', // pending, in_progress, completed, failed, awaiting_approval
             priority: data.priority || 'medium', // low, medium, high, urgent
+            confidence: data.confidence || 1.0, // 0.0 to 1.0
             dependencies: data.dependencies || [],
             subtasks: [],
             parentId: data.parentId || null,
@@ -198,9 +199,9 @@ class TaskManager {
         // Fallback for unmatched patterns
         if (matchedPattern.length === 0) {
             matchedPattern = [
-                { title: 'Analyze the task requirements', priority: 'high', description: 'Understand what needs to be done' },
-                { title: 'Execute the main task', priority: 'high', description: 'Perform the requested work' },
-                { title: 'Verify completion', priority: 'medium', description: 'Ensure the task was completed successfully' }
+                { title: 'Analyze the task requirements', priority: 'high', description: 'Understand what needs to be done', confidence: 0.9 },
+                { title: 'Execute the main task', priority: 'high', description: 'Perform the requested work', confidence: 0.8 },
+                { title: 'Verify completion', priority: 'medium', description: 'Ensure the task was completed successfully', confidence: 0.95 }
             ];
         }
 
@@ -208,6 +209,24 @@ class TaskManager {
 
         const subtasks = [];
         let prevTaskId = null;
+
+        // Insert an approval task before implementation for critical operations
+        const criticalKeywords = ['refactor', 'implement', 'create', 'add', 'build', 'develop', 'fix', 'delete', 'remove'];
+        const isCritical = criticalKeywords.some(k => goalLower.includes(k));
+
+        if (isCritical) {
+            const approvalTask = await this.createTask({
+                title: 'User Approval: Review and confirm the execution plan',
+                description: `The AI has proposed a plan to "${mainTask.title}". Please review the subtasks and approve to proceed.`,
+                priority: 'high',
+                status: 'awaiting_approval',
+                parentId: mainTask.id,
+                listId: mainTask.listId,
+                tags: ['ai-generated', 'approval']
+            });
+            subtasks.push(approvalTask);
+            prevTaskId = approvalTask.id;
+        }
         
         for (let i = 0; i < matchedPattern.length; i++) {
             const step = matchedPattern[i];
@@ -215,9 +234,10 @@ class TaskManager {
                 title: step.title,
                 description: step.description || '',
                 priority: step.priority || 'medium',
+                confidence: step.confidence || 0.9,
                 parentId: mainTask.id,
                 listId: mainTask.listId,
-                dependencies: i > 0 && prevTaskId ? [prevTaskId] : [],
+                dependencies: prevTaskId ? [prevTaskId] : [],
                 tags: ['ai-generated', 'subtask']
             });
             subtasks.push(subtask);
@@ -248,7 +268,7 @@ class TaskManager {
      * Find the next logical task for the AI to execute.
      */
     getNextTask() {
-        const pendingTasks = Array.from(this.tasks.values()).filter(t => t.status === 'pending');
+        const pendingTasks = Array.from(this.tasks.values()).filter(t => t.status === 'pending' || t.status === 'awaiting_approval');
         
         // Sort by priority, then creation time
         const sortedTasks = pendingTasks.sort((a, b) => {
@@ -261,11 +281,17 @@ class TaskManager {
 
         // Find the first task with all dependencies met
         for (const task of sortedTasks) {
+            // If a task is awaiting approval, it is the next blocking task.
+            if (task.status === 'awaiting_approval') {
+                return task;
+            }
+
             const deps = task.dependencies || [];
             const depsMet = deps.every(depId => {
                 const depTask = this.tasks.get(depId);
                 return depTask && depTask.status === 'completed';
             });
+
             if (depsMet) {
                 return task;
             }
@@ -359,6 +385,7 @@ class TaskManager {
             in_progress: tasks.filter(t => t.status === 'in_progress').length,
             completed: tasks.filter(t => t.status === 'completed').length,
             failed: tasks.filter(t => t.status === 'failed').length,
+            awaiting_approval: tasks.filter(t => t.status === 'awaiting_approval').length,
             overdue: tasks.filter(t => t.dueDate && t.dueDate < now && t.status !== 'completed').length
         };
     }
@@ -604,5 +631,11 @@ export const TaskTools = {
     breakdown: (task) => taskManager.breakdownGoal(task),
     getNext: () => taskManager.getNextTask(),
     getById: (id) => taskManager.tasks.get(id),
-    getAll: (listId) => taskManager.getAllTasks(listId)
+    getAll: (listId) => taskManager.getAllTasks(listId),
+    replan: async (newTasks) => {
+        for (const taskData of newTasks) {
+            await taskManager.createTask(taskData);
+        }
+        return `Replanned and added ${newTasks.length} new tasks.`;
+    }
 };
