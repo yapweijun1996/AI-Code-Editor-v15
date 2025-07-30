@@ -5,7 +5,7 @@ import * as Editor from './editor.js';
 import * as UI from './ui.js';
 import * as FileSystem from './file_system.js';
 import TaskRunner from './task_runner.js';
-import { ToolLogger } from './tool_logger.js';
+import { toolLogger } from './tool_logger.js';
 import { todoListUI } from './todo_list_ui.js';
 import { taskManager } from './task_manager.js';
 
@@ -420,7 +420,7 @@ export function initializeEventListeners(appState) {
     });
 
     viewToolLogsButton.addEventListener('click', async () => {
-        const logs = await ToolLogger.getLogs();
+        const logs = await toolLogger.getLogs();
         UI.renderToolLogs(toolLogsList, logs);
         toolLogsModal.style.display = 'block';
 

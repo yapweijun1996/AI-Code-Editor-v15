@@ -11,11 +11,12 @@ export const DbManager = {
         settings: 'settings',
         customRules: 'customRules',
         chatHistory: 'chatHistory',
+        toolLogs: 'tool_logs',
     },
     async openDb() {
         return new Promise((resolve, reject) => {
             if (this.db) return resolve(this.db);
-            const request = indexedDB.open(this.dbName, 9);
+            const request = indexedDB.open(this.dbName, 10);
             request.onerror = () => reject('Error opening IndexedDB.');
             request.onsuccess = (event) => {
                 this.db = event.target.result;
@@ -47,6 +48,11 @@ export const DbManager = {
                 }
                 if (!db.objectStoreNames.contains(this.stores.chatHistory)) {
                     db.createObjectStore(this.stores.chatHistory, { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains(this.stores.toolLogs)) {
+                    const logStore = db.createObjectStore(this.stores.toolLogs, { autoIncrement: true, keyPath: 'id' });
+                    logStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    logStore.createIndex('toolName', 'toolName', { unique: false });
                 }
             };
         });

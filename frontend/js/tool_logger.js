@@ -1,89 +1,58 @@
-/**
- * @file tool_logger.js
- * @description Handles logging of AI tool executions for transparency and debugging.
- */
+import { DbManager } from './db.js';
 
-export const ToolLogger = {
-    DB_NAME: 'ToolExecutionDB',
-    STORE_NAME: 'ToolLogs',
-    db: null,
+// A more robust and structured logging system for tool executions.
+export class ToolLogger {
+    constructor() {
+        this.logDb = null;
+        this.init();
+    }
 
     async init() {
-        return new Promise((resolve, reject) => {
-            if (this.db) {
-                return resolve();
-            }
+        try {
+            this.logDb = await DbManager.openDb();
+            console.log('Tool execution log database initialized.');
+        } catch (error) {
+            console.error('Failed to initialize tool execution log database:', error);
+        }
+    }
 
-            const request = indexedDB.open(this.DB_NAME, 1);
-
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains(this.STORE_NAME)) {
-                    db.createObjectStore(this.STORE_NAME, { keyPath: 'id', autoIncrement: true });
-                }
-            };
-
-            request.onsuccess = (event) => {
-                this.db = event.target.result;
-                console.log('Tool execution log database initialized.');
-                resolve();
-            };
-
-            request.onerror = (event) => {
-                console.error('Error initializing tool log database:', event.target.error);
-                reject(event.target.error);
-            };
-        });
-    },
-
-    async log(toolName, params, status, result) {
-        if (!this.db) {
-            await this.init();
+    async log(toolName, parameters, status, result) {
+        if (!this.logDb) {
+            console.error('Log database is not available.');
+            return;
         }
 
         const logEntry = {
             timestamp: new Date().toISOString(),
             toolName,
-            params,
+            parameters: JSON.parse(JSON.stringify(parameters || {})), // Deep copy
             status, // 'Success' or 'Error'
-            result, // Could be a success message or an error object
+            result: JSON.parse(JSON.stringify(result || {})), // Deep copy
         };
 
-        const transaction = this.db.transaction([this.STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(this.STORE_NAME);
-        const request = store.add(logEntry);
-
-        return new Promise((resolve, reject) => {
-            request.onsuccess = () => {
-                resolve();
-            };
-            request.onerror = (event) => {
-                console.error('Failed to write to tool log:', event.target.error);
-                reject(event.target.error);
-            };
-        });
-    },
-
-    async getLogs() {
-        if (!this.db) {
-            await this.init();
+        try {
+            const tx = this.logDb.transaction('tool_logs', 'readwrite');
+            const store = tx.objectStore('tool_logs');
+            await store.add(logEntry);
+            await tx.done;
+        } catch (error) {
+            console.error('Failed to write to tool log database:', error);
         }
-
-        const transaction = this.db.transaction([this.STORE_NAME], 'readonly');
-        const store = transaction.objectStore(this.STORE_NAME);
-        const request = store.getAll();
-
-        return new Promise((resolve, reject) => {
-            request.onsuccess = (event) => {
-                resolve(event.target.result);
-            };
-            request.onerror = (event) => {
-                console.error('Failed to retrieve tool logs:', event.target.error);
-                reject(event.target.error);
-            };
-        });
     }
-};
 
-// Initialize the logger on load
-ToolLogger.init().catch(err => console.error("Failed to init ToolLogger on startup:", err));
+    async getLogs(limit = 100) {
+        if (!this.logDb) return [];
+        const tx = this.logDb.transaction('tool_logs', 'readonly');
+        const store = tx.objectStore('tool_logs');
+        return store.getAll(null, limit);
+    }
+
+    async clearLogs() {
+        if (!this.logDb) return;
+        const tx = this.logDb.transaction('tool_logs', 'readwrite');
+        await tx.objectStore('tool_logs').clear();
+        console.log('Tool execution logs cleared.');
+    }
+}
+
+export const toolLogger = new ToolLogger();

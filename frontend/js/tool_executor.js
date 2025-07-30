@@ -5,7 +5,7 @@ import * as Editor from './editor.js';
 import * as UI from './ui.js';
 import { ChatService } from './chat_service.js';
 import { UndoManager } from './undo_manager.js';
-import { ToolLogger } from './tool_logger.js';
+import { toolLogger } from './tool_logger.js';
 import { syntaxValidator } from './syntax_validator.js';
 import { codeComprehension } from './code_comprehension.js';
 import { preciseEditor } from './precise_editor.js';
@@ -36,13 +36,16 @@ async function validateSyntaxBeforeWrite(filename, content) {
         const errorMessages = validation.errors.map(e => `Line ${e.line}: ${e.message}`).join('\n');
         const suggestionMessages = validation.suggestions ? `\n\nSuggestions:\n- ${validation.suggestions.join('\n- ')}` : '';
         
-        // This error will now be caught by the main tool execution logic,
-        // preventing the file from being written.
-        throw new Error(`Syntax validation failed for ${filename}:\n${errorMessages}${suggestionMessages}`);
+        // Return a detailed error object instead of throwing an error
+        return {
+            isValid: false,
+            errors: errorMessages,
+            suggestions: suggestionMessages
+        };
     }
 
     console.log(`Syntax validation passed for ${filename}.`);
-    return true;
+    return { isValid: true };
 }
 
 // Streaming file processing for large files
@@ -372,8 +375,8 @@ async function _rewriteFile({ filename, content }, rootHandle) {
         UndoManager.push(filename, '');
     }
 
-    // Validate syntax before writing
-    await validateSyntaxBeforeWrite(filename, cleanContent);
+    // Validate syntax before writing, but do not block
+    const validationResult = await validateSyntaxBeforeWrite(filename, cleanContent);
 
     // Use streaming for large files
     const STREAM_THRESHOLD = 100000; // 100KB
@@ -393,7 +396,11 @@ async function _rewriteFile({ filename, content }, rootHandle) {
     }
     await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
     document.getElementById('chat-input').focus();
-    return { message: `File '${filename}' rewritten successfully.` };
+    let message = `File '${filename}' rewritten successfully.`;
+    if (!validationResult.isValid) {
+        message += `\n\nWARNING: Syntax errors were detected and have been written to the file.\nErrors:\n${validationResult.errors}${validationResult.suggestions}`;
+    }
+    return { message };
 }
 
 async function _deleteFile({ filename }, rootHandle) {
@@ -536,7 +543,7 @@ async function _smartEditFile({ filename, edits }, rootHandle) {
         }
     }
     
-    await ToolLogger.log('_smartEditFile', {
+    await toolLogger.log('_smartEditFile', {
         filename,
         fileSize,
         originalLineCount,
@@ -548,8 +555,8 @@ async function _smartEditFile({ filename, edits }, rootHandle) {
     const lineEnding = originalContent.includes('\r\n') ? '\r\n' : '\n';
     const newContent = lines.join(lineEnding);
     
-    // Final validation of the fully assembled content before writing
-    await validateSyntaxBeforeWrite(filename, newContent);
+    // Final validation of the fully assembled content before writing, but do not block
+    const validationResult = await validateSyntaxBeforeWrite(filename, newContent);
 
     const writable = await fileHandle.createWritable();
     await writable.write(newContent);
@@ -567,8 +574,13 @@ async function _smartEditFile({ filename, edits }, rootHandle) {
     
     document.getElementById('chat-input').focus();
     
+    let message = `Smart edit applied to '${filename}' successfully. ${edits.length} edit(s) applied.`;
+    if (!validationResult.isValid) {
+        message += `\n\nWARNING: Syntax errors were detected and have been written to the file.\nErrors:\n${validationResult.errors}${validationResult.suggestions}`;
+    }
+
     return {
-        message: `Smart edit applied to '${filename}' successfully. ${edits.length} edit(s) applied.`,
+        message: message,
         details: {
             originalLines: originalLineCount,
             finalLines: lines.length,
@@ -1428,14 +1440,14 @@ export async function execute(toolCall, rootDirectoryHandle, silent = false) {
 
     try {
         resultForModel = await executeTool(toolCall, rootDirectoryHandle);
-        ToolLogger.log(toolName, parameters, 'Success', resultForModel);
+        toolLogger.log(toolName, parameters, 'Success', resultForModel);
     } catch (error) {
         isSuccess = false;
         const errorMessage = `Error executing tool '${toolName}': ${error.message}`;
         resultForModel = { error: errorMessage };
         UI.showError(errorMessage);
         console.error(errorMessage, error);
-        ToolLogger.log(toolName, parameters, 'Error', { message: error.message, stack: error.stack });
+        toolLogger.log(toolName, parameters, 'Error', { message: error.message, stack: error.stack });
     }
 
     // REMOVED: Automatic syntax checking feedback loop - was causing infinite loops and conflicts
