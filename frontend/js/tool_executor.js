@@ -700,7 +700,9 @@ async function _taskCreate({ title, description = '', priority = 'medium', paren
 }
 
 async function _taskUpdate({ taskId, updates }) {
-    if (!taskId || !updates) throw new Error("Both 'taskId' and 'updates' are required.");
+    if (!taskId || !updates) {
+        throw new Error("The 'task_update' tool requires both a 'taskId' (string) and an 'updates' (object) parameter. Please provide both in your next tool call.");
+    }
     const task = await TaskTools.update(taskId, updates);
     return {
         message: `Task "${task.title}" (ID: ${taskId}) updated.`,
