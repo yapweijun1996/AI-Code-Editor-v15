@@ -62,9 +62,11 @@ export class OpenAIService extends BaseLLMService {
                 if (line.startsWith('data: ')) {
                     const data = line.substring(6);
                     if (data === '[DONE]') {
-                        // Don't return immediately. The final chunk with usage stats might still be processed.
-                        // The loop will terminate naturally when reader.read() is done.
-                        continue;
+                        const completeCalls = this._getCompleteToolCalls(currentToolCalls);
+                        if (completeCalls.length > 0) {
+                             yield { text: '', functionCalls: completeCalls };
+                        }
+                        return;
                     }
                     try {
                         const json = JSON.parse(data);
@@ -79,7 +81,12 @@ export class OpenAIService extends BaseLLMService {
                         }
                         
                         if (json.usage) {
-                             console.log('[OpenAI Service] Received usage data (but it will not be used):', json.usage);
+                            yield {
+                                usageMetadata: {
+                                    promptTokenCount: json.usage.prompt_tokens,
+                                    candidatesTokenCount: json.usage.completion_tokens,
+                                }
+                            };
                         }
 
                     } catch (e) {
@@ -92,11 +99,6 @@ export class OpenAIService extends BaseLLMService {
             if (completeCalls.length > 0) {
                  yield { text: '', functionCalls: completeCalls };
             }
-        }
-        
-        // After the loop, process any remaining data in the buffer which might contain the final usage stats
-        if (buffer) {
-            // Buffer might contain final JSON with usage, but we are ignoring it.
         }
     }
 

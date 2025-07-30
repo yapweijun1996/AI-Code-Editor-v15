@@ -5,11 +5,6 @@ import * as UI from './ui.js';
 import * as FileSystem from './file_system.js';
 import { initializeEventListeners } from './events.js';
 import { DbManager } from './db.js';
-import { performanceOptimizer } from './performance_optimizer.js';
-import { performanceMonitor } from './performance_monitor.js';
-import { progressiveLoader } from './progressive_loader.js';
-import { fileTreeSearch } from './file_tree_search.js';
-import { projectAnalysisUI } from './project_analysis_ui.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -41,12 +36,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         handleDeleteEntry: null,
     };
 
-    // Make appState and modules globally available for compatibility
-    window.appState = appState;
-    window.progressiveLoader = progressiveLoader;
-    window.fileTreeSearch = fileTreeSearch;
-    window.projectAnalysisUI = projectAnalysisUI;
-
     // --- Initialization ---
     appState.editor = await Editor.initializeEditor(editorContainer, tabBarContainer);
     UI.initResizablePanels(appState.editor);
@@ -66,30 +55,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if ((await savedHandle.queryPermission({ mode: 'readwrite' })) === 'granted') {
             appState.rootDirectoryHandle = savedHandle;
-            
-            // Use progressive loading for better performance
-            performanceOptimizer.startTimer('directoryRestore');
-            
-            // Queue file tree refresh as a background task
-            await performanceOptimizer.addToQueue(async () => {
-                await UI.refreshFileTree(savedHandle, appState.onFileSelect, appState);
-            }, 'high');
+            appState.rootDirectoryHandle = savedHandle;
+            await UI.refreshFileTree(savedHandle, appState.onFileSelect, appState);
 
             const savedState = await DbManager.getSessionState();
             if (savedState) {
-                // Queue tab restoration as a lower priority task
-                await performanceOptimizer.addToQueue(async () => {
-                    await Editor.restoreEditorState(savedState.tabs, appState.rootDirectoryHandle, tabBarContainer);
-                }, 'normal');
+                await Editor.restoreEditorState(savedState.tabs, appState.rootDirectoryHandle, tabBarContainer);
             }
-            
             UI.updateDirectoryButtons(true);
-            performanceOptimizer.endTimer('directoryRestore');
-            
-            // Trigger project analysis for AI
-            document.dispatchEvent(new CustomEvent('project-loaded', {
-                detail: { rootHandle: savedHandle }
-            }));
         } else {
             UI.updateDirectoryButtons(false, true);
         }
@@ -182,7 +155,7 @@ Analyze the code and provide the necessary changes to resolve these issues.
     };
 
     appState.handleCreateFile = async (parentNode, newFileName) => {
-        const parentPath = (parentNode.id === '#' || parentNode.id === appState.rootDirectoryHandle.name) ? '' : parentNode.id;
+        const parentPath = parentNode.id === '#' ? '' : parentNode.id;
         const newFilePath = parentPath ? `${parentPath}/${newFileName}` : newFileName;
         try {
             const fileHandle = await FileSystem.getFileHandleFromPath(appState.rootDirectoryHandle, newFilePath, { create: true });
@@ -195,7 +168,7 @@ Analyze the code and provide the necessary changes to resolve these issues.
     };
 
     appState.handleCreateFolder = async (parentNode, newFolderName) => {
-        const parentPath = (parentNode.id === '#' || parentNode.id === appState.rootDirectoryHandle.name) ? '' : parentNode.id;
+        const parentPath = parentNode.id === '#' ? '' : parentNode.id;
         const newFolderPath = parentPath ? `${parentPath}/${newFolderName}` : newFolderName;
         try {
             await FileSystem.createDirectoryFromPath(appState.rootDirectoryHandle, newFolderPath);
@@ -206,21 +179,12 @@ Analyze the code and provide the necessary changes to resolve these issues.
         }
     };
 
-    appState.handleRenameEntry = async (node, newName, oldName) => {
-        const parentPath = (node.parent === '#' || node.parent === appState.rootDirectoryHandle.name) ? '' : node.parent;
-        const oldPath = parentPath ? `${parentPath}/${oldName}` : oldName;
+    appState.handleRenameEntry = async (node, newName) => {
+        const oldPath = node.id;
+        const parentPath = node.parent === '#' ? '' : node.parent;
         const newPath = parentPath ? `${parentPath}/${newName}` : newName;
-        const isFolder = node.type === 'folder';
-
         try {
             await FileSystem.renameEntry(appState.rootDirectoryHandle, oldPath, newPath);
-
-            if (isFolder) {
-                Editor.updateTabPathsForFolderRename(oldPath, newPath);
-            } else {
-                Editor.updateTabId(oldPath, newPath, newName);
-            }
-
             await UI.refreshFileTree(appState.rootDirectoryHandle, appState.onFileSelect, appState);
         } catch (error) {
             console.error('Error renaming entry:', error);

@@ -16,11 +16,6 @@
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/themes/default/style.min.css"
     />
-    <!-- Font Awesome for icons -->
-    <link 
-      rel="stylesheet" 
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
-    />
   </head>
   <body>
     <div id="error-container"></div>
@@ -33,6 +28,7 @@
             <div class="sidebar-tab" id="tasks-tab">Tasks</div>
         </div>
         <div class="sidebar-content" id="files-content">
+            <h2 style="margin: 0px 0px 5px 0px;">Project Files</h2>
             <div id="directory-controls">
               <button id="open-directory-button">Open Folder</button>
               <button id="reconnect-button" style="display: none;">Reconnect</button>
@@ -184,10 +180,12 @@
                     <select id="openai-model-selector" class="model-selector">
                         <option value="gpt-4.1">GPT-4.1</option>
                         <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
-                        <option value="gpt-4.1-nano">GPT-4.1 Nano</option>
-                        <option value="o4-mini">o4-mini</option>
-                        <option value="o4">o4</option>
-                        <option value="o3">o3</option>
+                        <option value="gpt-4o">GPT-4o</option>
+                        <option value="gpt-4o-mini">GPT-4o Mini</option>
+                        <option value="o1-preview">o1-preview</option>
+                        <option value="o1-mini">o1-mini</option>
+                        <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                        <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
                     </select>
                 </div>
                 <div class="form-group">
@@ -285,7 +283,6 @@
 
     <!-- Load diff.js before Monaco loader to ensure Diff is globally available -->
     <script src="https://cdn.jsdelivr.net/npm/diff@5.1.0/dist/diff.min.js"></script>
-    <script src="https://unpkg.com/gpt-tokenizer/dist/cl100k_base.js"></script>
     <script src="js/lib/diff_match_patch.js"></script>
     <!-- Monaco Editor Loader -->
     <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>

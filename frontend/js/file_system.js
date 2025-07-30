@@ -1,48 +1,3 @@
-let fsWorker;
-const inflightRequests = new Map();
-let requestIdCounter = 0;
-
-function getFileSystemWorker() {
-    if (!fsWorker) {
-        fsWorker = new Worker('/js/workers/file-system.worker.js', { type: 'module' });
-
-        fsWorker.onmessage = (event) => {
-            const { status, command, result, error, requestId } = event.data;
-            if (inflightRequests.has(requestId)) {
-                const { resolve, reject } = inflightRequests.get(requestId);
-                if (status === 'success') {
-                    resolve(result);
-                } else {
-                    const err = new Error(error.message);
-                    err.stack = error.stack;
-                    reject(err);
-                }
-                inflightRequests.delete(requestId);
-            }
-        };
-
-        fsWorker.onerror = (error) => {
-            console.error('File System Worker Error:', error);
-            // Reject all pending promises
-            for (const [id, { reject }] of inflightRequests.entries()) {
-                reject(new Error('File System Worker encountered an unrecoverable error.'));
-                inflightRequests.delete(id);
-            }
-            fsWorker = null; // Allow re-initialization
-        };
-    }
-    return fsWorker;
-}
-
-function postMessageToWorker(command, payload) {
-    const worker = getFileSystemWorker();
-    const requestId = requestIdCounter++;
-    return new Promise((resolve, reject) => {
-        inflightRequests.set(requestId, { resolve, reject });
-        worker.postMessage({ command, payload, requestId });
-    });
-}
-
 export async function getIgnorePatterns(rootDirHandle) {
     try {
         const ignoreFileHandle = await rootDirHandle.getFileHandle('.ai_ignore');
@@ -90,7 +45,7 @@ export async function createDirectoryFromPath(dirHandle, path) {
     return currentHandle;
 }
 
-export async function getDirectoryHandleFromPath(dirHandle, path) {
+async function getDirectoryHandleFromPath(dirHandle, path) {
     const parts = path.split('/').filter((p) => p);
     let currentHandle = dirHandle;
     for (const part of parts) {
@@ -99,57 +54,61 @@ export async function getDirectoryHandleFromPath(dirHandle, path) {
     return currentHandle;
 }
 
-async function getEntryHandleFromPath(rootDirHandle, path) {
-    try {
-        const handle = await getDirectoryHandleFromPath(rootDirHandle, path);
-        return { handle, isDirectory: true };
-    } catch (e) {
-        if (e.name === 'TypeMismatchError' || e.name === 'NotFoundError') {
-            try {
-                const handle = await getFileHandleFromPath(rootDirHandle, path);
-                return { handle, isDirectory: false };
-            } catch (fileError) {
-                throw new Error(`Entry not found at path: ${path}`);
-            }
-        }
-        throw e;
-    }
-}
-
 export async function renameEntry(rootDirHandle, oldPath, newPath) {
-    const { handle: oldHandle, isDirectory } = await getEntryHandleFromPath(rootDirHandle, oldPath);
-
-    if (isDirectory) {
-        await createDirectoryFromPath(rootDirHandle, newPath);
-        for await (const entry of oldHandle.values()) {
-            await renameEntry(
-                rootDirHandle,
-                `${oldPath}/${entry.name}`,
-                `${newPath}/${entry.name}`
-            );
-        }
-    } else {
-        const file = await oldHandle.getFile();
+    try {
+        const oldFileHandle = await getFileHandleFromPath(rootDirHandle, oldPath);
+        const file = await oldFileHandle.getFile();
         const content = await file.arrayBuffer();
+
         const newFileHandle = await getFileHandleFromPath(rootDirHandle, newPath, { create: true });
         const writable = await newFileHandle.createWritable();
         await writable.write(content);
         await writable.close();
-    }
 
-    await deleteEntry(rootDirHandle, oldPath);
+        const { parentHandle, entryName } = await getParentDirectoryHandle(rootDirHandle, oldPath);
+        await parentHandle.removeEntry(entryName);
+    } catch (fileError) {
+        if (fileError.name === 'TypeMismatchError') {
+            try {
+                const oldDirHandle = await getDirectoryHandleFromPath(rootDirHandle, oldPath);
+                const newDirHandle = await createDirectoryFromPath(rootDirHandle, newPath);
+
+                for await (const entry of oldDirHandle.values()) {
+                    await renameEntry(
+                        rootDirHandle,
+                        `${oldPath}/${entry.name}`,
+                        `${newPath}/${entry.name}`
+                    );
+                }
+
+                const { parentHandle, entryName: dirNameToDelete } = await getParentDirectoryHandle(rootDirHandle, oldPath);
+                await parentHandle.removeEntry(dirNameToDelete, { recursive: true });
+            } catch (dirError) {
+                throw new Error(`Failed to rename directory: ${dirError.message}`);
+            }
+        } else {
+            throw new Error(`Failed to rename file: ${fileError.message}`);
+        }
+    }
 }
 
 export async function deleteEntry(rootDirHandle, path) {
-    const { parentHandle, entryName } = await getParentDirectoryHandle(rootDirHandle, path);
-    let isDirectory = false;
     try {
-        await parentHandle.getDirectoryHandle(entryName);
-        isDirectory = true;
-    } catch (e) {
-        // It's a file
+        const { parentHandle, entryName } = await getParentDirectoryHandle(rootDirHandle, path);
+        
+        // Check if it's a file or directory
+        let isDirectory = false;
+        try {
+            await parentHandle.getDirectoryHandle(entryName);
+            isDirectory = true;
+        } catch (e) {
+            // Not a directory, assume file
+        }
+
+        await parentHandle.removeEntry(entryName, { recursive: isDirectory });
+    } catch (error) {
+        throw new Error(`Failed to delete entry: ${error.message}`);
     }
-    await parentHandle.removeEntry(entryName, { recursive: isDirectory });
 }
 
 
@@ -214,26 +173,36 @@ export async function searchInDirectory(
 }
 
 
-/**
- * Builds the file tree using a web worker to avoid blocking the main thread.
- * @param {FileSystemDirectoryHandle} dirHandle - The root directory handle.
- * @param {Array<string>} ignorePatterns - An array of patterns to ignore.
- * @param {object} options - Additional options for building the tree.
- * @returns {Promise<Array<object>>} A promise that resolves with the file tree data.
- */
-export const buildTree = (dirHandle, ignorePatterns, options = {}) => {
-    return postMessageToWorker('buildTree', { dirHandle, ignorePatterns, options });
-};
-
-/**
- * Loads the children of a directory for lazy loading, using a web worker.
- * @param {FileSystemDirectoryHandle} dirHandle - The directory handle to load children from.
- * @param {Array<string>} ignorePatterns - An array of patterns to ignore.
- * @param {string} pathPrefix - The path of the directory.
- * @returns {Promise<Array<object>>} A promise that resolves with the children nodes.
- */
-export const loadDirectoryChildren = (dirHandle, ignorePatterns, pathPrefix = '') => {
-    return postMessageToWorker('loadDirectoryChildren', { dirHandle, ignorePatterns, pathPrefix });
+export const buildTree = async (dirHandle, ignorePatterns, currentPath = '') => {
+    const children = [];
+    for await (const entry of dirHandle.values()) {
+        const newPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
+        if (ignorePatterns.some(pattern => newPath.startsWith(pattern.replace(/\/$/, '')))) {
+            continue;
+        }
+        if (entry.kind === 'directory') {
+            children.push({
+                id: newPath,
+                text: entry.name,
+                type: 'folder',
+                children: await buildTree(entry, ignorePatterns, newPath),
+            });
+        } else {
+            children.push({
+                id: newPath,
+                text: entry.name,
+                type: 'file',
+                li_attr: { 'data-path': newPath, 'data-handle': entry }, // Store path and handle
+            });
+        }
+    }
+    // Sort so folders appear before files
+    children.sort((a, b) => {
+        if (a.type === 'folder' && b.type !== 'folder') return -1;
+        if (a.type !== 'folder' && b.type === 'folder') return 1;
+        return a.text.localeCompare(b.text);
+    });
+    return children;
 };
 export async function verifyAndRequestPermission(fileHandle, withWrite = false) {
     const options = { mode: withWrite ? 'readwrite' : 'read' };

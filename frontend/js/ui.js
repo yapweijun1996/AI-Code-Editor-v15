@@ -1,4 +1,4 @@
-import { buildTree, getIgnorePatterns, loadDirectoryChildren, getFileHandleFromPath, getDirectoryHandleFromPath } from './file_system.js';
+import { buildTree, getIgnorePatterns } from './file_system.js';
 import { Settings, dispatchLLMSettingsUpdated } from './settings.js';
 
 export function initResizablePanels(editor) {
@@ -29,15 +29,6 @@ export function renderTree(treeData, onFileSelect, appState) {
         .on('select_node.jstree', (e, data) => {
             if (data.node.type === 'file') {
                 onFileSelect(data.node.id);
-            } else if (data.node.type === 'placeholder' && data.node.li_attr['data-remaining']) {
-                // Handle "show more" functionality
-                loadMoreFiles(data.node, appState);
-            }
-        })
-        .on('open_node.jstree', async (e, data) => {
-            // Lazy load children when folder is opened
-            if (data.node.li_attr && data.node.li_attr['data-lazy'] === 'true') {
-                await lazyLoadFolderChildren(data.node, appState);
             }
         })
         .jstree({
@@ -49,273 +40,107 @@ export function renderTree(treeData, onFileSelect, appState) {
                     responsive: true,
                     icons: true,
                 },
-                // Enable performance optimizations
-                animation: false, // Disable animations for large trees
-                multiple: false   // Single selection only
             },
             types: {
                 default: { icon: 'jstree-icon jstree-file' },
                 folder: { icon: 'jstree-icon jstree-folder' },
                 file: { icon: 'jstree-icon jstree-file' },
-                placeholder: { icon: 'jstree-icon fas fa-ellipsis-h' }
             },
-            plugins: ['types', 'contextmenu', 'dnd', 'wholerow'],
+            plugins: ['types', 'contextmenu', 'dnd'],
             contextmenu: {
-                items: function (node) {
+                show_at_node: false,
+                items: function (node, appState) { // Add appState here
                     const tree = $('#file-tree').jstree(true);
-                    var items = {};
+                    const isRoot = node.parent === '#';
 
-                    if (node.type === 'folder') {
-                        items.createFile = {
-                            "label": "<i class='fas fa-file-alt'></i>New File",
-                            "action": function (obj) {
+                    const items = {
+                        createFile: {
+                            separator_before: false,
+                            separator_after: false,
+                            label: "New File",
+                            action: async function (obj) {
                                 const parentNode = tree.get_node(node);
                                 const newFileName = prompt("Enter new file name:");
                                 if (newFileName) {
-                                    appState.handleCreateFile(parentNode, newFileName);
+                                    await appState.handleCreateFile(parentNode, newFileName);
                                 }
                             }
-                        };
-                        items.createFolder = {
-                            "label": "<i class='fas fa-folder-plus'></i>New Folder",
-                            "action": function (obj) {
+                        },
+                        createFolder: {
+                            separator_before: false,
+                            separator_after: false,
+                            label: "New Folder",
+                            action: async function (obj) {
                                 const parentNode = tree.get_node(node);
                                 const newFolderName = prompt("Enter new folder name:");
                                 if (newFolderName) {
-                                    appState.handleCreateFolder(parentNode, newFolderName);
+                                    await appState.handleCreateFolder(parentNode, newFolderName);
                                 }
                             }
-                        };
-                    }
-
-                    if (node.type !== 'placeholder') {
-                        items.rename = {
-                            "separator_before": node.type === 'folder',
-                            "label": "<i class='fas fa-edit'></i>Rename",
-                            "action": function (obj) {
+                        },
+                        rename: {
+                            separator_before: true,
+                            separator_after: false,
+                            label: "Rename",
+                            action: function (obj) {
                                 tree.edit(node);
                             }
-                        };
-                        items.delete = {
-                            "label": "<i class='fas fa-trash-alt'></i>Delete",
-                            "action": function (obj) {
-                                if (confirm('Are you sure you want to delete ' + node.text + '?')) {
+                        },
+                        "delete": {
+                            separator_before: false,
+                            separator_after: false,
+                            label: "Delete",
+                            action: async function (obj) {
+                                if (confirm(`Are you sure you want to delete ${node.text}?`)) {
                                     const nodeToDelete = tree.get_node(node);
-                                    appState.handleDeleteEntry(nodeToDelete);
+                                    await appState.handleDeleteEntry(nodeToDelete);
                                 }
                             }
-                        };
+                        }
+                    };
+
+                    if (node.type === 'file') {
+                        delete items.createFile;
+                        delete items.createFolder;
                     }
+                    if (isRoot) {
+                        delete items.rename;
+                        delete items.delete;
+                    }
+
 
                     return items;
                 }
             },
+            _appState: appState // Pass appState to the contextmenu plugin
         })
-        .on('rename_node.jstree', function (e, data) {
-            appState.handleRenameEntry(data.node, data.text, data.old);
-        });
-}
-
-// Lazy load folder children when expanded
-async function lazyLoadFolderChildren(node, appState) {
-    const tree = $('#file-tree').jstree(true);
-    const path = node.li_attr['data-path'];
-    const originalText = node.text;
-
-    try {
-        // Show loading indicator
-        tree.set_text(node, `${originalText} (loading...)`);
-        
-        // Get directory handle and ignore patterns
-        const dirHandle = await getDirectoryHandleFromPath(appState.rootDirectoryHandle, path);
-        const ignorePatterns = await getIgnorePatterns(appState.rootDirectoryHandle);
-        
-        // Load children using the worker
-        const children = await loadDirectoryChildren(dirHandle, ignorePatterns, path);
-        
-        // Clear the dummy node and add the actual children
-        tree.delete_node(tree.get_children_dom(node));
-        children.forEach(child => {
-            tree.create_node(node, child, 'last');
-        });
-        
-        // Update the node state in jstree
-        const treeNode = tree.get_node(node, true);
-        if (treeNode) {
-            treeNode.li_attr['data-lazy'] = 'false';
-        }
-        tree.set_text(node, originalText);
-        
-    } catch (error) {
-        console.error(`Error lazy loading folder "${path}":`, error);
-        tree.set_text(node, `${originalText} (error)`);
-    }
-}
-
-// Handle "show more" functionality for large directories
-async function loadMoreFiles(node, appState) {
-    try {
-        const tree = $('#file-tree').jstree(true);
-        const path = node.li_attr['data-path'];
-        
-        if (path == null || !appState.rootDirectoryHandle) {
-            console.error('Missing path or root directory handle');
-            tree.set_text(node, '❌ Error: Missing directory information');
-            return;
-        }
-        
-        // Show loading state
-        tree.set_text(node, '📁 Loading more files...');
-        
-        try {
-            // Get parent directory handle
-            const dirHandle = path ? 
-                await getDirectoryHandleFromPath(appState.rootDirectoryHandle, path) :
-                appState.rootDirectoryHandle;
-            
-            // Try to load more items progressively
-            try {
-                const remainingCount = parseInt(node.li_attr['data-remaining']) || 0;
-                
-                if (remainingCount > 0) {
-                    // Load more files directly from directory
-                    const batchSize = Math.min(500, remainingCount);
-                    const currentLoaded = parseInt(node.li_attr['data-loaded']) || 1000;
-                    
-                    const ignorePatterns = await getIgnorePatterns(appState.rootDirectoryHandle);
-                    const children = [];
-                    let loadedCount = 0;
-                    let processedCount = 0;
-                    
-                    // Get entries and skip the ones already loaded
-                    for await (const entry of dirHandle.values()) {
-                        processedCount++;
-                        
-                        // Skip entries we've already loaded
-                        if (processedCount <= currentLoaded) {
-                            continue;
-                        }
-                        
-                        const newPath = path ? `${path}/${entry.name}` : entry.name;
-                        
-                        // Skip ignored files
-                        if (ignorePatterns.some(pattern => newPath.startsWith(pattern.replace(/\/$/, '')))) {
-                            continue;
-                        }
-                        
-                        // Create child node
-                        const childNode = {
-                            id: newPath,
-                            text: entry.name,
-                            type: entry.kind === 'directory' ? 'folder' : 'file',
-                            li_attr: { 'data-path': newPath, 'data-handle': entry }
-                        };
-                        
-                        if (entry.kind === 'directory') {
-                            childNode.children = true; // Lazy loading
-                            childNode.li_attr['data-lazy'] = 'true';
-                        }
-                        
-                        children.push(childNode);
-                        loadedCount++;
-                        
-                        // Stop when we've loaded enough for this batch
-                        if (loadedCount >= batchSize) {
-                            break;
-                        }
-                    }
-                    
-                    // Sort children
-                    children.sort((a, b) => {
-                        if (a.type === 'folder' && b.type !== 'folder') return -1;
-                        if (a.type !== 'folder' && b.type === 'folder') return 1;
-                        return a.text.localeCompare(b.text);
-                    });
-                    
-                    // Add children to tree
-                    const parentNode = tree.get_parent(node);
-                    for (const child of children) {
-                        tree.create_node(parentNode, child, node);
-                    }
-                    
-                    // Update the load more node
-                    const newLoaded = currentLoaded + loadedCount;
-                    const newRemaining = Math.max(0, remainingCount - loadedCount);
-                    
-                    if (newRemaining > 0) {
-                        tree.set_text(node, `📁 Load ${newRemaining} more items...`);
-                        node.li_attr['data-loaded'] = newLoaded;
-                        node.li_attr['data-remaining'] = newRemaining;
-                    } else {
-                        tree.set_text(node, '✅ All items loaded');
-                        setTimeout(() => {
-                            tree.delete_node(node);
-                        }, 1500);
-                    }
-                } else {
-                    // No more items to load
-                    tree.set_text(node, '✅ All items loaded');
-                    setTimeout(() => {
-                        tree.delete_node(node);
-                    }, 1500);
-                }
-            } catch (loadError) {
-                console.error('Error in progressive loading:', loadError);
-                tree.set_text(node, '❌ Error loading more files');
-                setTimeout(() => {
-                    tree.delete_node(node);
-                }, 3000);
+        .on('contextmenu', function (e) {
+            e.preventDefault();
+            const tree = $(this).jstree(true);
+            const node = tree.get_node(e.target);
+            if (node) {
+                // Pass appState to show_contextmenu as well
+                tree.show_contextmenu(node, e.pageX, e.pageY, tree.settings._appState);
             }
-            
-        } catch (fileError) {
-            console.error('File system error:', fileError);
-            tree.set_text(node, '❌ Error loading files');
-            
-            // Try to recover by removing the problematic node
-            setTimeout(() => {
-                try {
-                    tree.delete_node(node);
-                } catch (deleteError) {
-                    console.error('Error removing node:', deleteError);
-                }
-            }, 3000);
-        }
-        
-    } catch (error) {
-        console.error('Error loading more files:', error);
-        const tree = $('#file-tree').jstree(true);
-        if (tree && node) {
-            tree.set_text(node, '❌ Load failed');
-        }
-    }
-}
+        })
+        .on('rename_node.jstree', async function (e, data) {
+            const newPath = data.text;
+            const oldPath = data.old;
+            if(newPath !== oldPath) {
+                await appState.handleRenameEntry(data.node, newPath);
+            }
+        });
+};
 
 export async function refreshFileTree(rootDirectoryHandle, onFileSelect, appState) {
     if (rootDirectoryHandle) {
-        // Show loading indicator
-        const fileTreeContainer = document.getElementById('file-tree');
-        if (fileTreeContainer) {
-            fileTreeContainer.innerHTML = '<div class="loading-indicator">Loading project structure...</div>';
-        }
-        
         const treeInstance = $('#file-tree').jstree(true);
         if (treeInstance) {
             treeInstance.destroy();
         }
 
         const ignorePatterns = await getIgnorePatterns(rootDirectoryHandle);
-        
-        // Add progress callback for large directories
-        const progressCallback = (count, path) => {
-            if (fileTreeContainer) {
-                const indicator = fileTreeContainer.querySelector('.loading-indicator');
-                if (indicator) {
-                    indicator.textContent = `Loading ${path}... (${count} items)`;
-                }
-            }
-        };
-        
-        const treeData = await buildTree(rootDirectoryHandle, ignorePatterns, '', { progressCallback });
+        const treeData = await buildTree(rootDirectoryHandle, ignorePatterns);
         renderTree(treeData, onFileSelect, appState);
 
         updateDirectoryButtons(true);

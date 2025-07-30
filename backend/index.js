@@ -144,15 +144,7 @@ app.post('/api/read-url', async (req, res) => {
 
   try {
     const response = await axios.get(url, {
-      headers: { 
-        'User-Agent': USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)],
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Referer': 'https://www.google.com/',
-        'DNT': '1',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
-      }
+      headers: { 'User-Agent': 'Mozilla/5.0' }
     });
     const $ = cheerio.load(response.data);
     $('script, style, header, footer, nav, aside').remove();

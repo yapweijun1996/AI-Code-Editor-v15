@@ -915,64 +915,6 @@ async function _duckduckgoSearch({ query }) {
     }
 }
 
-async function _performResearch({ query, max_results = 3, depth = 1 }) {
-    if (!query) throw new Error("The 'query' parameter is required for perform_research.");
-
-    let visitedUrls = new Set();
-    let allLinks = [];
-    let allContent = [];
-    let references = [];
-
-    async function searchAndRead(currentQuery, currentDepth) {
-        if (currentDepth > depth) return;
-
-        UI.appendMessage(document.getElementById('chat-messages'), `Performing search for: "${currentQuery}" (Depth: ${currentDepth})`, 'ai');
-        const searchResults = await _duckduckgoSearch({ query: currentQuery });
-        
-        if (!searchResults.results || searchResults.results.length === 0) {
-            return;
-        }
-
-        const linksToRead = searchResults.results
-            .map(r => r.link)
-            .filter(link => link && !visitedUrls.has(link))
-            .slice(0, max_results);
-
-        for (const link of linksToRead) {
-            if (visitedUrls.has(link)) continue;
-            visitedUrls.add(link);
-            references.push(link);
-
-            try {
-                UI.appendMessage(document.getElementById('chat-messages'), `Reading URL: ${link}`, 'ai');
-                const urlContent = await _readUrl({ url: link });
-                
-                if (urlContent.content) {
-                    allContent.push(`--- START OF CONTENT FROM ${link} ---\n${urlContent.content}\n--- END OF CONTENT FROM ${link} ---\n`);
-                }
-                
-                if (urlContent.links && urlContent.links.length > 0) {
-                    allLinks.push(...urlContent.links);
-                }
-            } catch (error) {
-                console.warn(`Failed to read URL ${link}:`, error.message);
-                allContent.push(`--- FAILED TO READ CONTENT FROM ${link} ---\nError: ${error.message}\n--- END OF FAILED CONTENT ---`);
-            }
-        }
-    }
-
-    await searchAndRead(query, 1);
-
-    // Here, you could add logic for the AI to decide to go deeper
-    // For now, it just does one level of search and read.
-
-    return {
-        summary: `Research for "${query}" complete. The following content was gathered.`,
-        full_content: allContent.join('\n\n'),
-        references: references,
-    };
-}
-
 async function _getOpenFileContent() {
     const activeFile = Editor.getActiveFile();
     if (!activeFile) throw new Error('No file is currently open in the editor.');
@@ -1255,7 +1197,6 @@ const toolRegistry = {
     // Non-project / Editor tools
     read_url: { handler: _readUrl, requiresProject: false, createsCheckpoint: false },
     duckduckgo_search: { handler: _duckduckgoSearch, requiresProject: false, createsCheckpoint: false },
-    perform_research: { handler: _performResearch, requiresProject: false, createsCheckpoint: false },
     get_open_file_content: { handler: _getOpenFileContent, requiresProject: false, createsCheckpoint: false },
     get_selected_text: { handler: _getSelectedText, requiresProject: false, createsCheckpoint: false },
     replace_selected_text: { handler: _replaceSelectedText, requiresProject: false, createsCheckpoint: false },
@@ -1384,18 +1325,17 @@ export function getToolDefinitions() {
             { name: 'replace_selected_text', description: 'Replaces the currently selected text in the editor with new text.', parameters: { type: 'OBJECT', properties: { new_text: { type: 'STRING', description: 'The raw text to replace the selection with. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['new_text'] } },
             { name: 'get_project_structure', description: 'Gets the entire file and folder structure of the project. CRITICAL: Always use this tool before attempting to read or create a file to ensure you have the correct file path.' },
             { name: 'duckduckgo_search', description: 'Performs a search using DuckDuckGo and returns the results.', parameters: { type: 'OBJECT', properties: { query: { type: 'STRING' } }, required: ['query'] } },
-            { name: 'perform_research', description: 'Performs an autonomous, multi-step research on a given query. It searches the web, reads the most relevant pages, and can recursively explore links to gather comprehensive information.', parameters: { type: 'OBJECT', properties: { query: { type: 'STRING' }, max_results: { type: 'NUMBER', description: 'Maximum number of search results to read per level. Default is 3.' }, depth: { type: 'NUMBER', description: 'How many levels of links to follow. Default is 1.' } }, required: ['query'] } },
             { name: 'search_code', description: 'Searches for a specific string in all files in the project (like grep).', parameters: { type: 'OBJECT', properties: { search_term: { type: 'STRING' } }, required: ['search_term'] } },
             { name: 'run_terminal_command', description: 'Executes a shell command on the backend and returns the output.', parameters: { type: 'OBJECT', properties: { command: { type: 'STRING' } }, required: ['command'] } },
             { name: 'build_or_update_codebase_index', description: 'Scans the entire codebase to build a searchable index. Slow, run once per session.' },
             { name: 'query_codebase', description: 'Searches the pre-built codebase index.', parameters: { type: 'OBJECT', properties: { query: { type: 'STRING' } }, required: ['query'] } },
             { name: 'get_file_history', description: "Gets a file's git history. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
             { name: 'insert_content', description: "Inserts content at a specific line number in a file. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, line_number: { type: 'NUMBER' }, content: { type: 'STRING', description: 'The raw text content to insert. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'line_number', 'content'] } },
-            { name: 'create_and_apply_diff', description: "Efficiently modifies a file by generating and applying a diff. WARNING: This requires generating the FULL file content. For smaller, targeted changes, PREFER the 'replace_lines' tool.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, new_content: { type: 'STRING', description: 'The new, raw text content of the file. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'new_content'] } },
-            { name: 'replace_lines', description: "Replaces a specific range of lines in a file. PREFERRED METHOD for targeted edits. Use this for refactoring functions or updating specific parts of a file to save time and tokens.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, start_line: { type: 'NUMBER' }, end_line: { type: 'NUMBER' }, new_content: { type: 'STRING', description: 'The raw text to insert. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'start_line', 'end_line', 'new_content'] } },
+            { name: 'create_and_apply_diff', description: "Efficiently modifies a file by generating and applying a diff in a single step.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, new_content: { type: 'STRING', description: 'The new, raw text content of the file. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'new_content'] } },
+            { name: 'replace_lines', description: "Replaces a specific range of lines in a file. Use this for targeted, multi-line edits like refactoring a function.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, start_line: { type: 'NUMBER' }, end_line: { type: 'NUMBER' }, new_content: { type: 'STRING', description: 'The raw text to insert. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'start_line', 'end_line', 'new_content'] } },
             { name: 'format_code', description: "Formats a file with Prettier. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
             { name: 'analyze_code', description: "Analyzes a JavaScript file's structure. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
-            { name: 'rewrite_file', description: "DANGEROUS: Rewrites a file with new content. Use this ONLY as a last resort when 'replace_lines' or 'create_and_apply_diff' are not suitable. This is inefficient and can lead to errors.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'The new, raw text content of the file. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'content'] } },
+            { name: 'rewrite_file', description: "Rewrites a file with new content. Use this as a last resort when other tools fail. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'The new, raw text content of the file. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'content'] } },
             
             // Enhanced code comprehension tools
             { name: 'analyze_symbol', description: 'Analyzes a symbol (variable, function, class) across the entire codebase to understand its usage, definition, and relationships.', parameters: { type: 'OBJECT', properties: { symbol_name: { type: 'STRING', description: 'The name of the symbol to analyze' }, file_path: { type: 'STRING', description: 'The file path where the symbol is used or defined' } }, required: ['symbol_name', 'file_path'] } },

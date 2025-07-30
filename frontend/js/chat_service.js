@@ -199,13 +199,6 @@ export const ChatService = {
         let continueLoop = true;
         let totalRequestTokens = 0;
         let totalResponseTokens = 0;
-
-        // Estimate request tokens
-        if (typeof GPTTokenizer_cl100k_base !== 'undefined') {
-            const { encode } = GPTTokenizer_cl100k_base;
-            const historyText = history.map(turn => turn.parts.map(p => p.text || '').join('\n')).join('\n');
-            totalRequestTokens = encode(historyText).length;
-        }
         
         while (continueLoop && !this.isCancelled) {
             try {
@@ -262,20 +255,11 @@ export const ChatService = {
                         functionCalls.push(...chunk.functionCalls);
                     }
                     if (chunk.usageMetadata) {
-                        // This is for Gemini, which provides accurate counts
-                        totalRequestTokens = chunk.usageMetadata.promptTokenCount || 0;
+                        totalRequestTokens += chunk.usageMetadata.promptTokenCount || 0;
                         totalResponseTokens += chunk.usageMetadata.candidatesTokenCount || 0;
+                        UI.updateTokenDisplay(totalRequestTokens, totalResponseTokens);
                     }
                 }
-
-                // For OpenAI, estimate response tokens
-                if (typeof GPTTokenizer_cl100k_base !== 'undefined' && this.llmService.constructor.name === 'OpenAIService') {
-                    const { encode } = GPTTokenizer_cl100k_base;
-                    totalResponseTokens = encode(modelResponseText).length;
-                }
-                
-                console.log(`[Token Usage] Final totals - Req: ${totalRequestTokens}, Res: ${totalResponseTokens}`);
-                UI.updateTokenDisplay(totalRequestTokens, totalResponseTokens);
                 
                 // Finalize any open thinking message
                 if (currentThinkingDiv) {
