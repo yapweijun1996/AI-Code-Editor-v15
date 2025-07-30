@@ -1020,6 +1020,35 @@ class ProjectIntelligence {
     getLineNumber(content, index) {
         return content.substring(0, index).split('\n').length;
     }
+    /**
+     * Detect common code patterns (e.g., Singleton, Factory)
+     */
+    detectCodePatterns(content, language) {
+        const patterns = [];
+        if (!content) {
+            return patterns;
+        }
+
+        // Basic pattern detection (can be expanded)
+        if (language === 'JavaScript' || language === 'TypeScript') {
+            // Singleton-like pattern
+            if (/(getInstance|get_instance)/.test(content) && /new this|new self/.test(content)) {
+                patterns.push('Singleton');
+            }
+            // Factory pattern
+            if (/create\w+/.test(content) && /new \w+/.test(content)) {
+                patterns.push('Factory');
+            }
+        } else if (language === 'Python') {
+            // Singleton
+            if (/__new__/.test(content) && /_instance/.test(content)) {
+                patterns.push('Singleton');
+            }
+        }
+        
+        return patterns;
+    }
+
 
     /**
      * Update analysis progress with callback support
