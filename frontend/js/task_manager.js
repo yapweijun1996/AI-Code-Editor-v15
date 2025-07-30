@@ -148,6 +148,27 @@ class TaskManager {
         
         // Enhanced task patterns with more comprehensive coverage and context awareness
         const taskPatterns = {
+            'color|theme|design|style|ui|appearance|visual': {
+                steps: [
+                    { title: 'Identify relevant CSS and style files', priority: 'high', description: 'Locate all files containing styling for the target component', estimatedTime: 15 },
+                    { title: 'Analyze current color scheme and styling', priority: 'high', description: 'Review existing colors, themes, and design patterns', estimatedTime: 20 },
+                    { title: 'Plan color scheme changes', priority: 'high', description: 'Define specific color values and affected elements', estimatedTime: 15 },
+                    { title: 'Update CSS styles with new color scheme', priority: 'high', description: 'Apply the new colors to all relevant CSS rules', estimatedTime: 30 },
+                    { title: 'Test visual changes across components', priority: 'medium', description: 'Verify the new design looks correct and is consistent', estimatedTime: 20 }
+                ],
+                riskLevel: 'low',
+                complexity: 'medium'
+            },
+            'dashboard|interface|layout|component': {
+                steps: [
+                    { title: 'Locate dashboard files and components', priority: 'high', description: 'Find HTML, CSS, and JS files related to the dashboard', estimatedTime: 15 },
+                    { title: 'Analyze dashboard structure and styling', priority: 'high', description: 'Understand the current layout and design implementation', estimatedTime: 25 },
+                    { title: 'Implement requested changes', priority: 'high', description: 'Apply the specific modifications to the dashboard', estimatedTime: 45 },
+                    { title: 'Verify changes work correctly', priority: 'medium', description: 'Test that the dashboard functions properly with changes', estimatedTime: 15 }
+                ],
+                riskLevel: 'low',
+                complexity: 'medium'
+            },
             'optimize|refactor|improve|enhance|performance': {
                 steps: [
                     { title: 'Analyze current implementation and identify issues', priority: 'high', description: 'Review existing code and performance bottlenecks', estimatedTime: 30 },
@@ -207,17 +228,33 @@ class TaskManager {
         const goalLower = mainTask.title.toLowerCase();
         let matchedPattern = null;
         let matchedKeyword = '';
-        let confidence = 0.5;
+        let confidence = 0.0;
         
-        // Enhanced pattern matching with confidence scoring
+        // Enhanced pattern matching with confidence scoring and multi-word support
         for (const [keyword, pattern] of Object.entries(taskPatterns)) {
             const keywords = keyword.split('|');
-            const matchScore = keywords.reduce((score, k) => {
+            let matchScore = 0;
+            let matchedWords = 0;
+            
+            for (const k of keywords) {
                 if (goalLower.includes(k)) {
-                    return score + (k.length / goalLower.length); // Longer matches get higher scores
+                    // Base score for keyword match
+                    const baseScore = k.length / goalLower.length;
+                    
+                    // Bonus for exact word boundaries
+                    const wordBoundaryRegex = new RegExp(`\\b${k}\\b`, 'i');
+                    const wordBoundaryBonus = wordBoundaryRegex.test(goalLower) ? 0.2 : 0;
+                    
+                    // Bonus for multiple keyword matches in same pattern
+                    matchScore += baseScore + wordBoundaryBonus;
+                    matchedWords++;
                 }
-                return score;
-            }, 0);
+            }
+            
+            // Apply multiplier for multiple matched keywords
+            if (matchedWords > 1) {
+                matchScore *= (1 + (matchedWords - 1) * 0.3);
+            }
             
             if (matchScore > confidence) {
                 matchedPattern = pattern;
@@ -226,21 +263,21 @@ class TaskManager {
             }
         }
 
-        // Intelligent fallback with context analysis
-        if (!matchedPattern || confidence < 0.3) {
+        // Intelligent fallback with context analysis - only use if confidence is very low
+        if (!matchedPattern || confidence < 0.1) {
             // Analyze context for better fallback
             const contextClues = this._analyzeTaskContext(mainTask);
+            
+            // Create more specific generic tasks based on context
+            const genericSteps = this._createContextualGenericSteps(mainTask, contextClues);
+            
             matchedPattern = {
-                steps: [
-                    { title: 'Analyze the task requirements', priority: 'high', description: 'Understand what needs to be done', confidence: 0.9, estimatedTime: 15 },
-                    { title: 'Plan execution approach', priority: 'high', description: 'Determine the best way to accomplish the task', confidence: 0.8, estimatedTime: 20 },
-                    { title: 'Execute the main task', priority: 'high', description: 'Perform the requested work', confidence: 0.8, estimatedTime: 60 },
-                    { title: 'Verify completion', priority: 'medium', description: 'Ensure the task was completed successfully', confidence: 0.95, estimatedTime: 10 }
-                ],
+                steps: genericSteps,
                 riskLevel: contextClues.riskLevel || 'medium',
                 complexity: contextClues.complexity || 'medium'
             };
             matchedKeyword = 'generic';
+            confidence = 0.3; // Set minimum confidence for generic
         }
 
         console.log(`[TaskManager] Using pattern "${matchedKeyword}" for breakdown (confidence: ${confidence.toFixed(2)})`);
@@ -336,6 +373,47 @@ class TaskManager {
         }
         
         return { riskLevel, complexity };
+    }
+
+    /**
+     * Create contextual generic steps based on task analysis
+     */
+    _createContextualGenericSteps(task, contextClues) {
+        const title = task.title.toLowerCase();
+        const isFileOperation = title.includes('file') || title.includes('review all');
+        const isUIOperation = title.includes('color') || title.includes('design') || title.includes('style') || title.includes('dashboard');
+        const isCodeOperation = title.includes('code') || title.includes('implement') || title.includes('function');
+        
+        if (isUIOperation) {
+            return [
+                { title: 'Locate relevant style and design files', priority: 'high', description: 'Find CSS, HTML, and related files for the UI component', estimatedTime: 15 },
+                { title: 'Analyze current design implementation', priority: 'high', description: 'Review existing styles and design patterns', estimatedTime: 20 },
+                { title: 'Apply requested design changes', priority: 'high', description: 'Implement the specific design modifications', estimatedTime: 30 },
+                { title: 'Test and verify visual changes', priority: 'medium', description: 'Ensure the design changes work correctly', estimatedTime: 15 }
+            ];
+        } else if (isFileOperation) {
+            return [
+                { title: 'Scan and identify relevant project files', priority: 'high', description: 'Locate all files related to the task', estimatedTime: 20 },
+                { title: 'Analyze file contents and structure', priority: 'high', description: 'Review the code and understand the current implementation', estimatedTime: 30 },
+                { title: 'Implement required changes', priority: 'high', description: 'Make the necessary modifications to the files', estimatedTime: 45 },
+                { title: 'Validate changes work correctly', priority: 'medium', description: 'Test that all changes function as expected', estimatedTime: 15 }
+            ];
+        } else if (isCodeOperation) {
+            return [
+                { title: 'Understand code requirements', priority: 'high', description: 'Analyze what needs to be implemented', estimatedTime: 15 },
+                { title: 'Design implementation approach', priority: 'high', description: 'Plan the code structure and logic', estimatedTime: 20 },
+                { title: 'Write and implement code', priority: 'high', description: 'Create the required functionality', estimatedTime: 60 },
+                { title: 'Test implementation', priority: 'medium', description: 'Verify the code works correctly', estimatedTime: 20 }
+            ];
+        } else {
+            // True generic fallback
+            return [
+                { title: 'Analyze the task requirements', priority: 'high', description: 'Understand what needs to be done', estimatedTime: 15 },
+                { title: 'Plan execution approach', priority: 'high', description: 'Determine the best way to accomplish the task', estimatedTime: 20 },
+                { title: 'Execute the main task', priority: 'high', description: 'Perform the requested work', estimatedTime: 60 },
+                { title: 'Verify completion', priority: 'medium', description: 'Ensure the task was completed successfully', estimatedTime: 10 }
+            ];
+        }
     }
 
     /**
