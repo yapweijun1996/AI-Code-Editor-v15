@@ -5,6 +5,8 @@ import * as UI from './ui.js';
 import * as FileSystem from './file_system.js';
 import { initializeEventListeners } from './events.js';
 import { DbManager } from './db.js';
+import { performanceOptimizer } from './performance_optimizer.js';
+import { performanceMonitor } from './performance_monitor.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -55,14 +57,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if ((await savedHandle.queryPermission({ mode: 'readwrite' })) === 'granted') {
             appState.rootDirectoryHandle = savedHandle;
-            appState.rootDirectoryHandle = savedHandle;
-            await UI.refreshFileTree(savedHandle, appState.onFileSelect, appState);
+            
+            // Use progressive loading for better performance
+            performanceOptimizer.startTimer('directoryRestore');
+            
+            // Queue file tree refresh as a background task
+            await performanceOptimizer.addToQueue(async () => {
+                await UI.refreshFileTree(savedHandle, appState.onFileSelect, appState);
+            }, 'high');
 
             const savedState = await DbManager.getSessionState();
             if (savedState) {
-                await Editor.restoreEditorState(savedState.tabs, appState.rootDirectoryHandle, tabBarContainer);
+                // Queue tab restoration as a lower priority task
+                await performanceOptimizer.addToQueue(async () => {
+                    await Editor.restoreEditorState(savedState.tabs, appState.rootDirectoryHandle, tabBarContainer);
+                }, 'normal');
             }
+            
             UI.updateDirectoryButtons(true);
+            performanceOptimizer.endTimer('directoryRestore');
         } else {
             UI.updateDirectoryButtons(false, true);
         }

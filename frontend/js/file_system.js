@@ -169,21 +169,59 @@ export async function searchInDirectory(
 }
 
 
-export const buildTree = async (dirHandle, ignorePatterns, currentPath = '') => {
-    const buildChildren = async (currentDirHandle, pathPrefix) => {
+// Lazy loading configuration
+const LAZY_LOADING_CONFIG = {
+    maxDepth: 2, // Only load 2 levels deep initially
+    maxChildrenPerDirectory: 1000, // Limit children per directory for performance
+    enableProgressiveLoading: true
+};
+
+export const buildTree = async (dirHandle, ignorePatterns, currentPath = '', options = {}) => {
+    const config = { ...LAZY_LOADING_CONFIG, ...options };
+    
+    const buildChildren = async (currentDirHandle, pathPrefix, depth = 0) => {
         const children = [];
+        let childCount = 0;
+        
+        // Progress callback for large directories
+        const progressCallback = options.progressCallback;
+        
         for await (const entry of currentDirHandle.values()) {
+            // Limit children per directory to prevent UI freeze
+            if (childCount >= config.maxChildrenPerDirectory) {
+                console.warn(`Directory ${pathPrefix} has more than ${config.maxChildrenPerDirectory} children. Some files may not be shown.`);
+                children.push({
+                    id: `${pathPrefix}/__more__`,
+                    text: `... (${await countRemainingEntries(currentDirHandle, childCount)} more items)`,
+                    type: 'placeholder',
+                    li_attr: { 'data-path': pathPrefix, 'data-remaining': true }
+                });
+                break;
+            }
+            
             const newPath = pathPrefix ? `${pathPrefix}/${entry.name}` : entry.name;
             if (ignorePatterns.some(pattern => newPath.startsWith(pattern.replace(/\/$/, '')))) {
                 continue;
             }
+            
             if (entry.kind === 'directory') {
-                children.push({
+                const folderNode = {
                     id: newPath,
                     text: entry.name,
                     type: 'folder',
-                    children: await buildChildren(entry, newPath),
-                });
+                    li_attr: { 'data-path': newPath, 'data-handle': entry }
+                };
+                
+                // Lazy loading: only load children up to maxDepth
+                if (depth < config.maxDepth) {
+                    folderNode.children = await buildChildren(entry, newPath, depth + 1);
+                } else {
+                    // Mark as lazy-loadable
+                    folderNode.children = true; // JSTree lazy loading indicator
+                    folderNode.li_attr['data-lazy'] = 'true';
+                }
+                
+                children.push(folderNode);
             } else {
                 children.push({
                     id: newPath,
@@ -192,7 +230,17 @@ export const buildTree = async (dirHandle, ignorePatterns, currentPath = '') => 
                     li_attr: { 'data-path': newPath, 'data-handle': entry },
                 });
             }
+            
+            childCount++;
+            
+            // Progress reporting
+            if (progressCallback && childCount % 50 === 0) {
+                progressCallback(childCount, pathPrefix);
+                // Yield to UI thread periodically
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
         }
+        
         children.sort((a, b) => {
             if (a.type === 'folder' && b.type !== 'folder') return -1;
             if (a.type !== 'folder' && b.type === 'folder') return 1;
@@ -201,7 +249,7 @@ export const buildTree = async (dirHandle, ignorePatterns, currentPath = '') => 
         return children;
     };
 
-    const rootChildren = await buildChildren(dirHandle, '');
+    const rootChildren = await buildChildren(dirHandle, '', 0);
     return [{
         id: dirHandle.name,
         text: dirHandle.name,
@@ -209,6 +257,69 @@ export const buildTree = async (dirHandle, ignorePatterns, currentPath = '') => 
         state: { opened: true },
         children: rootChildren,
     }];
+};
+
+// Helper function to count remaining entries
+async function countRemainingEntries(dirHandle, skipCount) {
+    let count = 0;
+    let current = 0;
+    for await (const entry of dirHandle.values()) {
+        if (current >= skipCount) {
+            count++;
+        }
+        current++;
+    }
+    return count;
+}
+
+// New function for lazy loading directory children
+export const loadDirectoryChildren = async (dirHandle, ignorePatterns, pathPrefix = '') => {
+    const children = [];
+    let childCount = 0;
+    
+    for await (const entry of dirHandle.values()) {
+        if (childCount >= LAZY_LOADING_CONFIG.maxChildrenPerDirectory) {
+            children.push({
+                id: `${pathPrefix}/__more__`,
+                text: `... (${await countRemainingEntries(dirHandle, childCount)} more items)`,
+                type: 'placeholder',
+                li_attr: { 'data-path': pathPrefix, 'data-remaining': true }
+            });
+            break;
+        }
+        
+        const newPath = pathPrefix ? `${pathPrefix}/${entry.name}` : entry.name;
+        if (ignorePatterns.some(pattern => newPath.startsWith(pattern.replace(/\/$/, '')))) {
+            continue;
+        }
+        
+        if (entry.kind === 'directory') {
+            children.push({
+                id: newPath,
+                text: entry.name,
+                type: 'folder',
+                children: true, // Lazy loading indicator
+                li_attr: { 'data-path': newPath, 'data-handle': entry, 'data-lazy': 'true' }
+            });
+        } else {
+            children.push({
+                id: newPath,
+                text: entry.name,
+                type: 'file',
+                li_attr: { 'data-path': newPath, 'data-handle': entry },
+            });
+        }
+        
+        childCount++;
+    }
+    
+    children.sort((a, b) => {
+        if (a.type === 'folder' && b.type !== 'folder') return -1;
+        if (a.type !== 'folder' && b.type === 'folder') return 1;
+        return a.text.localeCompare(b.text);
+    });
+    
+    return children;
 };
 export async function verifyAndRequestPermission(fileHandle, withWrite = false) {
     const options = { mode: withWrite ? 'readwrite' : 'read' };

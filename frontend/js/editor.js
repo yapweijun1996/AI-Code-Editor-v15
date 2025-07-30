@@ -2,6 +2,7 @@ import { getFileHandleFromPath } from './file_system.js';
 import { ChatService } from './chat_service.js';
 import * as UI from './ui.js';
 import { monacoModelManager } from './monaco_model_manager.js';
+import { performanceOptimizer } from './performance_optimizer.js';
 
 const MONACO_CDN_PATH = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs';
 
@@ -186,21 +187,79 @@ export async function openFile(fileHandle, filePath, tabBarContainer, focusEdito
 
     try {
         const file = await fileHandle.getFile();
-        const content = await file.text();
-
-        // Use managed model creation
-        const model = monacoModelManager.getModel(
-            filePath,
-            content,
-            getLanguageFromExtension(file.name.split('.').pop())
-        );
+        const fileSize = file.size;
+        
+        // Performance optimization for large files
+        let content = await file.text();
+        let model;
+        
+        if (fileSize > 600 * 1024) { // Files larger than 600KB
+            console.log(`Opening large file (${Math.round(fileSize / 1024)}KB): ${filePath}`);
+            
+            // Use performance optimizer for large files
+            performanceOptimizer.startTimer(`openFile_${filePath}`);
+            
+            // Process large content in chunks if needed
+            if (content.length > performanceOptimizer.largeFileThreshold) {
+                const result = await performanceOptimizer.processLargeFile(
+                    content,
+                    (chunk) => chunk.content || chunk, // Process chunk content
+                    {
+                        progressCallback: (processed, total) => {
+                            console.log(`Processing file ${filePath}: ${processed}/${total} chunks`);
+                        }
+                    }
+                );
+                
+                if (result.success && result.data.length > 0) {
+                    // Merge processed chunks back to content
+                    content = result.data.join('');
+                }
+            }
+            
+            // Create model with optimizations for large files
+            model = monacoModelManager.getModel(
+                filePath, 
+                content, 
+                getLanguageFromExtension(file.name.split('.').pop())
+            );
+            
+            // Apply Monaco optimizations for large files
+            const editorOptions = performanceOptimizer.optimizeMonacoForLargeFile(model);
+            if (editorOptions && editor) {
+                editor.updateOptions(editorOptions);
+            }
+            
+            performanceOptimizer.endTimer(`openFile_${filePath}`);
+        } else {
+            // Regular file processing
+            model = monacoModelManager.getModel(
+                filePath, 
+                content, 
+                getLanguageFromExtension(file.name.split('.').pop())
+            );
+        }
 
         openFiles.set(filePath, {
             handle: fileHandle,
             name: file.name,
             model: model,
             viewState: null,
+            fileSize: fileSize
         });
+
+        // Limit number of open tabs for memory management  
+        if (openFiles.size > 10) {
+            await performanceOptimizer.performGarbageCollection();
+            
+            // Close least recently used tabs if too many are open
+            const tabsToClose = Array.from(openFiles.keys()).slice(0, openFiles.size - 8);
+            for (const tabPath of tabsToClose) {
+                if (tabPath !== filePath) {
+                    closeTab(tabPath, tabBarContainer, false);
+                }
+            }
+        }
 
         await switchTab(filePath, tabBarContainer, focusEditor);
     } catch (error) {

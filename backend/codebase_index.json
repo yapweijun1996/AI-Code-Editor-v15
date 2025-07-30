@@ -29735,5 +29735,8 @@
     "🛠️ Implementation Guide",
     "**CSS Classes Reference**",
     "**JavaScript API**"
+  ],
+  "frontend/js/large_file_handler.js": [
+    "LargeFileHandler"
   ]
 }

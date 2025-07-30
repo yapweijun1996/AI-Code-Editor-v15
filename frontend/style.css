@@ -26,6 +26,8 @@
   --input-border-light: #ced4da;
   --tool-log-bg-light: #f8f9fa;
   --tool-log-header-bg-light: #e9ecef;
+  --loading-bg-light: #f8f9fa;
+  --loading-text-light: #6c757d;
 
   /* Dark Theme */
   --background-dark: #212529;
@@ -51,6 +53,8 @@
   --input-border-dark: #495057;
   --tool-log-bg-dark: #2c3034;
   --tool-log-header-bg-dark: #343a40;
+  --loading-bg-dark: #2c3034;
+  --loading-text-dark: #adb5bd;
 }
 
 html[data-theme="light"] {
@@ -77,6 +81,8 @@ html[data-theme="light"] {
   --input-border: var(--input-border-light);
   --tool-log-bg: var(--tool-log-bg-light);
   --tool-log-header-bg: var(--tool-log-header-bg-light);
+  --loading-bg: var(--loading-bg-light);
+  --loading-text: var(--loading-text-light);
 }
 
 html[data-theme="dark"] {
@@ -103,6 +109,8 @@ html[data-theme="dark"] {
   --input-border: var(--input-border-dark);
   --tool-log-bg: var(--tool-log-bg-dark);
   --tool-log-header-bg: var(--tool-log-header-bg-dark);
+  --loading-bg: var(--loading-bg-dark);
+  --loading-text: var(--loading-text-dark);
 }
 
 * {
@@ -229,6 +237,74 @@ body.resizing {
 }
 #file-tree .jstree-theme-default .jstree-wholerow-clicked {
     background: var(--primary);
+}
+
+/* Loading indicator styles */
+.loading-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: var(--loading-bg);
+    color: var(--loading-text);
+    font-family: var(--font-family-main);
+    font-size: 14px;
+    border-radius: 4px;
+    margin: 10px;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+.loading-indicator::before {
+    content: "⏳";
+    margin-right: 8px;
+    animation: spin 2s linear infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Large file warning styles */
+.large-file-warning {
+    background: var(--info);
+    color: white;
+    padding: 8px 12px;
+    margin: 5px 0;
+    border-radius: 4px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+}
+
+.large-file-warning::before {
+    content: "⚠️";
+    margin-right: 6px;
+}
+
+/* Performance metrics display */
+.performance-metrics {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background: var(--sidebar-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 11px;
+    color: var(--text);
+    opacity: 0.8;
+    z-index: 1000;
+    display: none;
+}
+
+.performance-metrics.show {
+    display: block;
 }
 
 
