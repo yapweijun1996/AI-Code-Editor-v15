@@ -9,6 +9,8 @@ import * as UI from './ui.js';
 import { performanceOptimizer } from './performance_optimizer.js';
 import { providerOptimizer } from './provider_optimizer.js';
 import { taskManager } from './task_manager.js';
+import { contextAnalyzer } from './context_analyzer.js';
+import { contextBuilder } from './context_builder.js';
 
 export const ChatService = {
     isSending: false,

@@ -13,7 +13,8 @@
     "Interactive Debugging Tools (Conceptual)"
   ],
   "README.md": [
-    "AI-Powered Browser-Based Code Editor",
+    "AI-Powered Browser-Based Code Editor with Senior Engineer AI",
+    "🧠 Senior Engineer AI Capabilities",
     "Core Architecture",
     "Features",
     "Application Workflow",
@@ -29760,5 +29761,59 @@
     "4. Web-Based Git Services",
     "Recommended User Workflow",
     "Future Considerations"
+  ],
+  "docs/SENIOR_ENGINEER_AI.md": [
+    "Senior Engineer AI System",
+    "Overview",
+    "🧠 Core Systems",
+    "1. Symbol Resolution Engine",
+    "2. Data Flow Analysis Engine",
+    "3. Advanced Debugging Intelligence",
+    "4. Code Quality & Architecture Intelligence",
+    "5. Senior Engineer Decision Framework",
+    "🛠️ Available Tools",
+    "Core Analysis Tools",
+    "`build_symbol_table`",
+    "`trace_data_flow`",
+    "Debugging Tools",
+    "`debug_systematically`",
+    "Quality Analysis Tools",
+    "`analyze_code_quality`",
+    "`optimize_code_architecture`",
+    "Problem Solving Tools",
+    "`solve_engineering_problem`",
+    "`get_engineering_insights`",
+    "📊 Quality Metrics",
+    "Code Quality Scoring",
+    "Quality Categories",
+    "🎯 Engineering Best Practices",
+    "SOLID Principles",
+    "Code Quality Standards",
+    "Architecture Patterns",
+    "🚀 Advanced Features",
+    "Learning System",
+    "Contextual Memory",
+    "Adaptive Intelligence",
+    "📈 Performance Monitoring",
+    "Key Metrics Tracked",
+    "Statistics Available",
+    "🔧 Integration",
+    "With Existing Tools",
+    "With Development Workflow",
+    "🎓 Usage Examples",
+    "Debugging a Complex Error",
+    "Optimizing System Architecture",
+    "🔮 Future Enhancements",
+    "Planned Features",
+    "Advanced Capabilities"
+  ],
+  "frontend/js/symbol_resolver.js": [
+    "loadDependencies"
+  ],
+  "frontend/js/data_flow_analyzer.js": [
+    "loadDependencies"
+  ],
+  "frontend/js/code_quality_analyzer.js": [
+    "loadDependencies"
   ]
 }

@@ -1,6 +1,18 @@
-# AI-Powered Browser-Based Code Editor
+# AI-Powered Browser-Based Code Editor with Senior Engineer AI
 
-This project is a sophisticated, browser-based code editor that integrates powerful AI agents to assist with a wide range of coding tasks. The application supports multiple LLM providers including **Google Gemini**, **OpenAI GPT**, and **Ollama**, designed with a secure, client-centric architecture where all file system operations run directly in the browser, providing a seamless and safe user experience.
+This project is a sophisticated, browser-based code editor that integrates **Senior Engineer-level AI capabilities** to assist with advanced coding tasks, systematic debugging, and intelligent problem-solving. The application supports multiple LLM providers including **Google Gemini**, **OpenAI GPT**, and **Ollama**, designed with a secure, client-centric architecture where all file system operations run directly in the browser, providing a seamless and safe user experience.
+
+## 🧠 Senior Engineer AI Capabilities
+
+The editor now includes advanced AI systems that provide senior engineer-level analysis and decision-making:
+
+- **🔍 Advanced Code Analysis**: Deep symbol resolution, data flow tracing, and architectural pattern recognition
+- **🐛 Systematic Debugging**: Hypothesis-driven debugging with root cause analysis and evidence-based testing
+- **📊 Code Quality Intelligence**: Comprehensive quality metrics, code smell detection, and maintainability analysis
+- **🏗️ Architecture Optimization**: Design pattern recognition, anti-pattern detection, and optimization recommendations
+- **🎯 Engineering Problem Solving**: Holistic problem analysis with multiple solution approaches and trade-off evaluation
+
+See [Senior Engineer AI Documentation](docs/SENIOR_ENGINEER_AI.md) for detailed information.
 
 ---
 
@@ -35,11 +47,20 @@ The editor's architecture has been streamlined to use a local Node.js server, si
     *   **Automatic Focus**: When the AI uses a tool like `read_file` or `rewrite_file`, the application automatically opens the relevant file or switches to its existing tab, providing a seamless workflow.
     *   **Stateful UI**: The file tree and open tabs are rendered dynamically, providing a clear and consistent view of the project state.
 *   **Automatic File Opening**: When the AI agent reads, creates, or rewrites a file, it is automatically opened or focused, providing immediate visibility into the agent's actions.
-*   **Comprehensive Tool Suite**: The AI has access to 20+ specialized tools organized by category:
+*   **Comprehensive Tool Suite**: The AI has access to 30+ specialized tools organized by category:
+    
+    **🧠 Senior Engineer AI Tools:**
+    *   `build_symbol_table` - Build comprehensive symbol tables for advanced code analysis
+    *   `trace_data_flow` - Advanced data flow analysis and variable tracking
+    *   `debug_systematically` - Hypothesis-driven systematic debugging
+    *   `analyze_code_quality` - Comprehensive code quality analysis with metrics
+    *   `solve_engineering_problem` - Holistic engineering problem solving
+    *   `get_engineering_insights` - Engineering statistics and insights
+    *   `optimize_code_architecture` - Architecture analysis and optimization
     
     **File Operations:**
     *   `create_file` - Create new files with content
-    *   `read_file` - Read complete files or specific line ranges  
+    *   `read_file` - Read complete files or specific line ranges
     *   `rewrite_file` - Replace entire file contents
     *   `insert_content` - Insert content at specific line numbers
     *   `replace_lines` - Replace specific line ranges

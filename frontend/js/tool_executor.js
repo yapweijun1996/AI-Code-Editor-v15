@@ -14,6 +14,13 @@ import { taskManager, TaskTools } from './task_manager.js';
 import { performanceOptimizer } from './performance_optimizer.js';
 import { providerOptimizer } from './provider_optimizer.js';
 
+// Senior Engineer AI System Imports
+import { symbolResolver } from './symbol_resolver.js';
+import { dataFlowAnalyzer } from './data_flow_analyzer.js';
+import { debuggingIntelligence } from './debugging_intelligence.js';
+import { codeQualityAnalyzer } from './code_quality_analyzer.js';
+import { seniorEngineerAI } from './senior_engineer_ai.js';
+
 // Smart debugging and optimization state
 const debuggingState = {
     recentErrors: new Map(), // Track recent errors for pattern detection
@@ -1778,6 +1785,246 @@ async function _analyzeSymbol({ symbol_name, file_path }, rootHandle) {
     return { analysis };
 }
 
+// --- Senior Engineer AI Tools ---
+
+async function _buildSymbolTable({ file_path }, rootHandle) {
+    if (!file_path) throw new Error("The 'file_path' parameter is required.");
+    
+    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, file_path);
+    const file = await fileHandle.getFile();
+    const content = await file.text();
+    
+    const symbolTable = await symbolResolver.buildSymbolTable(content, file_path);
+    
+    return {
+        message: `Symbol table built for ${file_path}`,
+        symbolTable: {
+            symbols: symbolTable.symbols.size,
+            functions: symbolTable.functions.length,
+            classes: symbolTable.classes.length,
+            imports: symbolTable.imports.length,
+            exports: symbolTable.exports.length
+        }
+    };
+}
+
+async function _traceDataFlow({ variable_name, file_path, line }, rootHandle) {
+    if (!variable_name) throw new Error("The 'variable_name' parameter is required.");
+    if (!file_path) throw new Error("The 'file_path' parameter is required.");
+    
+    const startLine = line || 1;
+    const flowInfo = await dataFlowAnalyzer.traceVariableFlow(variable_name, file_path, startLine);
+    
+    return {
+        message: `Data flow traced for variable '${variable_name}'`,
+        flow: {
+            definitions: flowInfo.definitions.length,
+            usages: flowInfo.usages.length,
+            mutations: flowInfo.mutations.length,
+            crossFileFlows: flowInfo.crossFileFlows.length,
+            dataTypes: Array.from(flowInfo.dataTypes),
+            complexity: dataFlowAnalyzer.calculateFlowComplexity ?
+                       dataFlowAnalyzer.calculateFlowComplexity(flowInfo) : 'N/A'
+        },
+        details: flowInfo
+    };
+}
+
+async function _debugSystematically({ error_message, file_path, line, stack_trace }, rootHandle) {
+    if (!error_message) throw new Error("The 'error_message' parameter is required.");
+    
+    const error = new Error(error_message);
+    if (stack_trace) error.stack = stack_trace;
+    
+    const codeContext = {
+        filePath: file_path,
+        line: line || 1
+    };
+    
+    const debuggingResult = await debuggingIntelligence.debugSystematically(error, codeContext);
+    
+    return {
+        message: `Systematic debugging completed for: ${error_message}`,
+        session: {
+            id: debuggingResult.session.id,
+            status: debuggingResult.session.status,
+            rootCause: debuggingResult.rootCause,
+            hypothesesTested: debuggingResult.hypotheses.length,
+            solution: debuggingResult.solution
+        },
+        recommendation: debuggingResult.recommendation
+    };
+}
+
+async function _analyzeCodeQuality({ file_path }, rootHandle) {
+    if (!file_path) throw new Error("The 'file_path' parameter is required.");
+    
+    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, file_path);
+    const file = await fileHandle.getFile();
+    const content = await file.text();
+    
+    const qualityMetrics = await codeQualityAnalyzer.analyzeCodeQuality(file_path, content);
+    
+    return {
+        message: `Code quality analysis completed for ${file_path}`,
+        quality: {
+            overallScore: qualityMetrics.overallScore,
+            category: codeQualityAnalyzer.categorizeQualityScore(qualityMetrics.overallScore),
+            complexity: {
+                average: qualityMetrics.complexity.averageComplexity,
+                max: qualityMetrics.complexity.maxComplexity,
+                functions: qualityMetrics.complexity.functions.length
+            },
+            maintainability: {
+                index: qualityMetrics.maintainability.index,
+                category: qualityMetrics.maintainability.category
+            },
+            issues: {
+                codeSmells: qualityMetrics.codeSmells.length,
+                security: qualityMetrics.security.length,
+                performance: qualityMetrics.performance.length
+            }
+        },
+        recommendations: codeQualityAnalyzer.getTopRecommendations(qualityMetrics)
+    };
+}
+
+async function _solveEngineeringProblem({ problem_description, file_path, priority, constraints }, rootHandle) {
+    if (!problem_description) throw new Error("The 'problem_description' parameter is required.");
+    
+    const problem = {
+        description: problem_description,
+        priority: priority || 'medium',
+        constraints: constraints || []
+    };
+    
+    const codeContext = {
+        filePath: file_path
+    };
+    
+    if (file_path) {
+        try {
+            const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, file_path);
+            const file = await fileHandle.getFile();
+            codeContext.content = await file.text();
+        } catch (error) {
+            console.warn(`Could not read file ${file_path}:`, error.message);
+        }
+    }
+    
+    const solutionSession = await seniorEngineerAI.solveProblemSystematically(problem, codeContext);
+    
+    return {
+        message: `Engineering problem analysis completed: ${problem_description}`,
+        solution: {
+            sessionId: solutionSession.id,
+            status: solutionSession.status,
+            problemType: solutionSession.analysis?.problemType,
+            complexity: solutionSession.analysis?.complexity?.category,
+            selectedApproach: solutionSession.selectedSolution?.approach,
+            feasibility: solutionSession.selectedSolution?.evaluation?.feasibility,
+            riskLevel: solutionSession.selectedSolution?.evaluation?.riskLevel,
+            estimatedTime: solutionSession.implementation?.detailedSteps?.length || 0
+        },
+        recommendations: solutionSession.selectedSolution?.evaluation?.reasoning || [],
+        implementation: solutionSession.implementation ? {
+            phases: solutionSession.implementation.detailedSteps.map(step => step.phase).filter((phase, index, arr) => arr.indexOf(phase) === index),
+            totalSteps: solutionSession.implementation.detailedSteps.length,
+            testingRequired: solutionSession.implementation.testingPlan.length > 0
+        } : null
+    };
+}
+
+async function _getEngineeringInsights({ file_path }, rootHandle) {
+    const insights = {
+        symbolResolution: symbolResolver.getStatistics(),
+        dataFlowAnalysis: dataFlowAnalyzer.getStatistics(),
+        debuggingIntelligence: debuggingIntelligence.getDebuggingStatistics(),
+        engineeringDecisions: seniorEngineerAI.getEngineeringStatistics()
+    };
+    
+    if (file_path) {
+        // Get file-specific insights
+        const qualitySummary = codeQualityAnalyzer.getQualitySummary(file_path);
+        if (qualitySummary) {
+            insights.fileQuality = qualitySummary;
+        }
+    } else {
+        // Get project-wide insights
+        insights.projectQuality = codeQualityAnalyzer.getProjectQualityStatistics();
+    }
+    
+    return {
+        message: file_path ? `Engineering insights for ${file_path}` : 'Project-wide engineering insights',
+        insights
+    };
+}
+
+async function _optimizeCodeArchitecture({ file_path, optimization_goals }, rootHandle) {
+    if (!file_path) throw new Error("The 'file_path' parameter is required.");
+    
+    const goals = optimization_goals || ['maintainability', 'performance', 'readability'];
+    
+    // Analyze current state
+    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, file_path);
+    const file = await fileHandle.getFile();
+    const content = await file.text();
+    
+    const qualityMetrics = await codeQualityAnalyzer.analyzeCodeQuality(file_path, content);
+    const symbolTable = await symbolResolver.buildSymbolTable(content, file_path);
+    
+    // Generate optimization recommendations
+    const optimizations = [];
+    
+    // Check complexity issues
+    const complexFunctions = qualityMetrics.complexity.functions.filter(f => f.category === 'high' || f.category === 'critical');
+    if (complexFunctions.length > 0) {
+        optimizations.push({
+            type: 'complexity_reduction',
+            priority: 'high',
+            description: `${complexFunctions.length} functions have high complexity`,
+            recommendations: complexFunctions.flatMap(f => f.recommendations || [])
+        });
+    }
+    
+    // Check code smells
+    const criticalSmells = qualityMetrics.codeSmells.filter(smell => smell.severity === 'critical' || smell.severity === 'high');
+    if (criticalSmells.length > 0) {
+        optimizations.push({
+            type: 'code_smell_removal',
+            priority: 'medium',
+            description: `${criticalSmells.length} critical code smells detected`,
+            recommendations: criticalSmells.map(smell => smell.recommendation)
+        });
+    }
+    
+    // Check architectural patterns
+    if (qualityMetrics.architecture.detected.length === 0 && symbolTable.classes.length > 0) {
+        optimizations.push({
+            type: 'architectural_patterns',
+            priority: 'medium',
+            description: 'No design patterns detected - consider implementing appropriate patterns',
+            recommendations: qualityMetrics.architecture.recommendations
+        });
+    }
+    
+    return {
+        message: `Architecture optimization analysis completed for ${file_path}`,
+        currentState: {
+            qualityScore: qualityMetrics.overallScore,
+            complexity: qualityMetrics.complexity.averageComplexity,
+            maintainability: qualityMetrics.maintainability.index,
+            issues: qualityMetrics.codeSmells.length + qualityMetrics.security.length + qualityMetrics.performance.length
+        },
+        optimizations,
+        estimatedImpact: {
+            qualityImprovement: optimizations.length * 10, // Rough estimate
+            maintenanceReduction: optimizations.filter(o => o.type === 'complexity_reduction').length * 20,
+            riskReduction: optimizations.filter(o => o.priority === 'high').length * 15
+        }
+    };
+}
+
 async function _explainCodeSection({ file_path, start_line, end_line }, rootHandle) {
     if (!file_path) throw new Error("The 'file_path' parameter is required.");
     if (typeof start_line !== 'number') throw new Error("The 'start_line' parameter is required and must be a number.");
@@ -1846,6 +2093,15 @@ const toolRegistry = {
     explain_code_section: { handler: _explainCodeSection, requiresProject: true, createsCheckpoint: false },
     trace_variable_flow: { handler: _traceVariableFlow, requiresProject: true, createsCheckpoint: false },
     validate_syntax: { handler: _validateSyntax, requiresProject: true, createsCheckpoint: false },
+    
+    // Senior Engineer AI Tools
+    build_symbol_table: { handler: _buildSymbolTable, requiresProject: true, createsCheckpoint: false },
+    trace_data_flow: { handler: _traceDataFlow, requiresProject: true, createsCheckpoint: false },
+    debug_systematically: { handler: _debugSystematically, requiresProject: false, createsCheckpoint: false },
+    analyze_code_quality: { handler: _analyzeCodeQuality, requiresProject: true, createsCheckpoint: false },
+    solve_engineering_problem: { handler: _solveEngineeringProblem, requiresProject: false, createsCheckpoint: false },
+    get_engineering_insights: { handler: _getEngineeringInsights, requiresProject: false, createsCheckpoint: false },
+    optimize_code_architecture: { handler: _optimizeCodeArchitecture, requiresProject: true, createsCheckpoint: false },
     
     // REMOVED: Precise code modification tools - simplified to use rewrite_file only
     read_file: { handler: _readFile, requiresProject: true, createsCheckpoint: false },
@@ -2074,7 +2330,7 @@ export function getToolDefinitions() {
             { name: 'append_to_file', description: "Fast append content to end of file without reading full content. Ideal for logs, incremental updates.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'Content to append. Will add newline separator automatically.' } }, required: ['filename', 'content'] } },
             { name: 'get_file_info', description: "Get file metadata (size, last modified, type) without reading content. Use before editing large files.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
             { name: 'rewrite_file', description: "DEPRECATED. Use 'edit_file' instead. This tool rewrites an entire file.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'The new, raw text content of the file. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'content'] } },
-            { name: 'apply_diff', description: "🔧 RECOMMENDED: Apply precise, surgical changes to files using diff blocks. This is the safest and most reliable way to edit files. Use this instead of edit_file when you need to make targeted changes. CRITICAL: The diff parameter must contain properly formatted diff blocks. Example format:\n\n<<<<<<< SEARCH\n:start_line:10\n-------\nold code here\n=======\nnew code here\n>>>>>>> REPLACE\n\nIMPORTANT: Each line must be exact, including whitespace and indentation. Use read_file with include_line_numbers=true first to get accurate line numbers and content.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING', description: 'Path to the file to modify' }, diff: { type: 'STRING', description: 'One or more diff blocks in the exact format shown above. Each block must specify the exact content to search for and replace, with proper line numbers.' } }, required: ['filename', 'diff'] } },
+            { name: 'apply_diff', description: "🔧 RECOMMENDED: Apply precise, surgical changes to files using diff blocks. This is the safest and most reliable way to edit files. Use this instead of edit_file when you need to make targeted changes. CRITICAL: The diff parameter must contain properly formatted diff blocks with EXACT format:\n\n<<<<<<< SEARCH\n:start_line:10\n-------\nold code here\n=======\nnew code here\n>>>>>>> REPLACE\n\nMANDATORY REQUIREMENTS:\n1. Must include ':start_line:N' where N is the line number\n2. Must include '-------' separator line after start_line\n3. Must include '=======' separator between old and new content\n4. Each line must be exact, including whitespace and indentation\n5. Use read_file with include_line_numbers=true first to get accurate content", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING', description: 'Path to the file to modify' }, diff: { type: 'STRING', description: 'One or more diff blocks in the EXACT format: <<<<<<< SEARCH\\n:start_line:N\\n-------\\nold content\\n=======\\nnew content\\n>>>>>>> REPLACE. The -------  separator line is MANDATORY.' } }, required: ['filename', 'diff'] } },
             
             // --- Unified Task Management System ---
             { name: 'task_create', description: "Creates a new task. This is the starting point for any new goal.", parameters: { type: 'OBJECT', properties: { title: { type: 'STRING' }, description: { type: 'STRING' }, priority: { type: 'STRING', enum: ['low', 'medium', 'high', 'urgent'] }, parentId: { type: 'STRING' }, listId: { type: 'STRING' } }, required: ['title'] } },
@@ -2089,6 +2345,15 @@ export function getToolDefinitions() {
             { name: 'explain_code_section', description: 'Provides detailed explanation of a complex code section including complexity analysis, symbols, and control flow.', parameters: { type: 'OBJECT', properties: { file_path: { type: 'STRING' }, start_line: { type: 'NUMBER' }, end_line: { type: 'NUMBER' } }, required: ['file_path', 'start_line', 'end_line'] } },
             { name: 'trace_variable_flow', description: 'Traces the data flow of a variable through the codebase to understand how data moves and transforms.', parameters: { type: 'OBJECT', properties: { variable_name: { type: 'STRING' }, file_path: { type: 'STRING' } }, required: ['variable_name', 'file_path'] } },
             { name: 'validate_syntax', description: 'Validates the syntax of a file and provides detailed errors, warnings, and suggestions.', parameters: { type: 'OBJECT', properties: { file_path: { type: 'STRING' } }, required: ['file_path'] } },
+            
+            // Senior Engineer AI Tools
+            { name: 'build_symbol_table', description: '🧠 SENIOR ENGINEER: Build comprehensive symbol table for advanced code analysis. Creates detailed mapping of all symbols, functions, classes, imports, and exports in a file.', parameters: { type: 'OBJECT', properties: { file_path: { type: 'STRING', description: 'Path to the file to analyze' } }, required: ['file_path'] } },
+            { name: 'trace_data_flow', description: '🧠 SENIOR ENGINEER: Advanced data flow analysis that traces how variables flow through the codebase. Identifies definitions, usages, mutations, and cross-file dependencies.', parameters: { type: 'OBJECT', properties: { variable_name: { type: 'STRING', description: 'Name of the variable to trace' }, file_path: { type: 'STRING', description: 'Starting file path' }, line: { type: 'NUMBER', description: 'Starting line number (optional)' } }, required: ['variable_name', 'file_path'] } },
+            { name: 'debug_systematically', description: '🧠 SENIOR ENGINEER: Systematic debugging using hypothesis-driven approach. Analyzes errors, generates hypotheses, tests them systematically, and provides root cause analysis.', parameters: { type: 'OBJECT', properties: { error_message: { type: 'STRING', description: 'The error message to debug' }, file_path: { type: 'STRING', description: 'File where error occurred (optional)' }, line: { type: 'NUMBER', description: 'Line number where error occurred (optional)' }, stack_trace: { type: 'STRING', description: 'Full stack trace (optional)' } }, required: ['error_message'] } },
+            { name: 'analyze_code_quality', description: '🧠 SENIOR ENGINEER: Comprehensive code quality analysis including complexity, maintainability, code smells, security vulnerabilities, and performance issues.', parameters: { type: 'OBJECT', properties: { file_path: { type: 'STRING', description: 'Path to the file to analyze' } }, required: ['file_path'] } },
+            { name: 'solve_engineering_problem', description: '🧠 SENIOR ENGINEER: Holistic engineering problem solving. Analyzes problems comprehensively, generates multiple solutions, evaluates trade-offs, and provides implementation plans.', parameters: { type: 'OBJECT', properties: { problem_description: { type: 'STRING', description: 'Detailed description of the engineering problem' }, file_path: { type: 'STRING', description: 'Related file path (optional)' }, priority: { type: 'STRING', description: 'Problem priority: low, medium, high, critical', enum: ['low', 'medium', 'high', 'critical'] }, constraints: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Any constraints or limitations (optional)' } }, required: ['problem_description'] } },
+            { name: 'get_engineering_insights', description: '🧠 SENIOR ENGINEER: Get comprehensive engineering insights and statistics about code quality, debugging patterns, and decision-making effectiveness.', parameters: { type: 'OBJECT', properties: { file_path: { type: 'STRING', description: 'Specific file to analyze (optional - if omitted, provides project-wide insights)' } } } },
+            { name: 'optimize_code_architecture', description: '🧠 SENIOR ENGINEER: Analyze and optimize code architecture. Identifies architectural issues, suggests design patterns, and provides optimization recommendations.', parameters: { type: 'OBJECT', properties: { file_path: { type: 'STRING', description: 'Path to the file to optimize' }, optimization_goals: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Optimization goals: maintainability, performance, readability, security (optional)' } }, required: ['file_path'] } },
             
             // Smart editing system - efficient for both small and large files
         ],

@@ -109,6 +109,36 @@ export function initializeEditor(editorContainer, tabBarContainer, appState) {
             // Initial render
             renderTabs(tabBarContainer, onTabClick, onTabClose);
 
+            // Register the AI fix action FIRST before the code lens provider references it
+            editor.addAction({
+                id: "editor.action.fixErrorWithAI",
+                label: "Fix Error with AI",
+                contextMenuGroupId: "navigation",
+                contextMenuOrder: 1.5,
+                run: function(ed, marker) {
+                    const model = ed.getModel();
+                    const lineContent = model.getLineContent(marker.startLineNumber);
+                    
+                    // Automatically select the full line of the error
+                    const selection = new monaco.Selection(marker.startLineNumber, 1, marker.startLineNumber, model.getLineMaxColumn(marker.startLineNumber));
+                    ed.setSelection(selection);
+
+                    const prompt = `The following line of code in the file "${getActiveFilePath()}" on line ${marker.startLineNumber} has an error:\n\n` +
+                                   `\`\`\`\n${lineContent}\n\`\`\`\n\n` +
+                                   `The error message is: "${marker.message}".\n\n` +
+                                   `Please provide the corrected code to replace this line. Use the 'replace_selected_text' tool.`;
+
+                    const chatInput = document.getElementById('chat-input');
+                    const chatMessages = document.getElementById('chat-messages');
+                    const chatSendButton = document.getElementById('chat-send-button');
+                    const chatCancelButton = document.getElementById('chat-cancel-button');
+                    const thinkingIndicator = document.getElementById('thinking-indicator');
+                    
+                    chatInput.value = prompt;
+                    ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, null, appState.clearImagePreview);
+                }
+            });
+
             if (codeLensProvider) {
                 codeLensProvider.dispose();
             }
@@ -142,35 +172,6 @@ export function initializeEditor(editorContainer, tabBarContainer, appState) {
                 },
                 resolveCodeLens: function(model, codeLens, token) {
                     return codeLens;
-                }
-            });
-
-            editor.addAction({
-                id: "editor.action.fixErrorWithAI",
-                label: "Fix Error with AI",
-                contextMenuGroupId: "navigation",
-                contextMenuOrder: 1.5,
-                run: function(ed, marker) {
-                    const model = ed.getModel();
-                    const lineContent = model.getLineContent(marker.startLineNumber);
-                    
-                    // Automatically select the full line of the error
-                    const selection = new monaco.Selection(marker.startLineNumber, 1, marker.startLineNumber, model.getLineMaxColumn(marker.startLineNumber));
-                    ed.setSelection(selection);
-
-                    const prompt = `The following line of code in the file "${getActiveFilePath()}" on line ${marker.startLineNumber} has an error:\n\n` +
-                                   `\`\`\`\n${lineContent}\n\`\`\`\n\n` +
-                                   `The error message is: "${marker.message}".\n\n` +
-                                   `Please provide the corrected code to replace this line. Use the 'replace_selected_text' tool.`;
-
-                    const chatInput = document.getElementById('chat-input');
-                    const chatMessages = document.getElementById('chat-messages');
-                    const chatSendButton = document.getElementById('chat-send-button');
-                    const chatCancelButton = document.getElementById('chat-cancel-button');
-                    const thinkingIndicator = document.getElementById('thinking-indicator');
-                    
-                    chatInput.value = prompt;
-                    ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, null, appState.clearImagePreview);
                 }
             });
 
