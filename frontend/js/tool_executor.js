@@ -195,7 +195,7 @@ async function _getProjectStructure(params, rootHandle) {
     return { structure };
 }
 
-async function _readFile({ filename }, rootHandle) {
+async function _readFile({ filename, include_line_numbers = false }, rootHandle) {
     if (!filename) throw new Error("The 'filename' parameter is required for read_file.");
     const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
     const file = await fileHandle.getFile();
@@ -217,9 +217,13 @@ async function _readFile({ filename }, rootHandle) {
     }
 
     const content = await file.text();
-    const cleanContent = unescapeHtmlEntities(content);
-    // There seems to be an issue with the return value being mutated.
-    // Creating a new object explicitly can prevent this.
+    let cleanContent = unescapeHtmlEntities(content);
+
+    if (include_line_numbers) {
+        const lines = cleanContent.split('\n');
+        cleanContent = lines.map((line, index) => `${index + 1} | ${line}`).join('\n');
+    }
+    
     const result = { content: cleanContent };
     return result;
 }
@@ -238,16 +242,19 @@ async function _readFileLines({ filename, start_line, end_line }, rootHandle) {
     const content = await file.text();
     const lines = content.split('\n');
     
-    // Clamp the line numbers to the file's bounds
     const clampedStart = Math.max(1, start_line);
     const clampedEnd = Math.min(lines.length, end_line);
 
     if (clampedStart > clampedEnd) {
-        return { content: '' }; // Return empty if the range is invalid after clamping
+        return { content: '' };
     }
 
     const selectedLines = lines.slice(clampedStart - 1, clampedEnd);
-    return { content: selectedLines.join('\n') };
+    
+    // Always include line numbers in the output of this tool
+    const numberedLines = selectedLines.map((line, index) => `${clampedStart + index} | ${line}`);
+    
+    return { content: numberedLines.join('\n') };
 }
 
 async function _searchInFile({ filename, pattern, context = 2 }, rootHandle) {
@@ -1452,9 +1459,9 @@ export function getToolDefinitions() {
             { name: 'delete_folder', description: "Deletes a folder and all its contents. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { folder_path: { type: 'STRING' } }, required: ['folder_path'] } },
             { name: 'rename_folder', description: "Renames a folder. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { old_folder_path: { type: 'STRING' }, new_folder_path: { type: 'STRING' } }, required: ['old_folder_path', 'new_folder_path'] } },
             { name: 'rename_file', description: "Renames a file. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { old_path: { type: 'STRING' }, new_path: { type: 'STRING' } }, required: ['old_path', 'new_path'] } },
-            { name: 'read_file', description: "Reads a file's content. CRITICAL: Do NOT include the root directory name in the path. Example: To read 'src/app.js', the path is 'src/app.js'.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
+            { name: 'read_file', description: "Reads a file's content. To ensure accuracy when editing, set 'include_line_numbers' to true. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, include_line_numbers: { type: 'BOOLEAN', description: 'Set to true to prepend line numbers to each line of the output.' } }, required: ['filename'] } },
             { name: 'read_multiple_files', description: "Reads and concatenates the content of multiple files. Essential for multi-file context tasks.", parameters: { type: 'OBJECT', properties: { filenames: { type: 'ARRAY', items: { type: 'STRING' } } }, required: ['filenames'] } },
-            { name: 'read_file_lines', description: 'Reads a specific range of lines from a file. Use for quick inspection or exploring large files. For gathering context to fix an error, prefer `read_file`.', parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, start_line: { type: 'NUMBER' }, end_line: { type: 'NUMBER' } }, required: ['filename', 'start_line', 'end_line'] } },
+            { name: 'read_file_lines', description: 'Reads a specific range of lines from a file. Output will always include line numbers. Use for quick inspection of specific code sections.', parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, start_line: { type: 'NUMBER' }, end_line: { type: 'NUMBER' } }, required: ['filename', 'start_line', 'end_line'] } },
             { name: 'search_in_file', description: 'Searches for a pattern in a file and returns matching lines. Use this for large files.', parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, pattern: { type: 'STRING' }, context: { type: 'NUMBER' } }, required: ['filename', 'pattern'] } },
             { name: 'read_url', description: 'Reads and extracts the main content and all links from a given URL. The result will be a JSON object with "content" and "links" properties.', parameters: { type: 'OBJECT', properties: { url: { type: 'STRING' } }, required: ['url'] } },
             { name: 'get_open_file_content', description: 'Gets the content of the currently open file in the editor.' },
