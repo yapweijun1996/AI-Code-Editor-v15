@@ -1,4 +1,4 @@
-import { buildTree, getIgnorePatterns, loadDirectoryChildren, getFileHandleFromPath } from './file_system.js';
+import { buildTree, getIgnorePatterns, loadDirectoryChildren, getFileHandleFromPath, getDirectoryHandleFromPath } from './file_system.js';
 import { Settings, dispatchLLMSettingsUpdated } from './settings.js';
 
 export function initResizablePanels(editor) {
@@ -126,7 +126,7 @@ async function lazyLoadFolderChildren(node, appState) {
         tree.set_text(node, `${node.text} (loading...)`);
         
         // Get directory handle
-        const dirHandle = await getFileHandleFromPath(appState.rootDirectoryHandle, path);
+        const dirHandle = await getDirectoryHandleFromPath(appState.rootDirectoryHandle, path);
         const ignorePatterns = await getIgnorePatterns(appState.rootDirectoryHandle);
         
         // Load children
@@ -167,7 +167,7 @@ async function loadMoreFiles(node, appState) {
         try {
             // Get parent directory handle
             const dirHandle = path ? 
-                await getFileHandleFromPath(appState.rootDirectoryHandle, path) : 
+                await getDirectoryHandleFromPath(appState.rootDirectoryHandle, path) :
                 appState.rootDirectoryHandle;
             
             // Try to load more items progressively

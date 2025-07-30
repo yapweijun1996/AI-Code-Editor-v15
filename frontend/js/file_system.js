@@ -45,7 +45,7 @@ export async function createDirectoryFromPath(dirHandle, path) {
     return currentHandle;
 }
 
-async function getDirectoryHandleFromPath(dirHandle, path) {
+export async function getDirectoryHandleFromPath(dirHandle, path) {
     const parts = path.split('/').filter((p) => p);
     let currentHandle = dirHandle;
     for (const part of parts) {
@@ -195,7 +195,11 @@ export const buildTree = async (dirHandle, ignorePatterns, currentPath = '', opt
                     id: `${pathPrefix}/__more__`,
                     text: `... (${await countRemainingEntries(currentDirHandle, childCount)} more items)`,
                     type: 'placeholder',
-                    li_attr: { 'data-path': pathPrefix, 'data-remaining': true }
+                    li_attr: {
+                        'data-path': pathPrefix,
+                        'data-remaining': await countRemainingEntries(currentDirHandle, childCount),
+                        'data-loaded': config.maxChildrenPerDirectory
+                    }
                 });
                 break;
             }
@@ -284,7 +288,11 @@ export const loadDirectoryChildren = async (dirHandle, ignorePatterns, pathPrefi
                 id: `${pathPrefix}/__more__`,
                 text: `... (${await countRemainingEntries(dirHandle, childCount)} more items)`,
                 type: 'placeholder',
-                li_attr: { 'data-path': pathPrefix, 'data-remaining': true }
+                li_attr: {
+                    'data-path': pathPrefix,
+                    'data-remaining': await countRemainingEntries(dirHandle, childCount),
+                    'data-loaded': LAZY_LOADING_CONFIG.maxChildrenPerDirectory
+                }
             });
             break;
         }
