@@ -173,6 +173,7 @@ export async function searchInDirectory(
 const LAZY_LOADING_CONFIG = {
     maxDepth: 2, // Only load 2 levels deep initially
     maxChildrenPerDirectory: 1000, // Limit children per directory for performance
+    batchSize: 500, // Load files in batches of 500
     enableProgressiveLoading: true
 };
 

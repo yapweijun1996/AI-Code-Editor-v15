@@ -155,21 +155,135 @@ async function loadMoreFiles(node, appState) {
         const tree = $('#file-tree').jstree(true);
         const path = node.li_attr['data-path'];
         
-        // Get parent directory handle and load more files
-        const dirHandle = await getFileHandleFromPath(appState.rootDirectoryHandle, path);
-        const ignorePatterns = await getIgnorePatterns(appState.rootDirectoryHandle);
+        if (!path || !appState.rootDirectoryHandle) {
+            console.error('Missing path or root directory handle');
+            tree.set_text(node, '❌ Error: Missing directory information');
+            return;
+        }
         
-        // Load next batch of files (implementation would need to track offset)
-        // For now, just show a message
-        tree.set_text(node, 'Loading more files...');
+        // Show loading state
+        tree.set_text(node, '📁 Loading more files...');
         
-        // This would load the next batch in a real implementation
-        setTimeout(() => {
-            tree.delete_node(node);
-        }, 1000);
+        try {
+            // Get parent directory handle
+            const dirHandle = path ? 
+                await getFileHandleFromPath(appState.rootDirectoryHandle, path) : 
+                appState.rootDirectoryHandle;
+            
+            // Try to load more items progressively
+            try {
+                const remainingCount = parseInt(node.li_attr['data-remaining']) || 0;
+                
+                if (remainingCount > 0) {
+                    // Load more files directly from directory
+                    const batchSize = Math.min(500, remainingCount);
+                    const currentLoaded = parseInt(node.li_attr['data-loaded']) || 1000;
+                    
+                    const ignorePatterns = await getIgnorePatterns(appState.rootDirectoryHandle);
+                    const children = [];
+                    let loadedCount = 0;
+                    let processedCount = 0;
+                    
+                    // Get entries and skip the ones already loaded
+                    for await (const entry of dirHandle.values()) {
+                        processedCount++;
+                        
+                        // Skip entries we've already loaded
+                        if (processedCount <= currentLoaded) {
+                            continue;
+                        }
+                        
+                        const newPath = path ? `${path}/${entry.name}` : entry.name;
+                        
+                        // Skip ignored files
+                        if (ignorePatterns.some(pattern => newPath.startsWith(pattern.replace(/\/$/, '')))) {
+                            continue;
+                        }
+                        
+                        // Create child node
+                        const childNode = {
+                            id: newPath,
+                            text: entry.name,
+                            type: entry.kind === 'directory' ? 'folder' : 'file',
+                            li_attr: { 'data-path': newPath, 'data-handle': entry }
+                        };
+                        
+                        if (entry.kind === 'directory') {
+                            childNode.children = true; // Lazy loading
+                            childNode.li_attr['data-lazy'] = 'true';
+                        }
+                        
+                        children.push(childNode);
+                        loadedCount++;
+                        
+                        // Stop when we've loaded enough for this batch
+                        if (loadedCount >= batchSize) {
+                            break;
+                        }
+                    }
+                    
+                    // Sort children
+                    children.sort((a, b) => {
+                        if (a.type === 'folder' && b.type !== 'folder') return -1;
+                        if (a.type !== 'folder' && b.type === 'folder') return 1;
+                        return a.text.localeCompare(b.text);
+                    });
+                    
+                    // Add children to tree
+                    const parentNode = tree.get_parent(node);
+                    for (const child of children) {
+                        tree.create_node(parentNode, child, node);
+                    }
+                    
+                    // Update the load more node
+                    const newLoaded = currentLoaded + loadedCount;
+                    const newRemaining = Math.max(0, remainingCount - loadedCount);
+                    
+                    if (newRemaining > 0) {
+                        tree.set_text(node, `📁 Load ${newRemaining} more items...`);
+                        node.li_attr['data-loaded'] = newLoaded;
+                        node.li_attr['data-remaining'] = newRemaining;
+                    } else {
+                        tree.set_text(node, '✅ All items loaded');
+                        setTimeout(() => {
+                            tree.delete_node(node);
+                        }, 1500);
+                    }
+                } else {
+                    // No more items to load
+                    tree.set_text(node, '✅ All items loaded');
+                    setTimeout(() => {
+                        tree.delete_node(node);
+                    }, 1500);
+                }
+            } catch (loadError) {
+                console.error('Error in progressive loading:', loadError);
+                tree.set_text(node, '❌ Error loading more files');
+                setTimeout(() => {
+                    tree.delete_node(node);
+                }, 3000);
+            }
+            
+        } catch (fileError) {
+            console.error('File system error:', fileError);
+            tree.set_text(node, '❌ Error loading files');
+            
+            // Try to recover by removing the problematic node
+            setTimeout(() => {
+                try {
+                    tree.delete_node(node);
+                } catch (deleteError) {
+                    console.error('Error removing node:', deleteError);
+                }
+            }, 3000);
+        }
         
     } catch (error) {
         console.error('Error loading more files:', error);
+        const tree = $('#file-tree').jstree(true);
+        if (tree && node) {
+            tree.set_text(node, '❌ Load failed');
+        }
     }
 }
 

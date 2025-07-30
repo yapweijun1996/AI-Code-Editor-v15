@@ -7,6 +7,8 @@ import { initializeEventListeners } from './events.js';
 import { DbManager } from './db.js';
 import { performanceOptimizer } from './performance_optimizer.js';
 import { performanceMonitor } from './performance_monitor.js';
+import { progressiveLoader } from './progressive_loader.js';
+import { fileTreeSearch } from './file_tree_search.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -37,6 +39,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         handleRenameEntry: null,
         handleDeleteEntry: null,
     };
+
+    // Make appState and modules globally available for compatibility
+    window.appState = appState;
+    window.progressiveLoader = progressiveLoader;
+    window.fileTreeSearch = fileTreeSearch;
 
     // --- Initialization ---
     appState.editor = await Editor.initializeEditor(editorContainer, tabBarContainer);
