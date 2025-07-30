@@ -29738,5 +29738,8 @@
   ],
   "frontend/js/large_file_handler.js": [
     "LargeFileHandler"
+  ],
+  "frontend\\js\\large_file_handler.js": [
+    "LargeFileHandler"
   ]
 }
