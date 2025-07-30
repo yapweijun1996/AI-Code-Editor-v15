@@ -29731,5 +29731,8 @@
     "🛠️ Implementation Guide",
     "**CSS Classes Reference**",
     "**JavaScript API**"
+  ],
+  "frontend\\js\\tool_executor.js": [
+    "stripMarkdownCodeBlock"
   ]
 }
