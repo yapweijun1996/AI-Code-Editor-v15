@@ -823,6 +823,72 @@ class ProjectIntelligence {
             return null;
         }
     }
+
+    /**
+     * Check if a directory name represents an architectural pattern
+     */
+    isArchitecturalPattern(directoryName) {
+        const architecturalPatterns = [
+            // MVC Pattern
+            'models', 'model', 'views', 'view', 'controllers', 'controller',
+            'mvc', 'mvp', 'mvvm',
+            
+            // Layered Architecture
+            'presentation', 'business', 'data', 'service', 'services',
+            'repository', 'repositories', 'dao', 'dto', 'entity', 'entities',
+            'domain', 'application', 'infrastructure',
+            
+            // Component-based Architecture
+            'components', 'component', 'widgets', 'elements', 'modules', 'module',
+            'plugins', 'plugin', 'extensions', 'extension',
+            
+            // API/Service Architecture
+            'api', 'apis', 'endpoints', 'routes', 'routing', 'middleware',
+            'handlers', 'handler', 'processors', 'processor',
+            
+            // Common patterns
+            'adapters', 'adapter', 'factories', 'factory', 'builders', 'builder',
+            'observers', 'observer', 'decorators', 'decorator', 'proxies', 'proxy',
+            'strategies', 'strategy', 'commands', 'command', 'facades', 'facade',
+            
+            // Frontend patterns
+            'containers', 'container', 'layouts', 'layout', 'pages', 'page',
+            'screens', 'screen', 'hooks', 'hook', 'providers', 'provider',
+            'context', 'contexts', 'store', 'stores', 'reducers', 'reducer',
+            'actions', 'action', 'selectors', 'selector',
+            
+            // Backend patterns
+            'migrations', 'migration', 'seeds', 'seed', 'fixtures', 'fixture',
+            'jobs', 'job', 'tasks', 'task', 'queues', 'queue', 'workers', 'worker',
+            'schedulers', 'scheduler', 'cron', 'events', 'event', 'listeners', 'listener',
+            
+            // Testing patterns
+            'tests', 'test', 'specs', 'spec', '__tests__', '__mocks__', 'mocks', 'mock',
+            'fixtures', 'stubs', 'stub', 'doubles', 'double',
+            
+            // Configuration patterns
+            'config', 'configuration', 'configs', 'settings', 'options',
+            'environments', 'env', 'constants', 'const',
+            
+            // Utility patterns
+            'utils', 'utilities', 'helpers', 'helper', 'shared', 'common',
+            'lib', 'libs', 'library', 'libraries', 'core', 'base',
+            
+            // Asset patterns
+            'assets', 'static', 'public', 'resources', 'media', 'images',
+            'styles', 'css', 'sass', 'scss', 'less', 'stylesheets',
+            
+            // Build/Deploy patterns
+            'build', 'dist', 'output', 'bin', 'release', 'deploy', 'deployment',
+            'scripts', 'tools', 'webpack', 'rollup', 'babel', 'eslint',
+            
+            // Documentation patterns
+            'docs', 'documentation', 'guides', 'examples', 'demo', 'demos'
+        ];
+
+        const lowerName = directoryName.toLowerCase();
+        return architecturalPatterns.includes(lowerName);
+    }
 }
 
 // Export singleton instance
