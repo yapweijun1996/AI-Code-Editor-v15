@@ -1021,7 +1021,7 @@ const toolRegistry = {
     edit_file: { handler: _editFile, requiresProject: true, createsCheckpoint: true },
     rewrite_file: { handler: _rewriteFile, requiresProject: true, createsCheckpoint: true },
     delete_file: { handler: _deleteFile, requiresProject: true, createsCheckpoint: true },
-    rename_file: { handler: _renameFile, requiresProject: true, createsCheckpoint: true }
+    rename_file: { handler: _renameFile, requiresProject: true, createsCheckpoint: true },
     create_folder: { handler: _createFolder, requiresProject: true, createsCheckpoint: true },
     delete_folder: { handler: _deleteFolder, requiresProject: true, createsCheckpoint: true },
     rename_folder: { handler: _renameFolder, requiresProject: true, createsCheckpoint: true },
