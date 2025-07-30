@@ -283,6 +283,17 @@ class SemanticIndexer {
             });
         });
     }
+    /**
+     * Build relationships between symbols across different files
+     */
+    buildInterFileRelationships(filePath, dependencies, projectMap) {
+        // TODO: Implement logic to build relationships between symbols across files
+        // This could involve:
+        // - Checking for imports/exports between files
+        // - Analyzing function calls across module boundaries
+        // - Identifying symbols with the same name or concept in different files
+    }
+
 
     /**
      * Add relationship between symbols
@@ -299,122 +310,8 @@ class SemanticIndexer {
         this.symbolGraph.get(symbol2).set(symbol1, { type, strength });
     }
 
-    /**
-     * Search semantically related files
-     */
-    searchSemanticFiles(query, maxResults = 10) {
-        const queryTerms = query.toLowerCase().split(/\s+/);
-        const results = [];
-        
-        // Find concepts matching query terms
-        const matchingConcepts = [];
-        for (const [concept, conceptData] of this.semanticIndex) {
-            for (const term of queryTerms) {
-                if (concept.includes(term) || term.includes(concept)) {
-                    matchingConcepts.push({
-                        concept,
-                        data: conceptData,
-                        relevance: this.calculateQueryRelevance(concept, term, conceptData.weight)
-                    });
-                }
-            }
-        }
-        
-        // Sort by relevance
-        matchingConcepts.sort((a, b) => b.relevance - a.relevance);
-        
-        // Collect files from top concepts
-        const fileScores = new Map();
-        for (const { concept, data, relevance } of matchingConcepts.slice(0, 20)) {
-            for (const filePath of data.files) {
-                const currentScore = fileScores.get(filePath) || 0;
-                fileScores.set(filePath, currentScore + relevance);
-            }
-        }
-        
-        // Sort files by score
-        const sortedFiles = Array.from(fileScores.entries())
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, maxResults);
-        
-        return sortedFiles.map(([filePath, score]) => ({
-            path: filePath,
-            relevance: score,
-            matchingConcepts: this.getFileConceptMatches(filePath, queryTerms)
-        }));
-    }
 
-    /**
-     * Get related files based on semantic similarity
-     */
-    getRelatedFiles(filePath, maxResults = 5) {
-        const fileConcepts = this.getFileConceptsFromIndex(filePath);
-        const relatedFiles = new Map();
-        
-        // Find files sharing concepts
-        for (const concept of fileConcepts) {
-            if (this.semanticIndex.has(concept)) {
-                const conceptData = this.semanticIndex.get(concept);
-                for (const otherFile of conceptData.files) {
-                    if (otherFile !== filePath) {
-                        const currentScore = relatedFiles.get(otherFile) || 0;
-                        relatedFiles.set(otherFile, currentScore + conceptData.weight);
-                    }
-                }
-            }
-        }
-        
-        // Sort by relevance
-        return Array.from(relatedFiles.entries())
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, maxResults)
-            .map(([path, score]) => ({ path, similarity: score }));
-    }
 
-    /**
-     * Generate suggestions for code understanding
-     */
-    generateCodeSuggestions(filePath, context = '') {
-        const suggestions = [];
-        const fileConcepts = this.getFileConceptsFromIndex(filePath);
-        
-        // Suggest related concepts to explore
-        const relatedConcepts = this.getRelatedConcepts(fileConcepts);
-        relatedConcepts.slice(0, 5).forEach(concept => {
-            suggestions.push({
-                type: 'concept',
-                title: `Explore ${concept.concept}`,
-                description: `This concept appears in ${concept.data.files.size} files`,
-                action: 'search',
-                query: concept.concept
-            });
-        });
-        
-        // Suggest architectural patterns
-        const patterns = this.detectArchitecturalPatterns(filePath);
-        patterns.forEach(pattern => {
-            suggestions.push({
-                type: 'pattern',
-                title: `Understand ${pattern.name}`,
-                description: pattern.description,
-                action: 'explain',
-                target: pattern.name
-            });
-        });
-        
-        // Suggest entry points
-        if (this.isComplexFile(filePath)) {
-            suggestions.push({
-                type: 'navigation',
-                title: 'Find entry points',
-                description: 'Discover main functions and public APIs',
-                action: 'analyze',
-                target: 'entry-points'
-            });
-        }
-        
-        return suggestions;
-    }
 
     /**
      * Utility methods
