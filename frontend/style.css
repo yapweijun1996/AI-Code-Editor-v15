@@ -1248,3 +1248,65 @@ button:hover {
     width: 16px;
     height: 16px;
 }
+
+/* --- Autonomous Plan To-Do List --- */
+.todo-list-container {
+    background-color: var(--tool-log-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 1.25rem;
+    margin-top: 0.5rem;
+}
+
+.todo-list {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+}
+
+.todo-item {
+    padding: 0.4rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.9em;
+    border-bottom: 1px solid var(--border);
+}
+
+.todo-item:last-child {
+    border-bottom: none;
+}
+
+.todo-item .status-icon {
+    width: 18px;
+    height: 18px;
+    display: inline-block;
+    border-radius: 50%;
+    position: relative;
+}
+
+.todo-item.status-pending .status-icon {
+    border: 2px solid var(--secondary);
+}
+
+.todo-item.status-in_progress .status-icon {
+    border: 2px solid var(--primary);
+    background-color: var(--primary);
+    animation: pulse 1.5s infinite;
+}
+
+.todo-item.status-completed .status-icon {
+    border: 2px solid #28a745;
+    background-color: #28a745;
+}
+
+.todo-item.status-completed .status-icon::after {
+    content: '✔';
+    color: white;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 12px;
+    font-weight: bold;
+}

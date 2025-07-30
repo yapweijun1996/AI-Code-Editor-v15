@@ -592,3 +592,42 @@ export function initializeUI() {
     });
     uiInitialized = true;
 }
+
+export function createTodoList(todoItems) {
+    const chatMessages = document.getElementById('chat-messages');
+    const todoListContainer = document.createElement('div');
+    todoListContainer.className = 'chat-message ai todo-list-container';
+    todoListContainer.id = 'autonomous-plan-todolist';
+
+    const list = document.createElement('ul');
+    list.className = 'todo-list';
+
+    todoItems.forEach(item => {
+        const listItem = document.createElement('li');
+        listItem.className = `todo-item status-${item.status}`;
+        listItem.innerHTML = `<span class="status-icon"></span> ${item.task}`;
+        list.appendChild(listItem);
+    });
+
+    todoListContainer.appendChild(list);
+    chatMessages.appendChild(todoListContainer);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+export function updateTodoList(todoItems) {
+    const todoListContainer = document.getElementById('autonomous-plan-todolist');
+    if (!todoListContainer) {
+        createTodoList(todoItems);
+        return;
+    }
+
+    const list = todoListContainer.querySelector('.todo-list');
+    list.innerHTML = ''; // Clear and re-render
+
+    todoItems.forEach(item => {
+        const listItem = document.createElement('li');
+        listItem.className = `todo-item status-${item.status}`;
+        listItem.innerHTML = `<span class="status-icon"></span> ${item.task}`;
+        list.appendChild(listItem);
+    });
+}

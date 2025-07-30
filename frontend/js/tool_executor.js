@@ -1447,13 +1447,17 @@ async function executeTool(toolCall, rootDirectoryHandle) {
 
 // REMOVED: TOOLS_REQUIRING_SYNTAX_CHECK - no longer using automatic syntax checking
 
-export async function execute(toolCall, rootDirectoryHandle) {
+export async function execute(toolCall, rootDirectoryHandle, silent = false) {
     const toolName = toolCall.name;
     const parameters = toolCall.args;
     const groupTitle = `AI Tool Call: ${toolName}`;
     const groupContent = parameters && Object.keys(parameters).length > 0 ? parameters : 'No parameters';
     console.group(groupTitle, groupContent);
-    const logEntry = UI.appendToolLog(document.getElementById('chat-messages'), toolName, parameters);
+    
+    let logEntry;
+    if (!silent) {
+        logEntry = UI.appendToolLog(document.getElementById('chat-messages'), toolName, parameters);
+    }
 
     let resultForModel;
     let isSuccess = true;
@@ -1476,7 +1480,9 @@ export async function execute(toolCall, rootDirectoryHandle) {
     const resultForLog = isSuccess ? { status: 'Success', ...resultForModel } : { status: 'Error', message: resultForModel.error };
     console.log('Result:', resultForLog);
     console.groupEnd();
-    UI.updateToolLog(logEntry, isSuccess);
+    if (!silent) {
+        UI.updateToolLog(logEntry, isSuccess);
+    }
     return { toolResponse: { name: toolName, response: resultForModel } };
 }
 

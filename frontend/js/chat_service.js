@@ -14,6 +14,7 @@ export const ChatService = {
     isCancelled: false,
     llmService: null,
     rootDirectoryHandle: null,
+    activePlan: null,
     errorTracker: {
         filePath: null,
         errorSignature: null,
@@ -226,13 +227,94 @@ export const ChatService = {
         await DbManager.saveChatHistory(history);
     },
 
+    _isVagueGoal(prompt) {
+        const vagueKeywords = ['review', 'improve', 'all files', 'codebase', 'logic', 'analyze'];
+        const hasVagueKeyword = vagueKeywords.some(keyword => prompt.toLowerCase().includes(keyword));
+        const hasSpecifics = prompt.includes('`') || prompt.includes('.js') || prompt.includes('.html') || prompt.includes('.css');
+        return hasVagueKeyword && !hasSpecifics;
+    },
+
+    async _generatePlan(userPrompt) {
+        // Simple plan generation based on keywords.
+        // This could be replaced with an LLM call for more complex planning.
+        const goal = `Based on the request "${userPrompt}", the goal is to analyze the codebase to identify improvements for logic, performance, and readability.`;
+        const todo = [
+            { task: "Analyze project structure", status: "pending", tool: "get_project_structure", params: {} },
+            { task: "Identify key application entry points and core logic files", status: "pending" },
+            { task: "Review key files for improvements", status: "pending" },
+            { task: "Consolidate findings and propose changes", status: "pending" },
+            { task: "Apply approved changes", status: "pending" }
+        ];
+        this.activePlan = { goal, todo, currentStep: 0 };
+        return this.activePlan;
+    },
+
+    async _executeAutonomousPlan() {
+        if (!this.activePlan) return;
+
+        const chatMessages = document.getElementById('chat-messages');
+        const step = this.activePlan.todo[this.activePlan.currentStep];
+
+        if (step.status === 'completed') {
+            this.activePlan.currentStep++;
+            if (this.activePlan.currentStep >= this.activePlan.todo.length) {
+                UI.appendMessage(chatMessages, 'Autonomous plan completed.', 'ai');
+                this.activePlan = null;
+                return;
+            }
+            // Execute next step
+            await this._executeAutonomousPlan();
+            return;
+        }
+
+        step.status = 'in_progress';
+        UI.updateTodoList(this.activePlan.todo);
+
+        UI.appendMessage(chatMessages, `Executing step: ${step.task}`, 'ai');
+
+        if (step.tool) {
+            await this.runToolDirectly(step.tool, step.params, true);
+        } else {
+            // For steps that require AI analysis, we can formulate a new prompt
+            // and use the existing _performApiCall logic.
+            const analysisPrompt = `Continuing with the plan. Current step: ${step.task}. Please analyze the previous tool outputs and proceed.`;
+            await this._performApiCall([{ text: analysisPrompt }], chatMessages);
+        }
+
+        step.status = 'completed';
+        UI.updateTodoList(this.activePlan.todo);
+
+        // Move to the next step
+        this.activePlan.currentStep++;
+        if (this.activePlan.currentStep < this.activePlan.todo.length) {
+            await this._executeAutonomousPlan();
+        } else {
+            UI.appendMessage(chatMessages, 'Autonomous plan completed.', 'ai');
+            this.activePlan = null;
+        }
+    },
+
     async sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, uploadedImage, clearImagePreview) {
         console.log("Attempting to send message...");
         const userPrompt = chatInput.value.trim();
         if ((!userPrompt && !uploadedImage) || this.isSending) return;
 
-       // If this is a new, user-initiated prompt, reset the error tracker.
-       this.resetErrorTracker();
+        this.resetErrorTracker();
+
+        if (this._isVagueGoal(userPrompt)) {
+            this.isSending = true;
+            this._updateUiState(true);
+            UI.appendMessage(chatMessages, "Received a high-level goal. Generating an autonomous plan...", 'ai');
+            const plan = await this._generatePlan(userPrompt);
+            UI.appendMessage(chatMessages, `**Goal:** ${plan.goal}`, 'ai');
+            UI.createTodoList(plan.todo);
+            await this._executeAutonomousPlan();
+            this.isSending = false;
+            this._updateUiState(false);
+            chatInput.value = '';
+            clearImagePreview();
+            return;
+        }
 
         if (!this.llmService) {
             UI.showError("LLM Service is not configured. Please check your settings.");
@@ -333,29 +415,35 @@ export const ChatService = {
        console.log('Error tracker reset.');
    },
 
-   async runToolDirectly(toolName, params) {
-       if (this.isSending) {
+   async runToolDirectly(toolName, params, silent = false) {
+       if (this.isSending && !this.activePlan) { // Allow tool use during autonomous plan
            UI.showError("Please wait for the current AI operation to complete.");
            return;
        }
 
        const toolCall = { name: toolName, args: params };
        const chatMessages = document.getElementById('chat-messages');
-       UI.appendMessage(chatMessages, `Running tool: ${toolName}...`, 'ai');
+       if (!silent) {
+           UI.appendMessage(chatMessages, `Running tool: ${toolName}...`, 'ai');
+       }
 
        try {
-           const result = await ToolExecutor.execute(toolCall, this.rootDirectoryHandle);
-           let resultMessage = `Tool '${toolName}' executed successfully.`;
-           if (result.toolResponse && result.toolResponse.response && result.toolResponse.response.message) {
-                resultMessage = result.toolResponse.response.message;
-           } else if (result.toolResponse && result.toolResponse.response && result.toolResponse.response.error) {
-                throw new Error(result.toolResponse.response.error);
+           const result = await ToolExecutor.execute(toolCall, this.rootDirectoryHandle, silent);
+           if (!silent) {
+               let resultMessage = `Tool '${toolName}' executed successfully.`;
+               if (result.toolResponse && result.toolResponse.response && result.toolResponse.response.message) {
+                   resultMessage = result.toolResponse.response.message;
+               } else if (result.toolResponse && result.toolResponse.response && result.toolResponse.response.error) {
+                   throw new Error(result.toolResponse.response.error);
+               }
+               UI.appendMessage(chatMessages, resultMessage, 'ai');
            }
-            UI.appendMessage(chatMessages, resultMessage, 'ai');
        } catch (error) {
            const errorMessage = `Error running tool '${toolName}': ${error.message}`;
            UI.showError(errorMessage);
-           UI.appendMessage(chatMessages, errorMessage, 'ai');
+           if (!silent) {
+               UI.appendMessage(chatMessages, errorMessage, 'ai');
+           }
            console.error(errorMessage, error);
        }
    }
