@@ -5,6 +5,8 @@ import * as UI from './ui.js';
 import * as FileSystem from './file_system.js';
 import { initializeEventListeners } from './events.js';
 import { DbManager } from './db.js';
+import { taskManager } from './task_manager.js';
+import { todoListUI } from './todo_list_ui.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -38,6 +40,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // --- Initialization ---
     appState.editor = await Editor.initializeEditor(editorContainer, tabBarContainer);
     UI.initResizablePanels(appState.editor);
+    
+    // Initialize task management UI
+    console.log('[Main] TodoListUI available:', !!todoListUI);
+    console.log('[Main] TaskManager available:', !!taskManager);
 
     appState.onFileSelect = async (filePath) => {
         const fileHandle = await FileSystem.getFileHandleFromPath(appState.rootDirectoryHandle, filePath);

@@ -6,6 +6,8 @@ import * as UI from './ui.js';
 import * as FileSystem from './file_system.js';
 import TaskRunner from './task_runner.js';
 import { ToolLogger } from './tool_logger.js';
+import { todoListUI } from './todo_list_ui.js';
+import { taskManager } from './task_manager.js';
 
 export function initializeEventListeners(appState) {
     const {
@@ -530,21 +532,249 @@ export function initializeEventListeners(appState) {
     }
 
     async function displayTasks(appState) {
-        const tasks = await TaskRunner.discoverTasks(appState.rootDirectoryHandle);
-        tasksContainer.innerHTML = '';
-        if (Object.keys(tasks).length === 0) {
-            tasksContainer.innerHTML = 'No tasks found in package.json.';
-            return;
+        // Show TodoListUI embedded in the tasks tab
+        tasksContainer.innerHTML = `
+            <div class="tasks-header">
+                <h3>Task Management</h3>
+                <div class="tasks-actions">
+                    <button id="open-todo-overlay" class="btn-primary">
+                        <i class="fas fa-tasks"></i> Open Todo List (Ctrl+T)
+                    </button>
+                    <button id="add-quick-task" class="btn-secondary">
+                        <i class="fas fa-plus"></i> Quick Add
+                    </button>
+                </div>
+            </div>
+            <div class="tasks-summary" id="tasks-summary">
+                <div class="summary-stats" id="summary-stats">
+                    Loading tasks...
+                </div>
+            </div>
+            <div class="recent-tasks" id="recent-tasks">
+                <h4>Recent Tasks</h4>
+                <div id="recent-tasks-list"></div>
+            </div>
+        `;
+
+        // Add event listeners
+        document.getElementById('open-todo-overlay').addEventListener('click', () => {
+            todoListUI.show();
+        });
+
+        document.getElementById('add-quick-task').addEventListener('click', () => {
+            const title = prompt('Enter task title:');
+            if (title && title.trim()) {
+                // Use the imported taskManager
+                taskManager.createTask({ 
+                    title: title.trim(),
+                    priority: 'medium'
+                }).then(() => {
+                    refreshTasksSummary();
+                });
+            }
+        });
+
+        // Initial load
+        refreshTasksSummary();
+
+        // Listen for task manager events to refresh the summary
+        taskManager.addEventListener((event, data) => {
+            if (['task_created', 'task_updated', 'task_deleted'].includes(event)) {
+                refreshTasksSummary();
+            }
+        });
+    }
+
+    function refreshTasksSummary() {
+        if (!taskManager) return;
+
+        const stats = taskManager.getStats();
+        const recentTasks = taskManager.getAllTasks()
+            .sort((a, b) => (b.updatedTime || b.createdTime) - (a.updatedTime || a.createdTime))
+            .slice(0, 5);
+
+        // Update stats
+        const summaryStats = document.getElementById('summary-stats');
+        if (summaryStats) {
+            summaryStats.innerHTML = `
+                <div class="stat-item">
+                    <span class="stat-number">${stats.total}</span>
+                    <span class="stat-label">Total</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number">${stats.pending}</span>
+                    <span class="stat-label">Pending</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number">${stats.in_progress}</span>
+                    <span class="stat-label">In Progress</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number">${stats.completed}</span>
+                    <span class="stat-label">Completed</span>
+                </div>
+            `;
         }
 
-        for (const taskName in tasks) {
-            const button = document.createElement('button');
-            button.textContent = taskName;
-            button.addEventListener('click', () => {
-                TaskRunner.runTask(taskName);
-                taskOutput.textContent = `Running task: ${taskName}\nCommand: ${tasks[taskName]}`;
-            });
-            tasksContainer.appendChild(button);
+        // Update recent tasks
+        const recentTasksList = document.getElementById('recent-tasks-list');
+        if (recentTasksList) {
+            if (recentTasks.length === 0) {
+                recentTasksList.innerHTML = '<p class="no-tasks">No tasks yet. Create your first task!</p>';
+            } else {
+                recentTasksList.innerHTML = recentTasks.map(task => `
+                    <div class="task-item status-${task.status}" data-task-id="${task.id}">
+                        <div class="task-title">${task.title}</div>
+                        <div class="task-meta">
+                            <span class="task-status status-${task.status}">${task.status.replace('_', ' ')}</span>
+                            <span class="task-priority priority-${task.priority}">${task.priority}</span>
+                        </div>
+                    </div>
+                `).join('');
+
+                // Add click handlers for task items
+                recentTasksList.querySelectorAll('.task-item').forEach(item => {
+                    item.addEventListener('click', () => {
+                        const taskId = item.dataset.taskId;
+                        todoListUI.show();
+                        setTimeout(() => {
+                            todoListUI.showDetailView(taskId);
+                        }, 100);
+                    });
+                });
+            }
         }
     }
+
+    const btnCollapse = document.getElementById('toggle-files-button');
+    const sidebar = document.getElementById('file-tree-container');
+    const overlay = document.querySelector('.overlay');
+
+    // Sidebar collapse toggle for better UI UX
+    btnCollapse.addEventListener('click', () => {
+        if (sidebar.classList.contains('collapsed')) {
+            sidebar.classList.remove('collapsed');
+            overlay.classList.remove('active');
+            btnCollapse.setAttribute('aria-expanded', 'true');
+        } else {
+            sidebar.classList.add('collapsed');
+            overlay.classList.add('active');
+            btnCollapse.setAttribute('aria-expanded', 'false');
+        }
+    });
+
+    overlay.addEventListener('click', () => {
+        sidebar.classList.remove('collapsed');
+        overlay.classList.remove('active');
+        btnCollapse.setAttribute('aria-expanded', 'true');
+    });
+
+    // Enhanced search: highlight matched text in suggestions
+    function highlightMatch(text, query) {
+        const regex = new RegExp(`(${query})`, 'gi');
+        return text.replace(regex, '<mark>$1</mark>');
+    }
+
+    // This assumes debouncedSearchInputHandler is defined elsewhere and accessible
+    // If not, you may need to define or import it.
+    // For now, we proceed assuming it's available in the scope.
+    if (typeof debouncedSearchInputHandler !== 'undefined') {
+        const originalHandler = debouncedSearchInputHandler;
+        searchInput.removeEventListener('input', originalHandler);
+        searchInput.addEventListener('input', debounce(() => {
+            const val = searchInput.value.toLowerCase();
+            searchSuggestions.innerHTML = '';
+            toggleClearButton();
+            if (!val) {
+                hideSuggestions();
+                return;
+            }
+            const filtered = navItems.filter(item => item.toLowerCase().includes(val));
+            if (!filtered.length) {
+                const li = document.createElement('li');
+                li.textContent = 'No results found';
+                li.setAttribute('role', 'option');
+                li.classList.add('text-gray-500', 'px-2', 'py-1');
+                searchSuggestions.appendChild(li);
+                searchSuggestions.classList.remove('hidden');
+                searchInput.setAttribute('aria-expanded', 'true');
+                currentFocus = -1;
+                return;
+            }
+            filtered.forEach((item, index) => {
+                const li = document.createElement('li');
+                li.innerHTML = highlightMatch(item, val);
+                li.setAttribute('role', 'option');
+                li.setAttribute('id', `suggestion-${index}`);
+                li.addEventListener('click', () => selectSuggestion(item));
+                li.tabIndex = 0;
+                searchSuggestions.appendChild(li);
+            });
+            searchSuggestions.classList.remove('hidden');
+            searchInput.setAttribute('aria-expanded', 'true');
+            currentFocus = -1;
+        }, 250));
+    }
+
+
+    // Lazy load charts only when sections are activated
+    const chartSections = ['sales', 'inventory', 'purchasing'];
+    const loadedCharts = new Set();
+
+    function selectSuggestion(value) {
+        searchInput.value = value;
+        hideSuggestions();
+        document.getElementById('pageTitle').textContent = value;
+        document.querySelectorAll('main section').forEach(section => {
+            if (section.id === value.toLowerCase()) {
+                section.classList.remove('hidden');
+            } else {
+                section.classList.add('hidden');
+            }
+        });
+        document.querySelectorAll('.sidebar-link').forEach(link => {
+            if (link.textContent.trim() === value) {
+                link.classList.add('active');
+                link.setAttribute('aria-current', 'page');
+                const target = document.getElementById(value.toLowerCase());
+                if(target) target.scrollIntoView({behavior: 'smooth'});
+            } else {
+                link.classList.remove('active');
+                link.removeAttribute('aria-current');
+            }
+        });
+        // Lazy load chart
+        const sectionId = value.toLowerCase();
+        if(chartSections.includes(sectionId) && !loadedCharts.has(sectionId)) {
+            createCharts(initialTheme);
+            loadedCharts.add(sectionId);
+        }
+    }
+    
+    // Update createCharts to set loadedCharts for lazy load tracking
+    function createCharts(theme) {
+        if(chartsInitialized) {
+            salesChart.destroy();
+            inventoryChart.destroy();
+            purchasingChart.destroy();
+        }
+        const colors = getChartColors(theme);
+        const commonOptions = {
+            responsive: true,
+            plugins: { legend: { display: false }, tooltip: { enabled: true, backgroundColor: colors.tooltipBg, borderColor: colors.tooltipBorder, borderWidth: 1, titleColor: colors.textColor, bodyColor: colors.textColor } },
+            scales: { y: { beginAtZero: true, grid: { color: colors.gridColor }, ticks: { color: colors.textColor } }, x: { grid: { color: colors.gridColor }, ticks: { color: colors.textColor } } }
+        };
+        salesChart = new Chart(document.getElementById('salesChart').getContext('2d'), { type: 'bar', data: { labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'], datasets: [{ label: 'Sales', data: [12000, 19000, 15000, 22000, 28000, 25000], backgroundColor: colors.salesBg, borderColor: colors.salesBorder, borderWidth: 1 }] }, options: commonOptions });
+        inventoryChart = new Chart(document.getElementById('inventoryChart').getContext('2d'), { type: 'line', data: { labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'], datasets: [{ label: 'Inventory', data: [1200, 1400, 1300, 1600, 1700, 1500], backgroundColor: colors.inventoryBg, borderColor: colors.inventoryBorder, borderWidth: 2, fill: true }] }, options: commonOptions });
+        purchasingChart = new Chart(document.getElementById('purchasingChart').getContext('2d'), { type: 'bar', data: { labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'], datasets: [{ label: 'Purchasing', data: [8000, 9000, 8500, 9500, 10500, 10000], backgroundColor: colors.purchasingBg, borderColor: colors.purchasingBorder, borderWidth: 1 }] }, options: commonOptions });
+        chartsInitialized = true;
+    }
+    
+    // Additions: Keyboard shortcut to toggle sidebar (Ctrl+S)
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key.toLowerCase() === 's') {
+            e.preventDefault();
+            btnCollapse.click();
+        }
+    });
 }

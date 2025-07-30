@@ -142,6 +142,7 @@ export function updateDirectoryButtons(isConnected, needsReconnect = false) {
 }
 
 export function appendMessage(chatMessages, text, sender, isStreaming = false) {
+    hideThinkingIndicator();
     let messageDiv;
     if (isStreaming) {
         const lastMessage = chatMessages.lastElementChild;
@@ -182,6 +183,25 @@ export function appendMessage(chatMessages, text, sender, isStreaming = false) {
 }
 
 
+
+export function showThinkingIndicator(chatMessages, message = 'Thinking...') {
+    let thinkingDiv = document.getElementById('thinking-indicator');
+    if (!thinkingDiv) {
+        thinkingDiv = document.createElement('div');
+        thinkingDiv.id = 'thinking-indicator';
+        thinkingDiv.className = 'chat-message ai';
+        chatMessages.appendChild(thinkingDiv);
+    }
+    thinkingDiv.innerHTML = `<div class="loader"></div> <span class="thinking-text">${message}</span>`;
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+export function hideThinkingIndicator() {
+    const thinkingDiv = document.getElementById('thinking-indicator');
+    if (thinkingDiv) {
+        thinkingDiv.remove();
+    }
+}
 
 export function appendToolLog(chatMessages, toolName, params) {
     const logEntry = document.createElement('div');
@@ -594,9 +614,10 @@ export function initializeUI() {
 }
 
 export function createTodoList(todoItems) {
-    const chatMessages = document.getElementById('chat-messages');
+    const tasksContainer = document.getElementById('tasks-container');
+    tasksContainer.innerHTML = ''; // Clear previous content
     const todoListContainer = document.createElement('div');
-    todoListContainer.className = 'chat-message ai todo-list-container';
+    todoListContainer.className = 'todo-list-container';
     todoListContainer.id = 'autonomous-plan-todolist';
 
     const list = document.createElement('ul');
@@ -610,8 +631,15 @@ export function createTodoList(todoItems) {
     });
 
     todoListContainer.appendChild(list);
-    chatMessages.appendChild(todoListContainer);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
+    tasksContainer.appendChild(todoListContainer);
+
+    // Switch to the tasks tab to make it visible
+    document.getElementById('files-tab').classList.remove('active');
+    document.getElementById('search-tab').classList.remove('active');
+    document.getElementById('tasks-tab').classList.add('active');
+    document.getElementById('files-content').style.display = 'none';
+    document.getElementById('search-content').style.display = 'none';
+    document.getElementById('tasks-content').style.display = 'block';
 }
 
 export function updateTodoList(todoItems) {
@@ -622,12 +650,13 @@ export function updateTodoList(todoItems) {
     }
 
     const list = todoListContainer.querySelector('.todo-list');
-    list.innerHTML = ''; // Clear and re-render
-
-    todoItems.forEach(item => {
-        const listItem = document.createElement('li');
-        listItem.className = `todo-item status-${item.status}`;
-        listItem.innerHTML = `<span class="status-icon"></span> ${item.task}`;
-        list.appendChild(listItem);
-    });
+    if (list) {
+        list.innerHTML = ''; // Clear and re-render
+        todoItems.forEach(item => {
+            const listItem = document.createElement('li');
+            listItem.className = `todo-item status-${item.status}`;
+            listItem.innerHTML = `<span class="status-icon"></span> ${item.task}`;
+            list.appendChild(listItem);
+        });
+    }
 }

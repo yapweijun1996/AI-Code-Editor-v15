@@ -25,6 +25,9 @@ export class OpenAIService extends BaseLLMService {
         const messages = this._prepareMessages(history, customRules);
         const toolDefinitions = this._prepareTools(tools);
 
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minutes timeout
+
         const response = await fetch(`${this.apiBaseUrl}/chat/completions`, {
             method: 'POST',
             headers: {
@@ -38,7 +41,10 @@ export class OpenAIService extends BaseLLMService {
                 tool_choice: "auto",
                 stream: true,
             }),
+            signal: controller.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
             const errorData = await response.json();
@@ -234,6 +240,21 @@ export class OpenAIService extends BaseLLMService {
 - Plan modifications to maintain code quality and consistency
 - Apply changes using the most appropriate tool
 - Explain the changes and their impact
+
+**6. TASK MANAGEMENT & PRODUCTIVITY TOOLS - MANDATORY USAGE**
+- **IMMEDIATE ACTION REQUIRED:** Before starting ANY multi-step task, you MUST call \`start_task_session\` first. This is NOT optional.
+- **AI Task Management System - USE FIRST:**
+  - ANY request involving analysis, optimization, review, or improvement = Call \`start_task_session\` immediately
+  - Example: User says "analyze the code" → FIRST tool call must be \`start_task_session\` with goal "analyze codebase structure and quality"
+  - After \`start_task_session\`, use \`start_next_task\` to begin systematic work
+  - Use \`complete_current_task\` when finishing each subtask
+  - Use \`display_task_progress\` regularly to keep user informed
+- **Personal Todo System:** Help users manage their tasks:
+  - Use \`todo_create\` to capture user requirements as actionable todos
+  - Use \`todo_list\` to show existing todos
+  - Tell users they can access todo list anytime with Ctrl+T
+
+**MANDATORY RULE: If a user request involves more than reading a single file, you MUST start with \`start_task_session\`. NO EXCEPTIONS!**
 
 Current context:
 - Time: ${timeString}

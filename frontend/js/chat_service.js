@@ -8,6 +8,7 @@ import * as Editor from './editor.js';
 import * as UI from './ui.js';
 import { performanceOptimizer } from './performance_optimizer.js';
 import { providerOptimizer } from './provider_optimizer.js';
+import { taskManager } from './task_manager.js';
 
 export const ChatService = {
     isSending: false,
@@ -117,14 +118,11 @@ export const ChatService = {
         return initialParts;
     },
 
-    async _performApiCall(initialParts, chatMessages, singleTurn = false) {
+    async _performApiCall(history, chatMessages, singleTurn = false) {
         if (!this.llmService) {
             UI.showError("LLM Service is not initialized. Please check your settings.");
             return;
         }
-
-        const history = await DbManager.getChatHistory();
-        history.push({ role: 'user', parts: initialParts });
 
         let functionCalls;
         let continueLoop = true;
@@ -140,6 +138,7 @@ export const ChatService = {
         
         while (continueLoop && !this.isCancelled) {
             try {
+                UI.showThinkingIndicator(chatMessages, 'AI is thinking...');
                 const mode = document.getElementById('agent-mode-selector').value;
                 const customRules = Settings.get(`custom.${mode}.rules`);
                 const tools = ToolExecutor.getToolDefinitions();
@@ -194,6 +193,7 @@ export const ChatService = {
                     for (const call of functionCalls) {
                         if (this.isCancelled) return;
                         console.log(`Executing tool: ${call.name} sequentially...`);
+                        UI.showThinkingIndicator(chatMessages, `Executing tool: ${call.name}...`);
                         const result = await ToolExecutor.execute(call, this.rootDirectoryHandle);
                         toolResults.push({
                             id: call.id,
@@ -228,123 +228,112 @@ export const ChatService = {
             }
         }
 
-        await DbManager.saveChatHistory(history);
-    },
-
-    _isVagueGoal(prompt) {
-        const vagueKeywords = ['review', 'improve', 'all files', 'codebase', 'logic', 'analyze'];
-        const hasVagueKeyword = vagueKeywords.some(keyword => prompt.toLowerCase().includes(keyword));
-        const hasSpecifics = prompt.includes('`') || prompt.includes('.js') || prompt.includes('.html') || prompt.includes('.css');
-        return hasVagueKeyword && !hasSpecifics;
-    },
-
-    async _generatePlan(userPrompt) {
-        // Simple plan generation based on keywords.
-        // This could be replaced with an LLM call for more complex planning.
-        const goal = `Based on the request "${userPrompt}", the goal is to analyze the codebase to identify improvements for logic, performance, and readability.`;
-        const todo = [
-            { task: "Analyze project structure", status: "pending", tool: "get_project_structure", params: {} },
-            { task: "Identify key application entry points and core logic files", status: "pending" },
-            { task: "Review key files for improvements", status: "pending" },
-            { task: "Consolidate findings and propose changes", status: "pending" },
-            { task: "Apply approved changes", status: "pending" }
-        ];
-        this.activePlan = { goal, todo, currentStep: 0 };
-        return this.activePlan;
-    },
-
-    async _executeAutonomousPlan() {
-        if (!this.activePlan) return;
-
-        const chatMessages = document.getElementById('chat-messages');
-        const step = this.activePlan.todo[this.activePlan.currentStep];
-
-        if (step.status === 'completed') {
-            this.activePlan.currentStep++;
-            if (this.activePlan.currentStep >= this.activePlan.todo.length) {
-                UI.appendMessage(chatMessages, 'Autonomous plan completed.', 'ai');
-                this.activePlan = null;
-                return;
-            }
-            // Execute next step
-            await this._executeAutonomousPlan();
-            return;
-        }
-
-        step.status = 'in_progress';
-        UI.updateTodoList(this.activePlan.todo);
-
-        UI.appendMessage(chatMessages, `Executing step: ${step.task}`, 'ai');
-
-        if (step.tool) {
-            await this.runToolDirectly(step.tool, step.params, true);
-        } else {
-            // For steps that require AI analysis, we can formulate a new prompt
-            // and use the existing _performApiCall logic.
-            const analysisPrompt = `Continuing with the plan. Current step: ${step.task}. Please analyze the previous tool outputs and proceed.`;
-            await this._performApiCall([{ text: analysisPrompt }], chatMessages, true);
-        }
-
-        step.status = 'completed';
-        UI.updateTodoList(this.activePlan.todo);
-
-        // Move to the next step
-        this.activePlan.currentStep++;
-        if (this.activePlan.currentStep < this.activePlan.todo.length) {
-            await this._executeAutonomousPlan();
-        } else {
-            UI.appendMessage(chatMessages, 'Autonomous plan completed.', 'ai');
-            this.activePlan = null;
+        // Only save to DB if it's not part of an autonomous plan
+        if (!this.activePlan) {
+            await DbManager.saveChatHistory(history);
         }
     },
 
     async sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, uploadedImage, clearImagePreview) {
-        console.log("Attempting to send message...");
         const userPrompt = chatInput.value.trim();
         if ((!userPrompt && !uploadedImage) || this.isSending) return;
-
-        this.resetErrorTracker();
-
-        if (this._isVagueGoal(userPrompt)) {
-            this.isSending = true;
-            this._updateUiState(true);
-            UI.appendMessage(chatMessages, "Received a high-level goal. Generating an autonomous plan...", 'ai');
-            const plan = await this._generatePlan(userPrompt);
-            UI.appendMessage(chatMessages, `**Goal:** ${plan.goal}`, 'ai');
-            UI.createTodoList(plan.todo);
-            await this._executeAutonomousPlan();
-            this.isSending = false;
-            this._updateUiState(false);
-            chatInput.value = '';
-            clearImagePreview();
-            return;
-        }
-
-        if (!this.llmService) {
-            UI.showError("LLM Service is not configured. Please check your settings.");
-            return;
-        }
 
         this.isSending = true;
         this.isCancelled = false;
         this._updateUiState(true);
+        this.resetErrorTracker();
 
         try {
-            await this._handleRateLimiting(chatMessages);
+            // 1. Create a main task for the user's prompt
+            UI.appendMessage(chatMessages, `Task created: "${userPrompt}"`, 'ai');
+            const mainTask = await taskManager.createTask({ title: userPrompt, priority: 'high' });
 
-            const initialParts = this._prepareAndRenderUserMessage(chatInput, chatMessages, uploadedImage, clearImagePreview);
+            // 2. Prepare for autonomous execution
+            const history = await DbManager.getChatHistory();
+            history.push({ role: 'user', parts: [{ text: `New user request: "${userPrompt}". The main task ID is ${mainTask.id}. Your first step is to call the "task_breakdown" tool with this ID.` }] });
 
-            await this._performApiCall(initialParts, chatMessages);
+            // 3. First API Call: Force breakdown
+            await this._performApiCall(history, chatMessages, true); // singleTurn = true
+
+            // 4. Autonomous Execution Loop
+            let nextTask = taskManager.getNextTask();
+            while (nextTask && !this.isCancelled) {
+                UI.appendMessage(chatMessages, `Executing subtask: "${nextTask.title}"`, 'ai');
+                await taskManager.updateTask(nextTask.id, { status: 'in_progress' });
+                
+                const prompt = `Current subtask: "${nextTask.title}"${nextTask.description ? ` - ${nextTask.description}` : ''}. Execute this task and then call the task_update tool to mark it as completed when done. Task ID: ${nextTask.id}`;
+                history.push({ role: 'user', parts: [{ text: prompt }] });
+                
+                try {
+                    await this._performApiCall(history, chatMessages, false); // singleTurn = false to allow tool chains
+                    
+                    // Check if the task is still in progress (AI should have updated it)
+                    const updatedTask = taskManager.tasks.get(nextTask.id);
+                    if (updatedTask && updatedTask.status === 'in_progress') {
+                        // AI didn't mark as completed, so we do it automatically
+                        await taskManager.updateTask(nextTask.id, { 
+                            status: 'completed',
+                            results: { completedAutomatically: true, timestamp: Date.now() }
+                        });
+                    }
+                } catch (error) {
+                    console.error(`[ChatService] Error executing task ${nextTask.id}:`, error);
+                    await taskManager.updateTask(nextTask.id, { 
+                        status: 'failed',
+                        results: { error: error.message, timestamp: Date.now() }
+                    });
+                    UI.appendMessage(chatMessages, `Task "${nextTask.title}" failed: ${error.message}`, 'ai');
+                    break; // Stop execution on failure
+                }
+                
+                // Check for the next task
+                nextTask = taskManager.getNextTask();
+            }
 
             if (this.isCancelled) {
-                UI.appendMessage(chatMessages, 'Cancelled by user.', 'ai');
+                UI.appendMessage(chatMessages, 'Execution cancelled by user.', 'ai');
+                await taskManager.updateTask(mainTask.id, { 
+                    status: 'failed',
+                    results: { cancelled: true, timestamp: Date.now() }
+                });
+            } else {
+                // Check if all subtasks are completed
+                const allSubtasks = mainTask.subtasks.map(id => taskManager.tasks.get(id)).filter(Boolean);
+                const completedSubtasks = allSubtasks.filter(t => t.status === 'completed');
+                const failedSubtasks = allSubtasks.filter(t => t.status === 'failed');
+                
+                if (failedSubtasks.length > 0) {
+                    await taskManager.updateTask(mainTask.id, { 
+                        status: 'failed',
+                        results: { 
+                            completedSubtasks: completedSubtasks.length,
+                            failedSubtasks: failedSubtasks.length,
+                            timestamp: Date.now()
+                        }
+                    });
+                    UI.appendMessage(chatMessages, `Main task "${mainTask.title}" partially completed. ${completedSubtasks.length}/${allSubtasks.length} subtasks successful.`, 'ai');
+                } else {
+                    await taskManager.updateTask(mainTask.id, { 
+                        status: 'completed',
+                        results: { 
+                            completedSubtasks: completedSubtasks.length,
+                            timestamp: Date.now()
+                        }
+                    });
+                    UI.appendMessage(chatMessages, `Main task "${mainTask.title}" completed successfully! All ${completedSubtasks.length} subtasks finished.`, 'ai');
+                }
             }
+            
+            await DbManager.saveChatHistory(history);
+
         } catch (error) {
             UI.showError(`An error occurred: ${error.message}`);
             console.error('Chat Error:', error);
         } finally {
             this.isSending = false;
             this._updateUiState(false);
+            chatInput.value = '';
+            clearImagePreview();
         }
     },
 

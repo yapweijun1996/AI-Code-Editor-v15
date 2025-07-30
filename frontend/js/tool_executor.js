@@ -10,7 +10,7 @@ import { syntaxValidator } from './syntax_validator.js';
 import { codeComprehension } from './code_comprehension.js';
 import { preciseEditor } from './precise_editor.js';
 import { backgroundIndexer } from './background_indexer.js';
-import { aiTaskManager, TaskManagerTools } from './ai_task_manager.js';
+import { taskManager, TaskTools } from './task_manager.js';
 
 // --- Helper Functions ---
 
@@ -537,13 +537,13 @@ async function _smartEditFile({ filename, edits }, rootHandle) {
         }
     }
     
-    await ToolLogger.logToolExecution('_smartEditFile', {
+    await ToolLogger.log('_smartEditFile', {
         filename,
         fileSize,
         originalLineCount,
         finalLineCount: lines.length,
         editsApplied: edits.length
-    });
+    }, 'Success');
     
     // Preserve original line endings
     const lineEnding = originalContent.includes('\r\n') ? '\r\n' : '\n';
@@ -674,143 +674,101 @@ async function _getFileInfo({ filename }, rootHandle) {
     }
 }
 
-// --- AI Task Management Tool Handlers ---
+// --- Unified Task Management Tool Handlers ---
 
-async function _startTaskSession({ goal, context = {} }, rootHandle) {
-    if (!goal) throw new Error("The 'goal' parameter is required.");
-    
-    const sessionId = await TaskManagerTools.startSession(goal, {
-        ...context,
-        projectRoot: rootHandle?.name || 'unknown'
-    });
-    
-    const progress = TaskManagerTools.getProgress();
-    const report = TaskManagerTools.getReport();
-    
-    // Display initial progress in chat
-    await TaskManagerTools.displayProgress();
-    
+async function _taskCreate({ title, description = '', priority = 'medium', parentId = null, listId = null }) {
+    if (!title) throw new Error("The 'title' parameter is required.");
+    const task = await TaskTools.create({ title, description, priority, parentId, listId });
     return {
-        message: `🚀 Started AI task session: "${goal}"`,
+        message: `Task "${title}" created with ID ${task.id}.`,
+        details: task
+    };
+}
+
+async function _taskUpdate({ taskId, updates }) {
+    if (!taskId || !updates) throw new Error("Both 'taskId' and 'updates' are required.");
+    const task = await TaskTools.update(taskId, updates);
+    return {
+        message: `Task "${task.title}" (ID: ${taskId}) updated.`,
+        details: task
+    };
+}
+
+async function _taskDelete({ taskId }) {
+    if (!taskId) throw new Error("The 'taskId' parameter is required.");
+    const task = await TaskTools.delete(taskId);
+    return {
+        message: `Task "${task.title}" (ID: ${taskId}) and all its subtasks have been deleted.`,
+        details: task
+    };
+}
+
+async function _taskBreakdown({ taskId }) {
+    if (!taskId) throw new Error("The 'taskId' parameter is required.");
+    const mainTask = TaskTools.getById(taskId);
+    if (!mainTask) throw new Error(`Task with ID ${taskId} not found.`);
+    
+    const subtasks = await TaskTools.breakdown(mainTask);
+    return {
+        message: `Goal "${mainTask.title}" has been broken down into ${subtasks.length} subtasks.`,
         details: {
-            sessionId,
-            totalTasks: progress.totalTasks,
-            nextTask: progress.nextTask?.title,
-            breakdown: report
+            mainTask,
+            subtasks
         }
     };
 }
 
-async function _addTask({ title, description = '', priority = 'medium', dependencies = [] }, rootHandle) {
-    if (!title) throw new Error("The 'title' parameter is required.");
-    
-    const taskId = await TaskManagerTools.addTask({
-        title,
-        description,
-        priority,
-        dependencies
-    });
-    
+async function _taskGetNext() {
+    const nextTask = TaskTools.getNext();
+    if (!nextTask) {
+        return {
+            message: "No actionable tasks are currently available. All tasks may be completed or blocked by dependencies.",
+            details: null
+        };
+    }
     return {
-        message: `📝 Added task: "${title}"`,
-        details: { taskId, priority }
+        message: `The next actionable task is "${nextTask.title}".`,
+        details: nextTask
     };
 }
 
-async function _startNextTask({}, rootHandle) {
-    const task = await TaskManagerTools.startNext();
-    
-    if (!task) {
-        const progress = TaskManagerTools.getProgress();
-        if (progress && progress.byStatus.completed >= progress.totalTasks) {
+async function _taskGetStatus({ taskId }) {
+    if (taskId) {
+        const task = TaskTools.getById(taskId);
+        if (!task) {
             return {
-                message: "🎉 All tasks completed! Session finished.",
-                details: { sessionComplete: true }
+                message: `Task with ID ${taskId} not found.`,
+                details: null
             };
         }
         return {
-            message: "⏳ No available tasks to start (may have incomplete dependencies)",
-            details: { noTasksAvailable: true }
+            message: `Task "${task.title}" is currently ${task.status}.`,
+            details: task
         };
-    }
-    
-    return {
-        message: `🎯 Started task: "${task.title}"`,
-        details: {
-            taskId: task.id,
-            priority: task.priority,
-            estimatedTime: task.estimatedTime
-        }
-    };
-}
-
-async function _completeCurrentTask({ notes = '', results = {} }, rootHandle) {
-    const progress = TaskManagerTools.getProgress();
-    
-    if (!progress.currentTask) {
-        throw new Error("No task is currently in progress.");
-    }
-    
-    const task = await TaskManagerTools.complete(progress.currentTask.id, notes, results);
-    
-    // Display updated progress
-    await TaskManagerTools.displayProgress();
-    
-    return {
-        message: `✅ Completed task: "${task.title}"`,
-        details: {
-            taskId: task.id,
-            actualTime: Math.round(task.actualTime / 1000),
-            nextTask: progress.nextTask?.title
-        }
-    };
-}
-
-async function _addTaskNote({ taskId, note, type = 'info' }, rootHandle) {
-    if (!taskId || !note) {
-        throw new Error("Both 'taskId' and 'note' parameters are required.");
-    }
-    
-    await TaskManagerTools.addNote(taskId, note, type);
-    
-    return {
-        message: `📝 Added note to task`,
-        details: { taskId, type }
-    };
-}
-
-async function _getTaskProgress({}, rootHandle) {
-    const progress = TaskManagerTools.getProgress();
-    
-    if (!progress) {
+    } else {
+        // Get overall status of all tasks
+        const allTasks = TaskTools.getAll();
+        const stats = {
+            total: allTasks.length,
+            pending: allTasks.filter(t => t.status === 'pending').length,
+            in_progress: allTasks.filter(t => t.status === 'in_progress').length,
+            completed: allTasks.filter(t => t.status === 'completed').length,
+            failed: allTasks.filter(t => t.status === 'failed').length
+        };
+        
+        const activeTasks = allTasks.filter(t => t.status === 'in_progress');
+        const nextTask = TaskTools.getNext();
+        
         return {
-            message: "No active task session",
-            details: { hasActiveSession: false }
+            message: `Task Status Overview: ${stats.total} total, ${stats.pending} pending, ${stats.in_progress} in progress, ${stats.completed} completed, ${stats.failed} failed.`,
+            details: {
+                stats,
+                activeTasks,
+                nextTask,
+                recentTasks: allTasks.sort((a, b) => (b.updatedTime || b.createdTime) - (a.updatedTime || a.createdTime)).slice(0, 5)
+            }
         };
     }
-    
-    const report = TaskManagerTools.getReport();
-    
-    return {
-        message: report,
-        details: {
-            sessionId: progress.sessionId,
-            progress: progress.progress,
-            currentTask: progress.currentTask?.title,
-            nextTask: progress.nextTask?.title,
-            completedTasks: progress.byStatus.completed,
-            totalTasks: progress.totalTasks
-        }
-    };
-}
-
-async function _displayTaskProgress({}, rootHandle) {
-    const report = await TaskManagerTools.displayProgress();
-    
-    return {
-        message: "Task progress displayed in chat",
-        details: { report }
-    };
 }
 
 async function _createFolder({ folder_path }, rootHandle) {
@@ -1387,14 +1345,13 @@ const toolRegistry = {
     delete_folder: { handler: _deleteFolder, requiresProject: true, createsCheckpoint: true },
     rename_folder: { handler: _renameFolder, requiresProject: true, createsCheckpoint: true },
 
-    // AI Task Management tools
-    start_task_session: { handler: _startTaskSession, requiresProject: false, createsCheckpoint: false },
-    add_task: { handler: _addTask, requiresProject: false, createsCheckpoint: false },
-    start_next_task: { handler: _startNextTask, requiresProject: false, createsCheckpoint: false },
-    complete_current_task: { handler: _completeCurrentTask, requiresProject: false, createsCheckpoint: false },
-    add_task_note: { handler: _addTaskNote, requiresProject: false, createsCheckpoint: false },
-    get_task_progress: { handler: _getTaskProgress, requiresProject: false, createsCheckpoint: false },
-    display_task_progress: { handler: _displayTaskProgress, requiresProject: false, createsCheckpoint: false },
+    // --- Unified Task Management Tools ---
+    task_create: { handler: _taskCreate, requiresProject: false, createsCheckpoint: true },
+    task_update: { handler: _taskUpdate, requiresProject: false, createsCheckpoint: true },
+    task_delete: { handler: _taskDelete, requiresProject: false, createsCheckpoint: true },
+    task_breakdown: { handler: _taskBreakdown, requiresProject: false, createsCheckpoint: true },
+    task_get_next: { handler: _taskGetNext, requiresProject: false, createsCheckpoint: false },
+    task_get_status: { handler: _taskGetStatus, requiresProject: false, createsCheckpoint: false },
 
     // Non-project / Editor tools
     read_url: { handler: _readUrl, requiresProject: false, createsCheckpoint: false },
@@ -1514,19 +1471,18 @@ export function getToolDefinitions() {
             // REMOVED: insert_content, create_and_apply_diff, replace_lines - simplified to use rewrite_file only
             { name: 'format_code', description: "Formats a file with Prettier. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
             { name: 'analyze_code', description: "Analyzes a JavaScript file's structure. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
-            { name: 'edit_file', description: "FASTEST tool for file editing. Auto-detects file size and uses optimal method: 'content' for small files (full rewrite) or 'edits' for large files (streaming). Supports both replace_lines and insert_lines.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'Complete file content for small files. CRITICAL: Do NOT wrap in markdown backticks.' }, edits: { type: 'ARRAY', items: { type: 'OBJECT', properties: { type: { type: 'STRING', enum: ['replace_lines', 'insert_lines'] }, start_line: { type: 'NUMBER', description: 'Start line for replace_lines' }, end_line: { type: 'NUMBER', description: 'End line for replace_lines' }, line_number: { type: 'NUMBER', description: 'Line position for insert_lines (0=start of file)' }, new_content: { type: 'STRING' } } }, description: 'Efficient targeted edits for large files. Use replace_lines to replace line ranges or insert_lines to add content.' } }, required: ['filename'], oneOf: [{ required: ['content'] }, { required: ['edits'] }] } },
+            { name: 'edit_file', description: "FASTEST tool for file editing. Auto-detects file size and uses optimal method. Provide EITHER 'content' for small files (full rewrite) OR 'edits' for large files (streaming). Supports both replace_lines and insert_lines.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'Complete file content for small files. CRITICAL: Do NOT wrap in markdown backticks.' }, edits: { type: 'ARRAY', items: { type: 'OBJECT', properties: { type: { type: 'STRING', enum: ['replace_lines', 'insert_lines'] }, start_line: { type: 'NUMBER', description: 'Start line for replace_lines' }, end_line: { type: 'NUMBER', description: 'End line for replace_lines' }, line_number: { type: 'NUMBER', description: 'Line position for insert_lines (0=start of file)' }, new_content: { type: 'STRING' } } }, description: 'Efficient targeted edits for large files. Use replace_lines to replace line ranges or insert_lines to add content.' } }, required: ['filename'] } },
             { name: 'append_to_file', description: "Fast append content to end of file without reading full content. Ideal for logs, incremental updates.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'Content to append. Will add newline separator automatically.' } }, required: ['filename', 'content'] } },
             { name: 'get_file_info', description: "Get file metadata (size, last modified, type) without reading content. Use before editing large files.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
             { name: 'rewrite_file', description: "Legacy method - rewrites entire file. Use edit_file instead for better performance.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'The new, raw text content of the file. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'content'] } },
             
-            // AI Task Management System - PROACTIVE USE RECOMMENDED
-            { name: 'start_task_session', description: "🚀 START EVERY COMPLEX TASK WITH THIS! Automatically breaks down complex goals into manageable subtasks with smart prioritization. Essential for systematic work completion.", parameters: { type: 'OBJECT', properties: { goal: { type: 'STRING', description: 'The main goal/task to accomplish (e.g., "optimize report performance", "implement user authentication")' }, context: { type: 'OBJECT', description: 'Additional context about the task (optional)', properties: { files: { type: 'ARRAY', items: { type: 'STRING' } }, requirements: { type: 'STRING' }, constraints: { type: 'STRING' } } } }, required: ['goal'] } },
-            { name: 'start_next_task', description: "🎯 Automatically starts the next available task from the current session. Use this to systematically work through your task list without getting lost.", parameters: { type: 'OBJECT', properties: {}, required: [] } },
-            { name: 'complete_current_task', description: "✅ Mark the current task as completed with optional results/notes. Automatically moves to next task. CRITICAL: Call this when you finish each task.", parameters: { type: 'OBJECT', properties: { notes: { type: 'STRING', description: 'What was accomplished, any issues encountered, or important observations' }, results: { type: 'OBJECT', description: 'Structured results (files modified, metrics, etc.)' } }, required: [] } },
-            { name: 'get_task_progress', description: "📊 Get detailed progress report including current task, completion percentage, and next steps. Use to stay oriented during complex work.", parameters: { type: 'OBJECT', properties: {}, required: [] } },
-            { name: 'display_task_progress', description: "📋 Display formatted progress report in chat for user visibility. Use periodically to keep user informed.", parameters: { type: 'OBJECT', properties: {}, required: [] } },
-            { name: 'add_task', description: "📝 Add a new task to current session (for discovered work). Use when you identify additional work needed during task execution.", parameters: { type: 'OBJECT', properties: { title: { type: 'STRING', description: 'Clear, actionable task title' }, description: { type: 'STRING', description: 'Detailed task description (optional)' }, priority: { type: 'STRING', enum: ['high', 'medium', 'low'], description: 'Task priority (default: medium)' }, dependencies: { type: 'ARRAY', items: { type: 'STRING' }, description: 'Array of task IDs this task depends on (optional)' } }, required: ['title'] } },
-            { name: 'add_task_note', description: "📝 Add notes/observations to any task. Use to track progress, issues, or important findings during task execution.", parameters: { type: 'OBJECT', properties: { taskId: { type: 'STRING', description: 'The task ID to add notes to' }, note: { type: 'STRING', description: 'The note content' }, type: { type: 'STRING', enum: ['info', 'warning', 'error', 'success'], description: 'Note type (default: info)' } }, required: ['taskId', 'note'] } },
+            // --- Unified Task Management System ---
+            { name: 'task_create', description: "Creates a new task. This is the starting point for any new goal.", parameters: { type: 'OBJECT', properties: { title: { type: 'STRING' }, description: { type: 'STRING' }, priority: { type: 'STRING', enum: ['low', 'medium', 'high', 'urgent'] }, parentId: { type: 'STRING' }, listId: { type: 'STRING' } }, required: ['title'] } },
+            { name: 'task_update', description: "Updates an existing task with new information or status.", parameters: { type: 'OBJECT', properties: { taskId: { type: 'STRING' }, updates: { type: 'OBJECT' } }, required: ['taskId', 'updates'] } },
+            { name: 'task_delete', description: "Deletes a task and all of its subtasks.", parameters: { type: 'OBJECT', properties: { taskId: { type: 'STRING' } }, required: ['taskId'] } },
+            { name: 'task_breakdown', description: "Analyzes a high-level task and automatically breaks it down into smaller, actionable subtasks.", parameters: { type: 'OBJECT', properties: { taskId: { type: 'STRING' } }, required: ['taskId'] } },
+            { name: 'task_get_next', description: "Fetches the next logical task for the AI to work on, based on priority and dependencies." },
+            { name: 'task_get_status', description: "Gets status information about tasks. Can check a specific task by ID or get overall task statistics.", parameters: { type: 'OBJECT', properties: { taskId: { type: 'STRING', description: 'Optional specific task ID to check. If omitted, returns overview of all tasks.' } } } },
             
             // Enhanced code comprehension tools
             { name: 'analyze_symbol', description: 'Analyzes a symbol (variable, function, class) across the entire codebase to understand its usage, definition, and relationships.', parameters: { type: 'OBJECT', properties: { symbol_name: { type: 'STRING', description: 'The name of the symbol to analyze' }, file_path: { type: 'STRING', description: 'The file path where the symbol is used or defined' } }, required: ['symbol_name', 'file_path'] } },
