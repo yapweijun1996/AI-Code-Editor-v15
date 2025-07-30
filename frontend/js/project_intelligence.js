@@ -1049,6 +1049,59 @@ class ProjectIntelligence {
         return patterns;
     }
 
+    /**
+     * Calculate cyclomatic complexity (basic version)
+     */
+    calculateComplexity(content, language) {
+        if (!content) {
+            return 1;
+        }
+
+        let complexity = 1;
+        const complexityPatterns = [
+            /if\s*\(/g, /else\s*if\s*\(/g, /while\s*\(/g, /for\s*\(/g,
+            /case\s+\S+:/g, /catch\s*\(/g, /\?\?/g, /&&/g, /\|\|/g
+        ];
+
+        complexityPatterns.forEach(pattern => {
+            const matches = content.match(pattern);
+            if (matches) {
+                complexity += matches.length;
+            }
+        });
+
+        return complexity;
+    }
+
+    /**
+     * Detect architectural patterns from file analysis
+     */
+    async detectArchitecturalPatterns() {
+        this.updateProgress('Detecting architectural patterns...', 90);
+        
+        try {
+            this.architecturePatterns.clear();
+            const analyzedFiles = Array.from(this.projectMap.values());
+
+            for (const file of analyzedFiles) {
+                if (file.patterns && file.patterns.length > 0) {
+                    for (const pattern of file.patterns) {
+                        if (!this.architecturePatterns.has(pattern)) {
+                            this.architecturePatterns.set(pattern, []);
+                        }
+                        this.architecturePatterns.get(pattern).push(file.path);
+                    }
+                }
+            }
+            
+            console.log(`Architectural pattern detection complete. Found ${this.architecturePatterns.size} patterns.`);
+            this.updateProgress('Architectural pattern detection complete', 95);
+            
+        } catch (error) {
+            console.error('Error detecting architectural patterns:', error);
+            this.updateProgress('Error in pattern detection', 95, () => {});
+        }
+    }
 
     /**
      * Update analysis progress with callback support

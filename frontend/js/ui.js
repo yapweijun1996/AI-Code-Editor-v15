@@ -155,7 +155,7 @@ async function loadMoreFiles(node, appState) {
         const tree = $('#file-tree').jstree(true);
         const path = node.li_attr['data-path'];
         
-        if (!path || !appState.rootDirectoryHandle) {
+        if (path == null || !appState.rootDirectoryHandle) {
             console.error('Missing path or root directory handle');
             tree.set_text(node, '❌ Error: Missing directory information');
             return;
