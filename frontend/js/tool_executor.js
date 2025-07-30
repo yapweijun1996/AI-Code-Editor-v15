@@ -83,6 +83,100 @@ async function streamFileUpdate(filename, content, chunkSize = 50000) {
     return result;
 }
 
+// Streaming edit for very large files (>500KB)
+async function _streamingEditFile({ filename, edits, fileHandle, file }) {
+    console.log(`Using streaming edit for large file: ${filename} (${file.size} bytes)`);
+    
+    // Read file in chunks to avoid memory issues
+    const chunkSize = 1024 * 1024; // 1MB chunks
+    const fileSize = file.size;
+    let currentPos = 0;
+    let lineNumber = 1;
+    let lines = [];
+    
+    // Read file in chunks and split into lines
+    while (currentPos < fileSize) {
+        const chunk = await file.slice(currentPos, Math.min(currentPos + chunkSize, fileSize)).text();
+        const chunkLines = chunk.split(/\r?\n/);
+        
+        if (lines.length > 0) {
+            // Merge last line from previous chunk with first line of current chunk
+            lines[lines.length - 1] += chunkLines[0];
+            lines.push(...chunkLines.slice(1));
+        } else {
+            lines.push(...chunkLines);
+        }
+        
+        currentPos += chunkSize;
+        
+        // Yield control periodically
+        if (currentPos % (chunkSize * 5) === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    }
+    
+    const originalLineCount = lines.length;
+    console.log(`Streaming edit: Loaded ${originalLineCount} lines`);
+    
+    // Validate edits
+    for (const edit of edits) {
+        if (edit.type === 'replace_lines') {
+            const { start_line, end_line } = edit;
+            if (start_line < 1 || end_line < 1 || start_line > originalLineCount || end_line > originalLineCount) {
+                throw new Error(`Invalid line range: ${start_line}-${end_line} (file has ${originalLineCount} lines)`);
+            }
+        }
+    }
+    
+    // Apply edits in reverse order
+    const sortedEdits = [...edits].sort((a, b) => b.start_line - a.start_line);
+    
+    for (const edit of sortedEdits) {
+        if (edit.type === 'replace_lines') {
+            const { start_line, end_line, new_content } = edit;
+            const cleanContent = stripMarkdownCodeBlock(new_content || '');
+            const newLines = cleanContent.split(/\r?\n/);
+            
+            const before = lines.slice(0, start_line - 1);
+            const after = lines.slice(end_line);
+            lines = [...before, ...newLines, ...after];
+        }
+    }
+    
+    // Write file in chunks to avoid memory issues
+    const writable = await fileHandle.createWritable();
+    const writeChunkSize = 100000; // 100KB write chunks
+    
+    for (let i = 0; i < lines.length; i += writeChunkSize) {
+        const chunk = lines.slice(i, i + writeChunkSize).join('\n');
+        await writable.write(chunk);
+        
+        if (i + writeChunkSize < lines.length) {
+            await writable.write('\n');
+        }
+        
+        // Yield control during writes
+        if (i % (writeChunkSize * 2) === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+    }
+    
+    await writable.close();
+    
+    console.log(`Streaming edit completed: ${originalLineCount} -> ${lines.length} lines`);
+    
+    return {
+        message: `Streaming edit applied to '${filename}' successfully. ${edits.length} edit(s) applied.`,
+        details: {
+            originalLines: originalLineCount,
+            finalLines: lines.length,
+            editsApplied: edits.length,
+            processingMethod: 'streaming',
+            fileSize: file.size
+        }
+    };
+}
+
 // --- Tool Handlers ---
 
 function unescapeHtmlEntities(text) {
@@ -373,18 +467,26 @@ async function _smartEditFile({ filename, edits }, rootHandle) {
     }
     
     const file = await fileHandle.getFile();
+    const fileSize = file.size;
+    console.log(`_smartEditFile: Processing ${filename} (${fileSize} bytes)`);
+    
+    // For very large files (>500KB), use streaming approach
+    if (fileSize > 500000) {
+        return await _streamingEditFile({ filename, edits, fileHandle, file });
+    }
+    
     const originalContent = await file.text();
     UndoManager.push(filename, originalContent);
     
     let lines = originalContent.split(/\r?\n/);
     const originalLineCount = lines.length;
     
-    // Validate all edits first to prevent partial failures
+    // Enhanced validation with better error messages
     for (const edit of edits) {
         if (edit.type === 'replace_lines') {
             const { start_line, end_line } = edit;
             if (typeof start_line !== 'number' || typeof end_line !== 'number') {
-                throw new Error(`Invalid line numbers: start_line=${start_line}, end_line=${end_line}`);
+                throw new Error(`Invalid line numbers in edit: start_line=${start_line}, end_line=${end_line}`);
             }
             if (start_line < 1 || end_line < 1) {
                 throw new Error(`Line numbers must be >= 1: start_line=${start_line}, end_line=${end_line}`);
@@ -395,15 +497,21 @@ async function _smartEditFile({ filename, edits }, rootHandle) {
             if (start_line > end_line) {
                 throw new Error(`start_line (${start_line}) cannot be greater than end_line (${end_line})`);
             }
+        } else if (edit.type === 'insert_lines') {
+            const { line_number } = edit;
+            if (typeof line_number !== 'number' || line_number < 0 || line_number > originalLineCount) {
+                throw new Error(`Invalid line number for insert: ${line_number} (file has ${originalLineCount} lines)`);
+            }
+        } else {
+            throw new Error(`Unsupported edit type: ${edit.type}`);
         }
     }
     
     // Apply edits in reverse order to maintain line numbers
-    const sortedEdits = edits.sort((a, b) => {
-        if (a.type === 'replace_lines' && b.type === 'replace_lines') {
-            return b.start_line - a.start_line; // Reverse order
-        }
-        return 0;
+    const sortedEdits = [...edits].sort((a, b) => {
+        const aLine = a.type === 'insert_lines' ? a.line_number : a.start_line;
+        const bLine = b.type === 'insert_lines' ? b.line_number : b.start_line;
+        return bLine - aLine;
     });
     
     for (const edit of sortedEdits) {
@@ -412,12 +520,29 @@ async function _smartEditFile({ filename, edits }, rootHandle) {
             const cleanContent = stripMarkdownCodeBlock(new_content || '');
             const newLines = cleanContent.split(/\r?\n/);
             
-            // Replace the specified lines
+            // Replace the specified range with new content
             const before = lines.slice(0, start_line - 1);
             const after = lines.slice(end_line);
             lines = [...before, ...newLines, ...after];
+        } else if (edit.type === 'insert_lines') {
+            const { line_number, new_content } = edit;
+            const cleanContent = stripMarkdownCodeBlock(new_content || '');
+            const newLines = cleanContent.split(/\r?\n/);
+            
+            // Insert at the specified line number
+            const before = lines.slice(0, line_number);
+            const after = lines.slice(line_number);
+            lines = [...before, ...newLines, ...after];
         }
     }
+    
+    await ToolLogger.logToolExecution('_smartEditFile', {
+        filename,
+        fileSize,
+        originalLineCount,
+        finalLineCount: lines.length,
+        editsApplied: edits.length
+    });
     
     // Preserve original line endings
     const lineEnding = originalContent.includes('\r\n') ? '\r\n' : '\n';
@@ -427,22 +552,54 @@ async function _smartEditFile({ filename, edits }, rootHandle) {
     await writable.write(newContent);
     await writable.close();
     
-    if (Editor.getOpenFiles().has(filename)) {
+    // Only refresh editor for smaller files to avoid performance issues
+    if (fileSize < 100000 && Editor.getOpenFiles().has(filename)) {
         Editor.getOpenFiles().get(filename)?.model.setValue(newContent);
     }
-    await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
+    
+    // Only auto-open if file is small enough
+    if (fileSize < 50000) {
+        await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
+    }
+    
     document.getElementById('chat-input').focus();
     
-    const appliedEdits = edits.length;
-    return { message: `Applied ${appliedEdits} edit(s) to '${filename}' successfully.` };
+    return {
+        message: `Smart edit applied to '${filename}' successfully. ${edits.length} edit(s) applied.`,
+        details: {
+            originalLines: originalLineCount,
+            finalLines: lines.length,
+            editsApplied: edits.length,
+            fileSize: fileSize,
+            processingMethod: fileSize > 500000 ? 'streaming' : 'standard'
+        }
+    };
 }
 
 // Intelligent file size-based tool selection
 async function _editFile({ filename, content, edits }, rootHandle) {
     if (!filename) throw new Error("The 'filename' parameter is required.");
     
-    // If full content provided, use rewrite (for small files or complete rewrites)
+    // Auto-detect best approach based on file size and edit type
+    if (content !== undefined && edits !== undefined) {
+        throw new Error("Provide either 'content' OR 'edits', not both.");
+    }
+    
     if (content !== undefined) {
+        // Check if file exists and its size to determine best approach
+        try {
+            const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
+            const file = await fileHandle.getFile();
+            const fileSize = file.size;
+            
+            // For very large files, suggest using edits instead
+            if (fileSize > 1000000) { // 1MB threshold
+                console.warn(`File ${filename} is large (${fileSize} bytes). Consider using 'edits' for better performance.`);
+            }
+        } catch (e) {
+            // File doesn't exist, will be created
+        }
+        
         return await _rewriteFile({ filename, content }, rootHandle);
     }
     
@@ -452,6 +609,68 @@ async function _editFile({ filename, content, edits }, rootHandle) {
     }
     
     throw new Error("Either 'content' (for full rewrite) or 'edits' (for targeted changes) must be provided.");
+}
+
+// Fast append for logs and incremental files
+async function _appendToFile({ filename, content }, rootHandle) {
+    if (!filename) throw new Error("The 'filename' parameter is required.");
+    if (!content) throw new Error("The 'content' parameter is required.");
+    
+    const cleanContent = stripMarkdownCodeBlock(content);
+    
+    try {
+        const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
+        if (!await FileSystem.verifyAndRequestPermission(fileHandle, true)) {
+            throw new Error('Permission to write to the file was denied.');
+        }
+        
+        // Get existing content
+        const file = await fileHandle.getFile();
+        const existingContent = await file.text();
+        
+        // Append new content
+        const newContent = existingContent + (existingContent ? '\n' : '') + cleanContent;
+        
+        const writable = await fileHandle.createWritable();
+        await writable.write(newContent);
+        await writable.close();
+        
+        return { 
+            message: `Content appended to '${filename}' successfully.`,
+            details: { appendedBytes: cleanContent.length }
+        };
+    } catch (error) {
+        if (error.name === 'NotFoundError') {
+            // File doesn't exist, create it
+            return await _createFile({ filename, content: cleanContent }, rootHandle);
+        }
+        throw error;
+    }
+}
+
+// Get file size and metadata without reading content
+async function _getFileInfo({ filename }, rootHandle) {
+    if (!filename) throw new Error("The 'filename' parameter is required.");
+    
+    try {
+        const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
+        const file = await fileHandle.getFile();
+        
+        return {
+            message: `File info for '${filename}':`,
+            details: {
+                name: file.name,
+                size: file.size,
+                lastModified: new Date(file.lastModified).toISOString(),
+                type: file.type || 'text/plain'
+            }
+        };
+    } catch (error) {
+        if (error.name === 'NotFoundError') {
+            throw new Error(`File '${filename}' does not exist.`);
+        }
+        throw error;
+    }
 }
 
 async function _createFolder({ folder_path }, rootHandle) {
@@ -1020,6 +1239,8 @@ const toolRegistry = {
     create_file: { handler: _createFile, requiresProject: true, createsCheckpoint: true },
     edit_file: { handler: _editFile, requiresProject: true, createsCheckpoint: true },
     rewrite_file: { handler: _rewriteFile, requiresProject: true, createsCheckpoint: true },
+    append_to_file: { handler: _appendToFile, requiresProject: true, createsCheckpoint: true },
+    get_file_info: { handler: _getFileInfo, requiresProject: true, createsCheckpoint: false },
     delete_file: { handler: _deleteFile, requiresProject: true, createsCheckpoint: true },
     rename_file: { handler: _renameFile, requiresProject: true, createsCheckpoint: true },
     create_folder: { handler: _createFolder, requiresProject: true, createsCheckpoint: true },
@@ -1138,7 +1359,9 @@ export function getToolDefinitions() {
             // REMOVED: insert_content, create_and_apply_diff, replace_lines - simplified to use rewrite_file only
             { name: 'format_code', description: "Formats a file with Prettier. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
             { name: 'analyze_code', description: "Analyzes a JavaScript file's structure. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
-            { name: 'edit_file', description: "Smart file editing - use 'content' for small files (rewrites entire file) or 'edits' for large files (targeted line changes). EFFICIENT for large files.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'Complete file content for small files. CRITICAL: Do NOT wrap in markdown backticks.' }, edits: { type: 'ARRAY', items: { type: 'OBJECT', properties: { type: { type: 'STRING', enum: ['replace_lines'] }, start_line: { type: 'NUMBER' }, end_line: { type: 'NUMBER' }, new_content: { type: 'STRING' } } }, description: 'Array of targeted edits for large files. Each edit replaces lines start_line to end_line with new_content.' } }, required: ['filename'], oneOf: [{ required: ['content'] }, { required: ['edits'] }] } },
+            { name: 'edit_file', description: "FASTEST tool for file editing. Auto-detects file size and uses optimal method: 'content' for small files (full rewrite) or 'edits' for large files (streaming). Supports both replace_lines and insert_lines.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'Complete file content for small files. CRITICAL: Do NOT wrap in markdown backticks.' }, edits: { type: 'ARRAY', items: { type: 'OBJECT', properties: { type: { type: 'STRING', enum: ['replace_lines', 'insert_lines'] }, start_line: { type: 'NUMBER', description: 'Start line for replace_lines' }, end_line: { type: 'NUMBER', description: 'End line for replace_lines' }, line_number: { type: 'NUMBER', description: 'Line position for insert_lines (0=start of file)' }, new_content: { type: 'STRING' } } }, description: 'Efficient targeted edits for large files. Use replace_lines to replace line ranges or insert_lines to add content.' } }, required: ['filename'], oneOf: [{ required: ['content'] }, { required: ['edits'] }] } },
+            { name: 'append_to_file', description: "Fast append content to end of file without reading full content. Ideal for logs, incremental updates.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'Content to append. Will add newline separator automatically.' } }, required: ['filename', 'content'] } },
+            { name: 'get_file_info', description: "Get file metadata (size, last modified, type) without reading content. Use before editing large files.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
             { name: 'rewrite_file', description: "Legacy method - rewrites entire file. Use edit_file instead for better performance.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'The new, raw text content of the file. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'content'] } },
             
             // Enhanced code comprehension tools
