@@ -11,7 +11,7 @@ The application is designed with a **secure, client-centric architecture**.
 *   **Frontend-Heavy**: The vast majority of the logic runs in the browser. This includes all file system operations (via the File System Access API), the Monaco editor, and the core AI agent logic.
 *   **Minimal Backend**: A lightweight Node.js/Express server (`backend/index.js`) exists only for two reasons:
     1.  To serve the static frontend assets.
-    2.  To perform actions the browser sandbox cannot, such as running terminal commands (`run_terminal_command`) or fetching external URLs (`read_url`).
+    2.  To perform actions the browser sandbox cannot, such as fetching external URLs (`read_url`) and web search operations. Terminal command execution has been removed to maintain security and client-centric design.
 *   **Stateful AI Agent**: The AI is not just a chatbot. It's a true agent that uses a predefined set of tools to interact with your project. The entire tool-calling loop is managed on the frontend in `frontend/js/gemini_chat.js`.
 
 ### End-to-End Workflow

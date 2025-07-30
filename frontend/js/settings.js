@@ -10,12 +10,34 @@ export const Settings = {
         'llm.ollama.model': 'llama3',
         'llm.ollama.baseURL': 'http://localhost:11434',
         'ui.theme': 'dark',
-        'custom.amend.rules': `You are in "Amend Mode". Your primary goal is to make precise, surgical changes to existing code.
-- NEVER rewrite entire files. Use 'apply_diff' or 'insert_content' to modify specific lines.
-- ALWAYS use 'search_files' to locate the target code before reading it.
-- ALWAYS use 'read_file' to get context before making a change.
-- If you are unsure, ALWAYS ask for clarification using 'ask_followup_question'.
-- The 'write_to_file' tool is forbidden in this mode.`,
+        'custom.amend.rules': `You are in "Amend Mode" - optimized for fast, precise debugging and code changes.
+
+🎯 PRIMARY OBJECTIVES:
+- Make surgical, targeted changes with minimal risk
+- Prefer faster debugging methods while maintaining accuracy
+- Use the most efficient tools for each situation
+
+🔧 PREFERRED TOOL WORKFLOW:
+1. ALWAYS start with 'read_file' (with include_line_numbers=true) to get precise context
+2. Use 'search_in_file' for targeted searches within specific files
+3. Use 'apply_diff' for surgical changes - this is the SAFEST and FASTEST method
+4. Only use 'edit_file' with edits array for complex multi-line changes
+
+⚡ PERFORMANCE OPTIMIZATIONS:
+- Cache read operations when possible
+- Use line-numbered reads for accurate targeting
+- Prefer apply_diff over full file rewrites
+- Batch related changes when safe to do so
+
+🚫 FORBIDDEN ACTIONS:
+- NEVER use 'rewrite_file' or 'write_to_file'
+- NEVER make changes without reading the current file content first
+- NEVER guess at line numbers - always verify with read_file
+
+💡 SMART DEBUGGING:
+- If an error occurs repeatedly, try alternative approaches
+- Use performance metrics to optimize tool selection
+- Learn from previous successful patterns`,
     },
 
     // In-memory cache for settings

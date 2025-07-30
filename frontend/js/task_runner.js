@@ -1,4 +1,5 @@
-// This module will handle discovering and running tasks from package.json.
+// This module handles discovering tasks from package.json.
+// Task execution has been disabled to maintain the browser-first architecture.
 
 import { getFileHandleFromPath } from './file_system.js';
 
@@ -23,7 +24,9 @@ class TaskRunner {
     runTask(taskName) {
         const command = this.tasks[taskName];
         if (command) {
-            ChatService.runToolDirectly('run_terminal_command', { command });
+            console.warn(`Task execution disabled: "${taskName}" -> "${command}"`);
+            console.warn('This browser-based editor focuses on file editing. Use your terminal to run: npm run ' + taskName);
+            throw new Error(`Task execution has been disabled in this browser-based editor. Please run "npm run ${taskName}" in your terminal.`);
         } else {
             console.error(`Task not found: ${taskName}`);
         }

@@ -9,7 +9,7 @@ The application is architected to be **secure and frontend-heavy**. The majority
 ## Component Overview
 
 *   **Frontend**: A single-page application built with vanilla JavaScript, HTML, and CSS. It uses the Monaco Editor and manages all core application logic.
-*   **Backend**: A lightweight Node.js/Express server that serves static files and provides sandboxed execution for terminal commands and URL fetching.
+*   **Backend**: A lightweight Node.js/Express server that serves static files and provides URL fetching capabilities. Terminal command execution has been removed to maintain security and client-centric architecture.
 *   **AI Agents**: Multi-provider AI system managed entirely on the client-side with:
     *   **Service Factory** (`frontend/js/llm/service_factory.js`) - Creates appropriate LLM service instances
     *   **Provider Services** - Gemini, OpenAI, and Ollama service implementations

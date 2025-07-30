@@ -115,11 +115,11 @@ sequenceDiagram
         FE->>FS: Read file via File System API
         FS-->>FE: Return file content
         FE-->>AI: Send file content
-    else Backend Operations (if needed)
-        AI-->>FE: Tool call: run_terminal_command('npm test')
-        FE->>BE: POST /api/execute-tool
-        BE-->>FE: Return command output
-        FE-->>AI: Send command result
+    else Backend Operations (Limited)
+        AI-->>FE: Tool call: read_url('https://example.com')
+        FE->>BE: POST /api/read-url
+        BE-->>FE: Return URL content
+        FE-->>AI: Send URL content
     end
 
     AI->>AI: Process results & formulate response

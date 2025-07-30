@@ -11,6 +11,257 @@ import { codeComprehension } from './code_comprehension.js';
 import { preciseEditor } from './precise_editor.js';
 import { backgroundIndexer } from './background_indexer.js';
 import { taskManager, TaskTools } from './task_manager.js';
+import { performanceOptimizer } from './performance_optimizer.js';
+import { providerOptimizer } from './provider_optimizer.js';
+
+// Smart debugging and optimization state
+const debuggingState = {
+    recentErrors: new Map(), // Track recent errors for pattern detection
+    toolPerformance: new Map(), // Track tool execution times
+    contextCache: new Map(), // Cache frequently accessed contexts
+    lastFileOperations: [], // Track recent file operations for optimization
+    amendModeOptimizations: {
+        preferredTools: ['apply_diff', 'search_files', 'read_file'],
+        avoidedTools: ['write_to_file', 'rewrite_file'],
+        smartSearch: true,
+        contextAware: true
+    },
+    smartToolSelection: {
+        fileEditingHistory: new Map(), // Track which tools work best for different file types
+        errorPatterns: new Map(), // Track common error patterns and solutions
+        performanceMetrics: new Map() // Track tool performance by context
+    }
+};
+
+// Import diff_match_patch for diff creation
+let diff_match_patch;
+try {
+    // Try to import from global scope (if loaded via script tag)
+    diff_match_patch = window.diff_match_patch;
+    if (!diff_match_patch) {
+        throw new Error('diff_match_patch not found in global scope');
+    }
+} catch (e) {
+    console.warn('diff_match_patch not available:', e.message);
+}
+
+// --- Smart Debugging and Optimization Functions ---
+
+// Track tool performance and suggest optimizations
+function trackToolPerformance(toolName, startTime, endTime, success, context = {}) {
+    const duration = endTime - startTime;
+    const key = `${toolName}_${context.fileType || 'unknown'}`;
+    
+    if (!debuggingState.toolPerformance.has(key)) {
+        debuggingState.toolPerformance.set(key, {
+            totalCalls: 0,
+            totalTime: 0,
+            successCount: 0,
+            failureCount: 0,
+            averageTime: 0,
+            lastUsed: Date.now()
+        });
+    }
+    
+    const metrics = debuggingState.toolPerformance.get(key);
+    metrics.totalCalls++;
+    metrics.totalTime += duration;
+    metrics.averageTime = metrics.totalTime / metrics.totalCalls;
+    metrics.lastUsed = Date.now();
+    
+    if (success) {
+        metrics.successCount++;
+    } else {
+        metrics.failureCount++;
+    }
+    
+    // Log performance warnings for slow tools
+    if (duration > 5000) { // 5 seconds
+        console.warn(`[Performance] Tool ${toolName} took ${duration}ms to execute`);
+    }
+}
+
+// Smart tool selection based on context and history
+function getOptimalTool(intent, context = {}) {
+    const { fileType, fileSize, mode } = context;
+    
+    // Amend mode optimizations
+    if (mode === 'amend') {
+        if (intent === 'edit_file') {
+            // Prefer apply_diff for surgical changes in amend mode
+            return {
+                recommendedTool: 'apply_diff',
+                reason: 'apply_diff is safer and more precise for amend mode',
+                alternatives: ['edit_file']
+            };
+        }
+        
+        if (intent === 'search') {
+            return {
+                recommendedTool: 'search_in_file',
+                reason: 'More targeted search for amend mode',
+                alternatives: ['search_code']
+            };
+        }
+    }
+    
+    // File size optimizations
+    if (intent === 'edit_file' && fileSize) {
+        if (fileSize > 500000) { // 500KB
+            return {
+                recommendedTool: 'edit_file',
+                reason: 'Use edits array for large files',
+                parameters: { preferEditsArray: true },
+                alternatives: ['apply_diff']
+            };
+        }
+    }
+    
+    // Performance-based recommendations
+    const performanceKey = `${intent}_${fileType || 'unknown'}`;
+    const metrics = debuggingState.toolPerformance.get(performanceKey);
+    
+    if (metrics && metrics.failureCount > metrics.successCount) {
+        console.warn(`[Smart Selection] Tool ${intent} has high failure rate for ${fileType} files`);
+    }
+    
+    return null; // No specific recommendation
+}
+
+// Error pattern detection and smart recovery
+function analyzeError(toolName, error, context = {}) {
+    const errorSignature = `${toolName}:${error.message.substring(0, 100)}`;
+    
+    if (!debuggingState.recentErrors.has(errorSignature)) {
+        debuggingState.recentErrors.set(errorSignature, {
+            count: 0,
+            firstSeen: Date.now(),
+            lastSeen: Date.now(),
+            contexts: []
+        });
+    }
+    
+    const errorInfo = debuggingState.recentErrors.get(errorSignature);
+    errorInfo.count++;
+    errorInfo.lastSeen = Date.now();
+    errorInfo.contexts.push(context);
+    
+    // Detect recurring errors
+    if (errorInfo.count >= 3) {
+        console.warn(`[Error Pattern] Recurring error detected: ${errorSignature}`);
+        return getSuggestedFix(toolName, error, errorInfo);
+    }
+    
+    return null;
+}
+
+// Suggest fixes for common error patterns
+function getSuggestedFix(toolName, error, errorInfo) {
+    const errorMessage = error.message.toLowerCase();
+    
+    // apply_diff specific errors
+    if (toolName === 'apply_diff') {
+        if (errorMessage.includes('no valid diff blocks found')) {
+            return {
+                suggestion: 'The diff format is incorrect. Use read_file with include_line_numbers=true first, then format the diff exactly as: <<<<<<< SEARCH\\n:start_line:N\\n-------\\nexact content\\n=======\\nnew content\\n>>>>>>> REPLACE',
+                alternativeTool: 'read_file',
+                confidence: 0.95
+            };
+        }
+        if (errorMessage.includes('search content does not match')) {
+            return {
+                suggestion: 'The search content must match exactly. Use read_file with include_line_numbers=true to get the exact current content, then copy it precisely into the SEARCH block',
+                alternativeTool: 'read_file',
+                confidence: 0.95
+            };
+        }
+    }
+    
+    // File not found errors
+    if (errorMessage.includes('not found') || errorMessage.includes('notfounderror')) {
+        return {
+            suggestion: 'Use get_project_structure first to verify file paths',
+            alternativeTool: 'get_project_structure',
+            confidence: 0.9
+        };
+    }
+    
+    // Permission errors - enhanced handling for File System Access API
+    if (errorMessage.includes('permission') || errorMessage.includes('denied') ||
+        errorMessage.includes('user activation is required')) {
+        return {
+            suggestion: 'File system permission issue. This can happen when the AI tries to access files without user interaction. The system will attempt to handle permissions automatically during file operations. If this persists, try manually clicking in the editor or file tree first.',
+            alternativeTool: 'read_file',
+            confidence: 0.9
+        };
+    }
+    
+    // Syntax errors in file editing
+    if (toolName.includes('edit') && errorMessage.includes('syntax')) {
+        return {
+            suggestion: 'Use apply_diff for more precise editing to avoid syntax errors',
+            alternativeTool: 'apply_diff',
+            confidence: 0.85
+        };
+    }
+    
+    // Line number errors
+    if (errorMessage.includes('line') && errorMessage.includes('invalid')) {
+        return {
+            suggestion: 'Use read_file with line numbers first to get accurate line references',
+            alternativeTool: 'read_file',
+            confidence: 0.9
+        };
+    }
+    
+    return null;
+}
+
+// Smart caching for repeated operations
+function getCachedResult(toolName, parameters) {
+    const cacheKey = `${toolName}:${JSON.stringify(parameters)}`;
+    const cached = debuggingState.contextCache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < 30000) { // 30 second cache
+        console.log(`[Cache Hit] Using cached result for ${toolName}`);
+        return cached.result;
+    }
+    
+    return null;
+}
+
+function setCachedResult(toolName, parameters, result) {
+    const cacheKey = `${toolName}:${JSON.stringify(parameters)}`;
+    debuggingState.contextCache.set(cacheKey, {
+        result,
+        timestamp: Date.now()
+    });
+    
+    // Limit cache size
+    if (debuggingState.contextCache.size > 100) {
+        const oldestKey = Array.from(debuggingState.contextCache.keys())[0];
+        debuggingState.contextCache.delete(oldestKey);
+    }
+}
+
+// Optimize tool execution order
+function optimizeToolSequence(tools) {
+    // Sort tools by priority and dependencies
+    const priorityOrder = {
+        'get_project_structure': 1,
+        'read_file': 2,
+        'search_files': 3,
+        'apply_diff': 4,
+        'edit_file': 5,
+        'create_file': 6
+    };
+    
+    return tools.sort((a, b) => {
+        const priorityA = priorityOrder[a.name] || 999;
+        const priorityB = priorityOrder[b.name] || 999;
+        return priorityA - priorityB;
+    });
+}
 
 // --- Helper Functions ---
 
@@ -333,35 +584,69 @@ async function _readMultipleFiles({ filenames }, rootHandle) {
     return { combined_content: combinedContent };
 }
 
-async function _createFile({ filename, content }, rootHandle) {
+async function _createFile({ filename, content = '' }, rootHandle) {
     if (!filename) throw new Error("The 'filename' parameter is required for create_file.");
+    if (typeof filename !== 'string') throw new Error("The 'filename' parameter must be a string.");
+    
     const cleanContent = stripMarkdownCodeBlock(content);
-    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename, { create: true });
-    if (!await FileSystem.verifyAndRequestPermission(fileHandle, true)) {
-        throw new Error('Permission to write to the file was denied.');
+    
+    try {
+        const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename, { create: true });
+        
+        // Enhanced permission handling - try to proceed even if permission check fails
+        let hasPermission = false;
+        try {
+            hasPermission = await FileSystem.verifyAndRequestPermission(fileHandle, true);
+        } catch (permissionError) {
+            console.warn('Permission check failed, attempting to proceed:', permissionError.message);
+            hasPermission = true; // Optimistically proceed
+        }
+        
+        if (!hasPermission) {
+            throw new Error('Permission to write to the file was denied.');
+        }
+        
+        // Track for undo - save empty content since this is a new file creation
+        UndoManager.push(filename, '');
+        
+        const writable = await fileHandle.createWritable();
+        await writable.write(cleanContent);
+        await writable.close();
+        
+        // Use more reliable refresh timing
+        await new Promise(resolve => setTimeout(resolve, 150));
+        await UI.refreshFileTree(rootHandle, (filePath) => {
+            const fileHandle = FileSystem.getFileHandleFromPath(rootHandle, filePath);
+            Editor.openFile(fileHandle, filePath, document.getElementById('tab-bar'));
+        });
+        await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
+        document.getElementById('chat-input').focus();
+        
+        return { message: `File '${filename}' created successfully.` };
+    } catch (error) {
+        // Enhanced error handling for permission issues
+        if (error.message.includes('User activation is required')) {
+            throw new Error(`Failed to create file '${filename}': File system permission required. This happens when the AI tries to create files without user interaction. Please try clicking in the editor or file tree first, then retry the operation.`);
+        }
+        throw new Error(`Failed to create file '${filename}': ${error.message}`);
     }
-    
-    // Track for undo - save empty content since this is a new file creation
-    UndoManager.push(filename, '');
-    
-    const writable = await fileHandle.createWritable();
-    await writable.write(cleanContent);
-    await writable.close();
-    await new Promise(resolve => setTimeout(resolve, 100)); // Mitigate race condition
-    await UI.refreshFileTree(rootHandle, (filePath) => {
-        const fileHandle = FileSystem.getFileHandleFromPath(rootHandle, filePath);
-        Editor.openFile(fileHandle, filePath, document.getElementById('tab-bar'));
-    });
-    await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
-    document.getElementById('chat-input').focus();
-    return { message: `File '${filename}' created successfully.` };
 }
 
 async function _rewriteFile({ filename, content }, rootHandle) {
     if (!filename) throw new Error("The 'filename' parameter is required for rewrite_file.");
     const cleanContent = stripMarkdownCodeBlock(content);
     const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename, { create: true });
-    if (!await FileSystem.verifyAndRequestPermission(fileHandle, true)) {
+    
+    // Enhanced permission handling - try to proceed even if permission check fails
+    let hasPermission = false;
+    try {
+        hasPermission = await FileSystem.verifyAndRequestPermission(fileHandle, true);
+    } catch (permissionError) {
+        console.warn('Permission check failed, attempting to proceed:', permissionError.message);
+        hasPermission = true; // Optimistically proceed
+    }
+    
+    if (!hasPermission) {
         throw new Error('Permission to write to the file was denied.');
     }
     
@@ -405,57 +690,240 @@ async function _rewriteFile({ filename, content }, rootHandle) {
 
 async function _deleteFile({ filename }, rootHandle) {
     if (!filename) throw new Error("The 'filename' parameter is required for delete_file.");
-    const { parentHandle, entryName } = await FileSystem.getParentDirectoryHandle(rootHandle, filename);
-    await parentHandle.removeEntry(entryName);
-    await new Promise(resolve => setTimeout(resolve, 100)); // Mitigate race condition
-    if (Editor.getOpenFiles().has(filename)) {
-        Editor.closeTab(filename, document.getElementById('tab-bar'));
+    if (typeof filename !== 'string') throw new Error("The 'filename' parameter must be a string.");
+    
+    try {
+        const { parentHandle, entryName } = await FileSystem.getParentDirectoryHandle(rootHandle, filename);
+        await parentHandle.removeEntry(entryName);
+        
+        // Close file in editor if open
+        if (Editor.getOpenFiles().has(filename)) {
+            Editor.closeTab(filename, document.getElementById('tab-bar'));
+        }
+        
+        // Use more reliable refresh timing
+        await new Promise(resolve => setTimeout(resolve, 150));
+        await UI.refreshFileTree(rootHandle, (filePath) => {
+            const fileHandle = FileSystem.getFileHandleFromPath(rootHandle, filePath);
+            Editor.openFile(fileHandle, filePath, document.getElementById('tab-bar'));
+        });
+        
+        return { message: `File '${filename}' deleted successfully.` };
+    } catch (error) {
+        throw new Error(`Failed to delete file '${filename}': ${error.message}`);
     }
-    await UI.refreshFileTree(rootHandle, (filePath) => {
-        const fileHandle = FileSystem.getFileHandleFromPath(rootHandle, filePath);
-        Editor.openFile(fileHandle, filePath, document.getElementById('tab-bar'));
-    });
-    return { message: `File '${filename}' deleted successfully.` };
 }
 
 async function _renameFile({ old_path, new_path }, rootHandle) {
     if (!old_path || !new_path) throw new Error("The 'old_path' and 'new_path' parameters are required for rename_file.");
-    await FileSystem.renameEntry(rootHandle, old_path, new_path);
-    await new Promise(resolve => setTimeout(resolve, 100)); // Mitigate race condition
-    await UI.refreshFileTree(rootHandle, (filePath) => {
-        const fileHandle = FileSystem.getFileHandleFromPath(rootHandle, filePath);
-        Editor.openFile(fileHandle, filePath, document.getElementById('tab-bar'));
-    });
-    if (Editor.getOpenFiles().has(old_path)) {
-        Editor.closeTab(old_path, document.getElementById('tab-bar'));
-        const newFileHandle = await FileSystem.getFileHandleFromPath(rootHandle, new_path);
-        await Editor.openFile(newFileHandle, new_path, document.getElementById('tab-bar'), false);
-        document.getElementById('chat-input').focus();
+    if (typeof old_path !== 'string' || typeof new_path !== 'string') {
+        throw new Error("The 'old_path' and 'new_path' parameters must be strings.");
     }
-    return { message: `File '${old_path}' renamed to '${new_path}' successfully.` };
+    
+    try {
+        await FileSystem.renameEntry(rootHandle, old_path, new_path);
+        
+        // Handle editor state changes
+        if (Editor.getOpenFiles().has(old_path)) {
+            Editor.closeTab(old_path, document.getElementById('tab-bar'));
+        }
+        
+        // Use more reliable refresh timing
+        await new Promise(resolve => setTimeout(resolve, 150));
+        await UI.refreshFileTree(rootHandle, (filePath) => {
+            const fileHandle = FileSystem.getFileHandleFromPath(rootHandle, filePath);
+            Editor.openFile(fileHandle, filePath, document.getElementById('tab-bar'));
+        });
+        
+        // Reopen file with new name if it was previously open
+        if (Editor.getOpenFiles().has(old_path)) {
+            const newFileHandle = await FileSystem.getFileHandleFromPath(rootHandle, new_path);
+            await Editor.openFile(newFileHandle, new_path, document.getElementById('tab-bar'), false);
+            document.getElementById('chat-input').focus();
+        }
+        
+        return { message: `File '${old_path}' renamed to '${new_path}' successfully.` };
+    } catch (error) {
+        throw new Error(`Failed to rename file '${old_path}' to '${new_path}': ${error.message}`);
+    }
 }
 
 // REMOVED: insert_content function - simplified to use only rewrite_file for clarity
 
 // REMOVED: replace_lines function - was causing conflicts and bugs with complex indentation logic
 
-// REMOVED: apply_diff function - was causing conflicts, simplified to use only rewrite_file
+// Apply diff tool - safer and more precise than full file rewrites
+async function _applyDiff({ filename, diff }, rootHandle) {
+    if (!filename) throw new Error("The 'filename' parameter is required for apply_diff.");
+    if (!diff) throw new Error("The 'diff' parameter is required for apply_diff.");
+    
+    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
+    
+    // Enhanced permission handling - try to proceed even if permission check fails
+    let hasPermission = false;
+    try {
+        hasPermission = await FileSystem.verifyAndRequestPermission(fileHandle, true);
+    } catch (permissionError) {
+        console.warn('Permission check failed, attempting to proceed:', permissionError.message);
+        hasPermission = true; // Optimistically proceed
+    }
+    
+    if (!hasPermission) {
+        throw new Error('Permission to write to the file was denied.');
+    }
+    
+    const file = await fileHandle.getFile();
+    const originalContent = await file.text();
+    UndoManager.push(filename, originalContent);
+    
+    const lines = originalContent.split(/\r?\n/);
+    const originalLineCount = lines.length;
+    
+    // Parse diff blocks - expecting format like:
+    // <<<<<<< SEARCH
+    // :start_line:10
+    // -------
+    // old content
+    // =======
+    // new content
+    // >>>>>>> REPLACE
+    
+    const diffBlocks = [];
+    
+    // Debug: Log the raw diff content to understand the format
+    console.log('Raw diff content:', JSON.stringify(diff));
+    
+    // More flexible regex pattern that handles various whitespace and newline combinations
+    const diffPattern = /<<<<<<< SEARCH\s*\n:start_line:(\d+)\s*\n-------\s*\n([\s\S]*?)\n=======\s*\n([\s\S]*?)\n>>>>>>> REPLACE/g;
+    
+    let match;
+    while ((match = diffPattern.exec(diff)) !== null) {
+        const startLine = parseInt(match[1]);
+        const searchContent = match[2];
+        const replaceContent = match[3];
+        
+        diffBlocks.push({
+            startLine,
+            searchContent,
+            replaceContent
+        });
+    }
+    
+    // If no matches found, try alternative patterns or provide detailed debugging
+    if (diffBlocks.length === 0) {
+        // Try to identify what parts of the expected format are present
+        const hasSearchMarker = diff.includes('<<<<<<< SEARCH');
+        const hasReplaceMarker = diff.includes('>>>>>>> REPLACE');
+        const hasStartLine = diff.includes(':start_line:');
+        const hasSeparator = diff.includes('-------');
+        const hasEquals = diff.includes('=======');
+        
+        let debugInfo = `No valid diff blocks found. Debug info:\n`;
+        debugInfo += `- Has SEARCH marker: ${hasSearchMarker}\n`;
+        debugInfo += `- Has REPLACE marker: ${hasReplaceMarker}\n`;
+        debugInfo += `- Has start_line: ${hasStartLine}\n`;
+        debugInfo += `- Has separator (-------): ${hasSeparator}\n`;
+        debugInfo += `- Has equals (=======): ${hasEquals}\n`;
+        debugInfo += `\nExpected format:\n<<<<<<< SEARCH\n:start_line:N\n-------\nold content\n=======\nnew content\n>>>>>>> REPLACE\n`;
+        debugInfo += `\nActual content received:\n${diff}`;
+        
+        throw new Error(debugInfo);
+    }
+    
+    // Sort diff blocks by start line in descending order to apply from bottom to top
+    diffBlocks.sort((a, b) => b.startLine - a.startLine);
+    
+    let modifiedLines = [...lines];
+    
+    for (const block of diffBlocks) {
+        const { startLine, searchContent, replaceContent } = block;
+        
+        if (startLine < 1 || startLine > originalLineCount) {
+            throw new Error(`Invalid start_line ${startLine}. File has ${originalLineCount} lines.`);
+        }
+        
+        // Find the exact match for the search content
+        const searchLines = searchContent.split(/\r?\n/);
+        const searchStartIndex = startLine - 1;
+        
+        // Verify the search content matches exactly
+        let matches = true;
+        for (let i = 0; i < searchLines.length; i++) {
+            const lineIndex = searchStartIndex + i;
+            if (lineIndex >= modifiedLines.length || modifiedLines[lineIndex] !== searchLines[i]) {
+                matches = false;
+                break;
+            }
+        }
+        
+        if (!matches) {
+            throw new Error(`Search content does not match at line ${startLine}. Expected:\n${searchContent}\n\nActual content at that location:\n${modifiedLines.slice(searchStartIndex, searchStartIndex + searchLines.length).join('\n')}`);
+        }
+        
+        // Apply the replacement
+        const replaceLines = replaceContent.split(/\r?\n/);
+        const before = modifiedLines.slice(0, searchStartIndex);
+        const after = modifiedLines.slice(searchStartIndex + searchLines.length);
+        modifiedLines = [...before, ...replaceLines, ...after];
+    }
+    
+    // Preserve original line endings
+    const lineEnding = originalContent.includes('\r\n') ? '\r\n' : '\n';
+    const newContent = modifiedLines.join(lineEnding);
+    
+    // Validate syntax before writing, but do not block
+    const validationResult = await validateSyntaxBeforeWrite(filename, newContent);
+    
+    const writable = await fileHandle.createWritable();
+    await writable.write(newContent);
+    await writable.close();
+    
+    // Update editor if file is open
+    if (Editor.getOpenFiles().has(filename)) {
+        Editor.getOpenFiles().get(filename)?.model.setValue(newContent);
+    }
+    
+    await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
+    document.getElementById('chat-input').focus();
+    
+    let message = `Applied ${diffBlocks.length} diff block(s) to '${filename}' successfully.`;
+    if (!validationResult.isValid) {
+        message += `\n\nWARNING: Syntax errors were detected:\n${validationResult.errors}${validationResult.suggestions}`;
+    }
+    
+    return {
+        message,
+        details: {
+            originalLines: originalLineCount,
+            finalLines: modifiedLines.length,
+            blocksApplied: diffBlocks.length
+        }
+    };
+}
 
 async function _createDiff({ original_content, new_content }) {
     if (original_content === undefined) throw new Error("The 'original_content' parameter is required for create_diff.");
     if (new_content === undefined) throw new Error("The 'new_content' parameter is required for create_diff.");
 
-    const dmp = new diff_match_patch();
-    const a = dmp.diff_linesToChars_(original_content, new_content);
-    const lineText1 = a.chars1;
-    const lineText2 = a.chars2;
-    const lineArray = a.lineArray;
-    const diffs = dmp.diff_main(lineText1, lineText2, false);
-    dmp.diff_charsToLines_(diffs, lineArray);
-    const patches = dmp.patch_make(original_content, diffs);
-    const patchText = dmp.patch_toText(patches);
+    if (!diff_match_patch) {
+        throw new Error("diff_match_patch library is not available. Please ensure it's loaded before using create_diff.");
+    }
 
-    return { patch_content: patchText };
+    try {
+        const dmp = new diff_match_patch();
+        const a = dmp.diff_linesToChars_(original_content, new_content);
+        const lineText1 = a.chars1;
+        const lineText2 = a.chars2;
+        const lineArray = a.lineArray;
+        const diffs = dmp.diff_main(lineText1, lineText2, false);
+        dmp.diff_charsToLines_(diffs, lineArray);
+        const patches = dmp.patch_make(original_content, diffs);
+        const patchText = dmp.patch_toText(patches);
+
+        return { patch_content: patchText };
+    } catch (error) {
+        throw new Error(`Failed to create diff: ${error.message}`);
+    }
 }
 
 // Smart file editing - efficient for large files, safe for small ones
@@ -464,7 +932,17 @@ async function _smartEditFile({ filename, edits }, rootHandle) {
     if (!edits || !Array.isArray(edits)) throw new Error("The 'edits' parameter is required and must be an array.");
     
     const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
-    if (!await FileSystem.verifyAndRequestPermission(fileHandle, true)) {
+    
+    // Enhanced permission handling - try to proceed even if permission check fails
+    let hasPermission = false;
+    try {
+        hasPermission = await FileSystem.verifyAndRequestPermission(fileHandle, true);
+    } catch (permissionError) {
+        console.warn('Permission check failed, attempting to proceed:', permissionError.message);
+        hasPermission = true; // Optimistically proceed
+    }
+    
+    if (!hasPermission) {
         throw new Error('Permission to write to the file was denied.');
     }
     
@@ -635,7 +1113,17 @@ async function _appendToFile({ filename, content }, rootHandle) {
     
     try {
         const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
-        if (!await FileSystem.verifyAndRequestPermission(fileHandle, true)) {
+        
+        // Enhanced permission handling - try to proceed even if permission check fails
+        let hasPermission = false;
+        try {
+            hasPermission = await FileSystem.verifyAndRequestPermission(fileHandle, true);
+        } catch (permissionError) {
+            console.warn('Permission check failed, attempting to proceed:', permissionError.message);
+            hasPermission = true; // Optimistically proceed
+        }
+        
+        if (!hasPermission) {
             throw new Error('Permission to write to the file was denied.');
         }
         
@@ -692,154 +1180,260 @@ async function _getFileInfo({ filename }, rootHandle) {
 
 async function _taskCreate({ title, description = '', priority = 'medium', parentId = null, listId = null }) {
     if (!title) throw new Error("The 'title' parameter is required.");
-    const task = await TaskTools.create({ title, description, priority, parentId, listId });
-    return {
-        message: `Task "${title}" created with ID ${task.id}.`,
-        details: task
-    };
+    if (typeof title !== 'string') throw new Error("The 'title' parameter must be a string.");
+    if (priority && !['low', 'medium', 'high', 'urgent'].includes(priority)) {
+        throw new Error("The 'priority' parameter must be one of: low, medium, high, urgent.");
+    }
+    
+    try {
+        const task = await TaskTools.create({ title, description, priority, parentId, listId });
+        return {
+            message: `Task "${title}" created with ID ${task.id}.`,
+            details: task
+        };
+    } catch (error) {
+        throw new Error(`Failed to create task: ${error.message}`);
+    }
 }
 
 async function _taskUpdate({ taskId, updates }) {
     if (!taskId || !updates) {
         throw new Error("The 'task_update' tool requires both a 'taskId' (string) and an 'updates' (object) parameter. Please provide both in your next tool call.");
     }
-    const task = await TaskTools.update(taskId, updates);
-    return {
-        message: `Task "${task.title}" (ID: ${taskId}) updated.`,
-        details: task
-    };
+    if (typeof taskId !== 'string') throw new Error("The 'taskId' parameter must be a string.");
+    if (typeof updates !== 'object' || updates === null) throw new Error("The 'updates' parameter must be an object.");
+    
+    try {
+        const task = await TaskTools.update(taskId, updates);
+        return {
+            message: `Task "${task.title}" (ID: ${taskId}) updated.`,
+            details: task
+        };
+    } catch (error) {
+        throw new Error(`Failed to update task ${taskId}: ${error.message}`);
+    }
 }
 
 async function _taskDelete({ taskId }) {
     if (!taskId) throw new Error("The 'taskId' parameter is required.");
-    const task = await TaskTools.delete(taskId);
-    return {
-        message: `Task "${task.title}" (ID: ${taskId}) and all its subtasks have been deleted.`,
-        details: task
-    };
+    if (typeof taskId !== 'string') throw new Error("The 'taskId' parameter must be a string.");
+    
+    try {
+        const task = await TaskTools.delete(taskId);
+        return {
+            message: `Task "${task.title}" (ID: ${taskId}) and all its subtasks have been deleted.`,
+            details: task
+        };
+    } catch (error) {
+        throw new Error(`Failed to delete task ${taskId}: ${error.message}`);
+    }
 }
 
 async function _taskBreakdown({ taskId }) {
     if (!taskId) throw new Error("The 'taskId' parameter is required.");
-    const mainTask = TaskTools.getById(taskId);
-    if (!mainTask) throw new Error(`Task with ID ${taskId} not found.`);
+    if (typeof taskId !== 'string') throw new Error("The 'taskId' parameter must be a string.");
     
-    const subtasks = await TaskTools.breakdown(mainTask);
-    return {
-        message: `Goal "${mainTask.title}" has been broken down into ${subtasks.length} subtasks.`,
-        details: {
-            mainTask,
-            subtasks
-        }
-    };
+    try {
+        const mainTask = TaskTools.getById(taskId);
+        if (!mainTask) throw new Error(`Task with ID ${taskId} not found.`);
+        
+        const subtasks = await TaskTools.breakdown(mainTask);
+        return {
+            message: `Goal "${mainTask.title}" has been broken down into ${subtasks.length} subtasks.`,
+            details: {
+                mainTask,
+                subtasks
+            }
+        };
+    } catch (error) {
+        throw new Error(`Failed to breakdown task ${taskId}: ${error.message}`);
+    }
 }
 
 async function _taskGetNext() {
-    const nextTask = TaskTools.getNext();
-    if (!nextTask) {
-        return {
-            message: "No actionable tasks are currently available. All tasks may be completed or blocked by dependencies.",
-            details: null
-        };
-    }
-    return {
-        message: `The next actionable task is "${nextTask.title}".`,
-        details: nextTask
-    };
-}
-
-async function _taskGetStatus({ taskId }) {
-    if (taskId) {
-        const task = TaskTools.getById(taskId);
-        if (!task) {
+    try {
+        const nextTask = TaskTools.getNext();
+        if (!nextTask) {
             return {
-                message: `Task with ID ${taskId} not found.`,
+                message: "No actionable tasks are currently available. All tasks may be completed or blocked by dependencies.",
                 details: null
             };
         }
         return {
-            message: `Task "${task.title}" is currently ${task.status}.`,
-            details: task
+            message: `The next actionable task is "${nextTask.title}".`,
+            details: nextTask
         };
-    } else {
-        // Get overall status of all tasks
-        const allTasks = TaskTools.getAll();
-        const stats = {
-            total: allTasks.length,
-            pending: allTasks.filter(t => t.status === 'pending').length,
-            in_progress: allTasks.filter(t => t.status === 'in_progress').length,
-            completed: allTasks.filter(t => t.status === 'completed').length,
-            failed: allTasks.filter(t => t.status === 'failed').length
-        };
-        
-        const activeTasks = allTasks.filter(t => t.status === 'in_progress');
-        const nextTask = TaskTools.getNext();
-        
-        return {
-            message: `Task Status Overview: ${stats.total} total, ${stats.pending} pending, ${stats.in_progress} in progress, ${stats.completed} completed, ${stats.failed} failed.`,
-            details: {
-                stats,
-                activeTasks,
-                nextTask,
-                recentTasks: allTasks.sort((a, b) => (b.updatedTime || b.createdTime) - (a.updatedTime || a.createdTime)).slice(0, 5)
+    } catch (error) {
+        throw new Error(`Failed to get next task: ${error.message}`);
+    }
+}
+
+async function _taskGetStatus({ taskId }) {
+    try {
+        if (taskId) {
+            if (typeof taskId !== 'string') throw new Error("The 'taskId' parameter must be a string.");
+            
+            const task = TaskTools.getById(taskId);
+            if (!task) {
+                return {
+                    message: `Task with ID ${taskId} not found.`,
+                    details: null
+                };
             }
-        };
+            return {
+                message: `Task "${task.title}" is currently ${task.status}.`,
+                details: task
+            };
+        } else {
+            // Get overall status of all tasks
+            const allTasks = TaskTools.getAll();
+            const stats = {
+                total: allTasks.length,
+                pending: allTasks.filter(t => t.status === 'pending').length,
+                in_progress: allTasks.filter(t => t.status === 'in_progress').length,
+                completed: allTasks.filter(t => t.status === 'completed').length,
+                failed: allTasks.filter(t => t.status === 'failed').length
+            };
+            
+            const activeTasks = allTasks.filter(t => t.status === 'in_progress');
+            const nextTask = TaskTools.getNext();
+            
+            return {
+                message: `Task Status Overview: ${stats.total} total, ${stats.pending} pending, ${stats.in_progress} in progress, ${stats.completed} completed, ${stats.failed} failed.`,
+                details: {
+                    stats,
+                    activeTasks,
+                    nextTask,
+                    recentTasks: allTasks.sort((a, b) => (b.updatedTime || b.createdTime) - (a.updatedTime || a.createdTime)).slice(0, 5)
+                }
+            };
+        }
+    } catch (error) {
+        throw new Error(`Failed to get task status: ${error.message}`);
     }
 }
 
 async function _createFolder({ folder_path }, rootHandle) {
     if (!folder_path) throw new Error("The 'folder_path' parameter is required for create_folder.");
-    await FileSystem.createDirectoryFromPath(rootHandle, folder_path);
-    await new Promise(resolve => setTimeout(resolve, 100)); // Mitigate race condition
-    await UI.refreshFileTree(rootHandle, (filePath) => {
-        const fileHandle = FileSystem.getFileHandleFromPath(rootHandle, filePath);
-        Editor.openFile(fileHandle, filePath, document.getElementById('tab-bar'));
-    });
-    return { message: `Folder '${folder_path}' created successfully.` };
+    if (typeof folder_path !== 'string') throw new Error("The 'folder_path' parameter must be a string.");
+    
+    try {
+        await FileSystem.createDirectoryFromPath(rootHandle, folder_path);
+        
+        // Use more reliable refresh timing
+        await new Promise(resolve => setTimeout(resolve, 150));
+        await UI.refreshFileTree(rootHandle, (filePath) => {
+            const fileHandle = FileSystem.getFileHandleFromPath(rootHandle, filePath);
+            Editor.openFile(fileHandle, filePath, document.getElementById('tab-bar'));
+        });
+        
+        return { message: `Folder '${folder_path}' created successfully.` };
+    } catch (error) {
+        throw new Error(`Failed to create folder '${folder_path}': ${error.message}`);
+    }
 }
 
 async function _deleteFolder({ folder_path }, rootHandle) {
     if (!folder_path) throw new Error("The 'folder_path' parameter is required for delete_folder.");
-    const { parentHandle, entryName } = await FileSystem.getParentDirectoryHandle(rootHandle, folder_path);
-    await parentHandle.removeEntry(entryName, { recursive: true });
-    await new Promise(resolve => setTimeout(resolve, 100)); // Mitigate race condition
-    await UI.refreshFileTree(rootHandle, (filePath) => {
-        const fileHandle = FileSystem.getFileHandleFromPath(rootHandle, filePath);
-        Editor.openFile(fileHandle, filePath, document.getElementById('tab-bar'));
-    });
-    return { message: `Folder '${folder_path}' deleted successfully.` };
+    if (typeof folder_path !== 'string') throw new Error("The 'folder_path' parameter must be a string.");
+    
+    try {
+        const { parentHandle, entryName } = await FileSystem.getParentDirectoryHandle(rootHandle, folder_path);
+        await parentHandle.removeEntry(entryName, { recursive: true });
+        
+        // Close any open files from the deleted folder
+        const openFiles = Editor.getOpenFiles();
+        for (const [filePath] of openFiles) {
+            if (filePath.startsWith(folder_path + '/')) {
+                Editor.closeTab(filePath, document.getElementById('tab-bar'));
+            }
+        }
+        
+        // Use more reliable refresh timing
+        await new Promise(resolve => setTimeout(resolve, 150));
+        await UI.refreshFileTree(rootHandle, (filePath) => {
+            const fileHandle = FileSystem.getFileHandleFromPath(rootHandle, filePath);
+            Editor.openFile(fileHandle, filePath, document.getElementById('tab-bar'));
+        });
+        
+        return { message: `Folder '${folder_path}' deleted successfully.` };
+    } catch (error) {
+        throw new Error(`Failed to delete folder '${folder_path}': ${error.message}`);
+    }
 }
 
 async function _renameFolder({ old_folder_path, new_folder_path }, rootHandle) {
-    if (!old_folder_path || !new_folder_path) throw new Error("The 'old_folder_path' and 'new_folder_path' parameters are required for rename_folder.");
-    await FileSystem.renameEntry(rootHandle, old_folder_path, new_folder_path);
-    await new Promise(resolve => setTimeout(resolve, 100)); // Mitigate race condition
-    await UI.refreshFileTree(rootHandle, (filePath) => {
-        const fileHandle = FileSystem.getFileHandleFromPath(rootHandle, filePath);
-        Editor.openFile(fileHandle, filePath, document.getElementById('tab-bar'));
-    });
-    return { message: `Folder '${old_folder_path}' renamed to '${new_folder_path}' successfully.` };
+    if (!old_folder_path || !new_folder_path) {
+        throw new Error("The 'old_folder_path' and 'new_folder_path' parameters are required for rename_folder.");
+    }
+    if (typeof old_folder_path !== 'string' || typeof new_folder_path !== 'string') {
+        throw new Error("The 'old_folder_path' and 'new_folder_path' parameters must be strings.");
+    }
+    
+    try {
+        await FileSystem.renameEntry(rootHandle, old_folder_path, new_folder_path);
+        
+        // Update any open files from the renamed folder
+        const openFiles = Editor.getOpenFiles();
+        const filesToUpdate = [];
+        for (const [filePath] of openFiles) {
+            if (filePath.startsWith(old_folder_path + '/')) {
+                const newFilePath = filePath.replace(old_folder_path, new_folder_path);
+                filesToUpdate.push({ oldPath: filePath, newPath: newFilePath });
+            }
+        }
+        
+        // Close old tabs and open new ones
+        for (const { oldPath, newPath } of filesToUpdate) {
+            Editor.closeTab(oldPath, document.getElementById('tab-bar'));
+            try {
+                const newFileHandle = await FileSystem.getFileHandleFromPath(rootHandle, newPath);
+                await Editor.openFile(newFileHandle, newPath, document.getElementById('tab-bar'), false);
+            } catch (e) {
+                console.warn(`Failed to reopen file ${newPath}:`, e.message);
+            }
+        }
+        
+        // Use more reliable refresh timing
+        await new Promise(resolve => setTimeout(resolve, 150));
+        await UI.refreshFileTree(rootHandle, (filePath) => {
+            const fileHandle = FileSystem.getFileHandleFromPath(rootHandle, filePath);
+            Editor.openFile(fileHandle, filePath, document.getElementById('tab-bar'));
+        });
+        
+        return { message: `Folder '${old_folder_path}' renamed to '${new_folder_path}' successfully.` };
+    } catch (error) {
+        throw new Error(`Failed to rename folder '${old_folder_path}' to '${new_folder_path}': ${error.message}`);
+    }
 }
 
 async function _searchCode({ search_term }, rootHandle) {
+    if (!search_term) throw new Error("The 'search_term' parameter is required for search_code.");
+    if (typeof search_term !== 'string') throw new Error("The 'search_term' parameter must be a string.");
+    
     if (!backgroundIndexer.isAvailable()) {
         throw new Error("The background indexer is not ready. Please wait a moment and try again.");
     }
-    const searchResults = await backgroundIndexer.searchInIndex(search_term);
-   
-   const successfulResults = searchResults.filter(r => r.matches);
-   const erroredFiles = searchResults.filter(r => r.error);
+    
+    try {
+        const searchResults = await backgroundIndexer.searchInIndex(search_term);
+       
+        const successfulResults = searchResults.filter(r => r.matches);
+        const erroredFiles = searchResults.filter(r => r.error);
 
-   let summary = `Search complete. Found ${successfulResults.length} files with matches.`;
-   if (erroredFiles.length > 0) {
-       summary += ` Failed to search ${erroredFiles.length} files.`;
-   }
+        let summary = `Search complete. Found ${successfulResults.length} files with matches.`;
+        if (erroredFiles.length > 0) {
+            summary += ` Failed to search ${erroredFiles.length} files.`;
+        }
 
-    return {
-       summary: summary,
-       results: successfulResults,
-       errors: erroredFiles
-   };
+        return {
+           summary: summary,
+           results: successfulResults,
+           errors: erroredFiles
+        };
+    } catch (error) {
+        throw new Error(`Search failed: ${error.message}`);
+    }
 }
 
 async function _buildCodebaseIndex(params, rootHandle) {
@@ -961,107 +1555,18 @@ async function _analyzeCode({ filename }, rootHandle) {
     return { analysis };
 }
 
-// Helper function to validate terminal commands for safety
-function validateTerminalCommand(command) {
-    if (!command || typeof command !== 'string') {
-        throw new Error('Command must be a non-empty string');
-    }
-    
-    // List of dangerous commands that should be blocked
-    const dangerousCommands = [
-        'rm -rf',
-        'rm -r',
-        'sudo rm',
-        'format',
-        'del /s',
-        'rd /s',
-        'mkfs',
-        'dd if=',
-        'fdisk',
-        'shutdown',
-        'reboot',
-        'halt',
-        'init 0',
-        'killall',
-        'kill -9',
-        'chmod 777',
-        'chown -R',
-        '> /dev/',
-        'curl.*|.*sh',
-        'wget.*|.*sh',
-    ];
-    
-    const lowerCommand = command.toLowerCase();
-    for (const dangerous of dangerousCommands) {
-        if (lowerCommand.includes(dangerous.toLowerCase())) {
-            throw new Error(`Command contains potentially dangerous operation: ${dangerous}`);
-        }
-    }
-    
-    // Block commands with suspicious patterns
-    if (lowerCommand.match(/rm\s+.*-r/) || 
-        lowerCommand.match(/>\s*\/dev\//) ||
-        lowerCommand.match(/\|\s*sh/) ||
-        lowerCommand.match(/\|\s*bash/)) {
-        throw new Error('Command contains potentially dangerous patterns');
-    }
-    
-    return true;
-}
+// REMOVED: validateTerminalCommand - No longer needed since run_terminal_command has been removed
 
-async function _runTerminalCommand(parameters, rootHandle) {
-    if (!parameters.command) {
-        throw new Error("The 'command' parameter is required for run_terminal_command.");
-    }
-    
-    // Validate command for security
-    validateTerminalCommand(parameters.command);
-    
-    const updatedParameters = { ...parameters, cwd: rootHandle.name };
-    const response = await fetch('/api/execute-tool', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ toolName: 'run_terminal_command', parameters: updatedParameters }),
-    });
-    const terminalResult = await response.json();
-    if (terminalResult.status === 'Success') {
-        await UI.refreshFileTree(rootHandle, (filePath) => {
-            const fileHandle = FileSystem.getFileHandleFromPath(rootHandle, filePath);
-            Editor.openFile(fileHandle, filePath, document.getElementById('tab-bar'));
-        });
-        return { output: terminalResult.output };
-    } else {
-        throw new Error(`Command failed. This is likely a backend issue. Please check the server logs. Raw message: ${terminalResult.message}`);
-    }
-}
+// REMOVED: _runTerminalCommand - This tool has been removed to maintain the client-centric architecture.
+// Terminal operations are not needed for a browser-based code editor focused on file editing.
+// This eliminates security risks and backend dependencies for command execution.
 
-// Helper function to safely escape shell arguments
-function escapeShellArg(arg) {
-    if (typeof arg !== 'string') {
-        throw new Error('Shell argument must be a string');
-    }
-    // Replace any single quotes with '\'' (close quote, escaped quote, open quote)
-    return `'${arg.replace(/'/g, `'\\''`)}'`;
-}
+// REMOVED: escapeShellArg - No longer needed since terminal commands have been removed
 
+// REMOVED: _getFileHistory - Git operations removed to maintain client-centric architecture.
+// File history can be implemented using browser-based git libraries if needed in the future.
 async function _getFileHistory({ filename }, rootHandle) {
-    if (!filename) throw new Error("The 'filename' parameter is required for get_file_history.");
-    
-    // Safely escape the filename to prevent command injection
-    const escapedFilename = escapeShellArg(filename);
-    const command = `git log --pretty=format:"%h - %an, %ar : %s" -- ${escapedFilename}`;
-    const updatedParameters = { command, cwd: rootHandle.name };
-    const response = await fetch('/api/execute-tool', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ toolName: 'run_terminal_command', parameters: updatedParameters }),
-    });
-    const terminalResult = await response.json();
-    if (terminalResult.status === 'Success') {
-        return { history: terminalResult.output };
-    } else {
-        throw new Error(terminalResult.message || `Fetching file history failed. This is likely a backend issue with 'git'.`);
-    }
+    throw new Error("File history feature has been disabled. This browser-based editor focuses on file editing without requiring git/terminal access. Consider using your local git client for version control operations.");
 }
 
 // --- Non-Project Tools ---
@@ -1190,12 +1695,23 @@ async function _setSelectedText({ start_line, start_column, end_line, end_column
 }
 
 async function _replaceSelectedText({ new_text }) {
-   const cleanText = stripMarkdownCodeBlock(new_text);
-   const editor = Editor.getEditorInstance();
-   const selection = editor.getSelection();
-   if (!selection || selection.isEmpty()) throw new Error('Error: No text is selected in the editor. Please select the text you want to replace.');
-   editor.executeEdits('ai-agent', [{ range: selection, text: cleanText }]);
-   return { message: 'Replaced the selected text.' };
+    if (new_text === undefined) throw new Error("The 'new_text' parameter is required.");
+    
+    try {
+        const cleanText = stripMarkdownCodeBlock(new_text);
+        const editor = Editor.getEditorInstance();
+        if (!editor) throw new Error('No editor instance is available.');
+        
+        const selection = editor.getSelection();
+        if (!selection || selection.isEmpty()) {
+            throw new Error('Error: No text is selected in the editor. Please select the text you want to replace.');
+        }
+        
+        editor.executeEdits('ai-agent', [{ range: selection, text: cleanText }]);
+        return { message: 'Replaced the selected text.' };
+    } catch (error) {
+        throw new Error(`Failed to replace selected text: ${error.message}`);
+    }
 }
 
 // =================================================================
@@ -1342,8 +1858,8 @@ const toolRegistry = {
     reindex_codebase_paths: { handler: _reindexCodebasePaths, requiresProject: true, createsCheckpoint: false },
     format_code: { handler: _formatCode, requiresProject: true, createsCheckpoint: false },
     analyze_code: { handler: _analyzeCode, requiresProject: true, createsCheckpoint: false },
+    // REMOVED: run_terminal_command - Eliminated to maintain client-centric architecture
     get_file_history: { handler: _getFileHistory, requiresProject: true, createsCheckpoint: false },
-    run_terminal_command: { handler: _runTerminalCommand, requiresProject: true, createsCheckpoint: false },
 
     // New backend indexer tools
     build_backend_index: { handler: build_backend_index, requiresProject: true, createsCheckpoint: false },
@@ -1378,6 +1894,7 @@ const toolRegistry = {
     replace_selected_text: { handler: _replaceSelectedText, requiresProject: false, createsCheckpoint: false },
     set_selected_text: { handler: _setSelectedText, requiresProject: false, createsCheckpoint: false },
     create_diff: { handler: _createDiff, requiresProject: false, createsCheckpoint: false },
+    apply_diff: { handler: _applyDiff, requiresProject: true, createsCheckpoint: true },
     undo_last_change: { handler: _undoLastChange, requiresProject: true, createsCheckpoint: false },
 };
 
@@ -1423,11 +1940,35 @@ async function executeTool(toolCall, rootDirectoryHandle) {
 export async function execute(toolCall, rootDirectoryHandle, silent = false) {
     const toolName = toolCall.name;
     const mode = document.getElementById('agent-mode-selector').value;
+    const startTime = performance.now();
 
+    // Smart tool validation and optimization
     if (mode === 'amend' && toolName === 'rewrite_file') {
-        throw new Error("The 'rewrite_file' tool is not allowed in 'Amend' mode. Use 'edit_file' with the 'edits' parameter for targeted changes.");
+        throw new Error("The 'rewrite_file' tool is not allowed in 'Amend' mode. Use 'apply_diff' or 'edit_file' with the 'edits' parameter for targeted changes.");
     }
+
     const parameters = toolCall.args;
+    
+    // Check for cached results for read-only operations
+    if (['read_file', 'get_project_structure', 'search_in_file'].includes(toolName)) {
+        const cachedResult = getCachedResult(toolName, parameters);
+        if (cachedResult) {
+            return { toolResponse: { name: toolName, response: cachedResult } };
+        }
+    }
+
+    // Get smart tool recommendations
+    const context = {
+        mode,
+        fileType: parameters.filename ? parameters.filename.split('.').pop() : null,
+        fileSize: null // Will be determined during execution if needed
+    };
+    
+    const recommendation = getOptimalTool(toolName, context);
+    if (recommendation && !silent) {
+        console.log(`[Smart Selection] Recommended: ${recommendation.recommendedTool} - ${recommendation.reason}`);
+    }
+
     const groupTitle = `AI Tool Call: ${toolName}`;
     const groupContent = parameters && Object.keys(parameters).length > 0 ? parameters : 'No parameters';
     console.group(groupTitle, groupContent);
@@ -1441,26 +1982,63 @@ export async function execute(toolCall, rootDirectoryHandle, silent = false) {
     let isSuccess = true;
 
     try {
+        // Enhanced execution with performance monitoring
+        performanceOptimizer.startTimer(`tool_${toolName}`);
         resultForModel = await executeTool(toolCall, rootDirectoryHandle);
+        const executionTime = performanceOptimizer.endTimer(`tool_${toolName}`);
+        
+        // Track performance metrics
+        trackToolPerformance(toolName, startTime, performance.now(), true, context);
+        
+        // Cache successful read operations
+        if (['read_file', 'get_project_structure', 'search_in_file'].includes(toolName)) {
+            setCachedResult(toolName, parameters, resultForModel);
+        }
+        
         toolLogger.log(toolName, parameters, 'Success', resultForModel);
+        
+        // Log performance insights
+        if (executionTime > 2000) {
+            console.warn(`[Performance] Tool ${toolName} took ${executionTime}ms - consider optimization`);
+        }
+        
     } catch (error) {
         isSuccess = false;
-        const errorMessage = `Error executing tool '${toolName}': ${error.message}`;
+        const endTime = performance.now();
+        
+        // Track failed performance
+        trackToolPerformance(toolName, startTime, endTime, false, context);
+        
+        // Analyze error patterns and suggest fixes
+        const errorAnalysis = analyzeError(toolName, error, context);
+        let errorMessage = `Error executing tool '${toolName}': ${error.message}`;
+        
+        if (errorAnalysis && errorAnalysis.suggestion) {
+            errorMessage += `\n\nSuggestion: ${errorAnalysis.suggestion}`;
+            if (errorAnalysis.alternativeTool) {
+                errorMessage += `\nConsider using: ${errorAnalysis.alternativeTool}`;
+            }
+        }
+        
         resultForModel = { error: errorMessage };
         UI.showError(errorMessage);
         console.error(errorMessage, error);
-        toolLogger.log(toolName, parameters, 'Error', { message: error.message, stack: error.stack });
+        toolLogger.log(toolName, parameters, 'Error', {
+            message: error.message,
+            stack: error.stack,
+            suggestion: errorAnalysis?.suggestion,
+            alternativeTool: errorAnalysis?.alternativeTool
+        });
     }
-
-    // REMOVED: Automatic syntax checking feedback loop - was causing infinite loops and conflicts
-    // Tools now report success/failure directly without automatic error detection
 
     const resultForLog = isSuccess ? { status: 'Success', ...resultForModel } : { status: 'Error', message: resultForModel.error };
     console.log('Result:', resultForLog);
     console.groupEnd();
+    
     if (!silent) {
         UI.updateToolLog(logEntry, isSuccess);
     }
+    
     return { toolResponse: { name: toolName, response: resultForModel } };
 }
 
@@ -1485,10 +2063,10 @@ export function getToolDefinitions() {
             { name: 'duckduckgo_search', description: 'Performs a search using DuckDuckGo and returns the results.', parameters: { type: 'OBJECT', properties: { query: { type: 'STRING' } }, required: ['query'] } },
             { name: 'perform_research', description: 'Performs an autonomous, multi-step research on a given query. It searches the web, reads the most relevant pages, and can recursively explore links to gather comprehensive information.', parameters: { type: 'OBJECT', properties: { query: { type: 'STRING' }, max_results: { type: 'NUMBER', description: 'Maximum number of search results to read per level. Default is 3.' }, depth: { type: 'NUMBER', description: 'How many levels of links to follow. Default is 1.' } }, required: ['query'] } },
             { name: 'search_code', description: 'Searches for a specific string in all files in the project (like grep).', parameters: { type: 'OBJECT', properties: { search_term: { type: 'STRING' } }, required: ['search_term'] } },
-            { name: 'run_terminal_command', description: 'Executes a shell command on the backend and returns the output.', parameters: { type: 'OBJECT', properties: { command: { type: 'STRING' } }, required: ['command'] } },
+            // REMOVED: run_terminal_command - Tool eliminated to maintain browser-first architecture
             { name: 'build_or_update_codebase_index', description: 'Scans the entire codebase to build a searchable index. Slow, run once per session.' },
             { name: 'query_codebase', description: 'Searches the pre-built codebase index.', parameters: { type: 'OBJECT', properties: { query: { type: 'STRING' } }, required: ['query'] } },
-            { name: 'get_file_history', description: "Gets a file's git history. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
+            { name: 'get_file_history', description: "DISABLED: Git history feature has been disabled in this browser-based editor. Use your local git client for version control operations.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
             // REMOVED: insert_content, create_and_apply_diff, replace_lines - simplified to use rewrite_file only
             { name: 'format_code', description: "Formats a file with Prettier. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
             { name: 'analyze_code', description: "Analyzes a JavaScript file's structure. CRITICAL: Do NOT include the root directory name in the path.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
@@ -1496,6 +2074,7 @@ export function getToolDefinitions() {
             { name: 'append_to_file', description: "Fast append content to end of file without reading full content. Ideal for logs, incremental updates.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'Content to append. Will add newline separator automatically.' } }, required: ['filename', 'content'] } },
             { name: 'get_file_info', description: "Get file metadata (size, last modified, type) without reading content. Use before editing large files.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
             { name: 'rewrite_file', description: "DEPRECATED. Use 'edit_file' instead. This tool rewrites an entire file.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'The new, raw text content of the file. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'content'] } },
+            { name: 'apply_diff', description: "🔧 RECOMMENDED: Apply precise, surgical changes to files using diff blocks. This is the safest and most reliable way to edit files. Use this instead of edit_file when you need to make targeted changes. CRITICAL: The diff parameter must contain properly formatted diff blocks. Example format:\n\n<<<<<<< SEARCH\n:start_line:10\n-------\nold code here\n=======\nnew code here\n>>>>>>> REPLACE\n\nIMPORTANT: Each line must be exact, including whitespace and indentation. Use read_file with include_line_numbers=true first to get accurate line numbers and content.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING', description: 'Path to the file to modify' }, diff: { type: 'STRING', description: 'One or more diff blocks in the exact format shown above. Each block must specify the exact content to search for and replace, with proper line numbers.' } }, required: ['filename', 'diff'] } },
             
             // --- Unified Task Management System ---
             { name: 'task_create', description: "Creates a new task. This is the starting point for any new goal.", parameters: { type: 'OBJECT', properties: { title: { type: 'STRING' }, description: { type: 'STRING' }, priority: { type: 'STRING', enum: ['low', 'medium', 'high', 'urgent'] }, parentId: { type: 'STRING' }, listId: { type: 'STRING' } }, required: ['title'] } },

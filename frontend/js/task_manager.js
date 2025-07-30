@@ -64,7 +64,8 @@ class TaskManager {
             actualTime: null,
             tags: data.tags || [],
             notes: [],
-            results: {} // To store outcomes
+            results: {}, // To store outcomes
+            context: data.context || {} // To store original query and other context
         };
 
         this.tasks.set(taskId, task);
@@ -140,131 +141,237 @@ class TaskManager {
     }
 
     /**
-     * AI-driven function to break a main goal into subtasks.
+     * AI-driven function to break a main goal into subtasks with intelligent context analysis.
      */
     async breakdownGoal(mainTask) {
         console.log(`[TaskManager] Breaking down goal: "${mainTask.title}"`);
         
-        // Enhanced task patterns with more comprehensive coverage
+        // Enhanced task patterns with more comprehensive coverage and context awareness
         const taskPatterns = {
-            'optimize|refactor|improve|enhance|performance': [
-                { title: 'Analyze current implementation and identify issues', priority: 'high', description: 'Review existing code and performance bottlenecks' },
-                { title: 'Plan optimization strategy', priority: 'high', description: 'Define approach and expected improvements' },
-                { title: 'Implement optimizations', priority: 'high', description: 'Apply performance improvements and refactoring' },
-                { title: 'Test and verify improvements', priority: 'medium', description: 'Validate that optimizations work correctly' },
-                { title: 'Document changes and cleanup', priority: 'low', description: 'Update documentation and remove dead code' }
-            ],
-            'implement|create|add|build|develop': [
-                { title: 'Analyze requirements and plan approach', priority: 'high', description: 'Understand what needs to be built and how' },
-                { title: 'Set up project structure and files', priority: 'high', description: 'Create necessary files and directories' },
-                { title: 'Implement core functionality', priority: 'high', description: 'Write the main logic and features' },
-                { title: 'Add error handling and validation', priority: 'medium', description: 'Ensure robust error handling' },
-                { title: 'Test implementation', priority: 'medium', description: 'Verify functionality works as expected' },
-                { title: 'Update documentation', priority: 'low', description: 'Document the new functionality' }
-            ],
-            'fix|debug|resolve|repair|solve': [
-                { title: 'Reproduce and understand the issue', priority: 'high', description: 'Identify the exact problem and conditions' },
-                { title: 'Analyze root cause', priority: 'high', description: 'Find the underlying cause of the issue' },
-                { title: 'Design and implement solution', priority: 'high', description: 'Create a fix for the identified problem' },
-                { title: 'Test the fix thoroughly', priority: 'medium', description: 'Ensure the fix works and doesn\'t break anything' },
-                { title: 'Add preventive measures', priority: 'medium', description: 'Add tests or checks to prevent regression' }
-            ],
-            'review|audit|analyze|examine|inspect': [
-                { title: 'Gather and examine all relevant files', priority: 'high', description: 'Collect and review all related code/documents' },
-                { title: 'Analyze structure and implementation', priority: 'high', description: 'Understand the current architecture and design' },
-                { title: 'Identify issues and improvements', priority: 'medium', description: 'Document problems and potential enhancements' },
-                { title: 'Provide recommendations', priority: 'medium', description: 'Suggest specific improvements and next steps' }
-            ],
-            'test|validate|verify|check': [
-                { title: 'Plan testing strategy', priority: 'high', description: 'Define what and how to test' },
-                { title: 'Create test cases', priority: 'high', description: 'Write comprehensive test scenarios' },
-                { title: 'Execute tests', priority: 'medium', description: 'Run tests and collect results' },
-                { title: 'Analyze results and report findings', priority: 'medium', description: 'Document test outcomes and issues found' }
-            ]
+            'optimize|refactor|improve|enhance|performance': {
+                steps: [
+                    { title: 'Analyze current implementation and identify issues', priority: 'high', description: 'Review existing code and performance bottlenecks', estimatedTime: 30 },
+                    { title: 'Plan optimization strategy', priority: 'high', description: 'Define approach and expected improvements', estimatedTime: 20 },
+                    { title: 'Implement optimizations', priority: 'high', description: 'Apply performance improvements and refactoring', estimatedTime: 60 },
+                    { title: 'Test and verify improvements', priority: 'medium', description: 'Validate that optimizations work correctly', estimatedTime: 30 },
+                    { title: 'Document changes and cleanup', priority: 'low', description: 'Update documentation and remove dead code', estimatedTime: 15 }
+                ],
+                riskLevel: 'medium',
+                complexity: 'high'
+            },
+            'implement|create|add|build|develop': {
+                steps: [
+                    { title: 'Analyze requirements and plan approach', priority: 'high', description: 'Understand what needs to be built and how', estimatedTime: 25 },
+                    { title: 'Set up project structure and files', priority: 'high', description: 'Create necessary files and directories', estimatedTime: 15 },
+                    { title: 'Implement core functionality', priority: 'high', description: 'Write the main logic and features', estimatedTime: 90 },
+                    { title: 'Add error handling and validation', priority: 'medium', description: 'Ensure robust error handling', estimatedTime: 30 },
+                    { title: 'Test implementation', priority: 'medium', description: 'Verify functionality works as expected', estimatedTime: 45 },
+                    { title: 'Update documentation', priority: 'low', description: 'Document the new functionality', estimatedTime: 20 }
+                ],
+                riskLevel: 'medium',
+                complexity: 'high'
+            },
+            'fix|debug|resolve|repair|solve': {
+                steps: [
+                    { title: 'Reproduce and understand the issue', priority: 'urgent', description: 'Identify the exact problem and conditions', estimatedTime: 20 },
+                    { title: 'Analyze root cause', priority: 'high', description: 'Find the underlying cause of the issue', estimatedTime: 30 },
+                    { title: 'Design and implement solution', priority: 'high', description: 'Create a fix for the identified problem', estimatedTime: 45 },
+                    { title: 'Test the fix thoroughly', priority: 'high', description: 'Ensure the fix works and doesn\'t break anything', estimatedTime: 25 },
+                    { title: 'Add preventive measures', priority: 'medium', description: 'Add tests or checks to prevent regression', estimatedTime: 20 }
+                ],
+                riskLevel: 'high',
+                complexity: 'medium'
+            },
+            'review|audit|analyze|examine|inspect': {
+                steps: [
+                    { title: 'Gather and examine all relevant files', priority: 'high', description: 'Collect and review all related code/documents', estimatedTime: 40 },
+                    { title: 'Analyze structure and implementation', priority: 'high', description: 'Understand the current architecture and design', estimatedTime: 60 },
+                    { title: 'Identify issues and improvements', priority: 'medium', description: 'Document problems and potential enhancements', estimatedTime: 30 },
+                    { title: 'Provide recommendations', priority: 'medium', description: 'Suggest specific improvements and next steps', estimatedTime: 25 }
+                ],
+                riskLevel: 'low',
+                complexity: 'medium'
+            },
+            'test|validate|verify|check': {
+                steps: [
+                    { title: 'Plan testing strategy', priority: 'high', description: 'Define what and how to test', estimatedTime: 20 },
+                    { title: 'Create test cases', priority: 'high', description: 'Write comprehensive test scenarios', estimatedTime: 45 },
+                    { title: 'Execute tests', priority: 'medium', description: 'Run tests and collect results', estimatedTime: 30 },
+                    { title: 'Analyze results and report findings', priority: 'medium', description: 'Document test outcomes and issues found', estimatedTime: 25 }
+                ],
+                riskLevel: 'low',
+                complexity: 'medium'
+            }
         };
 
         const goalLower = mainTask.title.toLowerCase();
-        let matchedPattern = [];
+        let matchedPattern = null;
         let matchedKeyword = '';
+        let confidence = 0.5;
         
-        // Find the best matching pattern
-        for (const [keyword, steps] of Object.entries(taskPatterns)) {
-            if (keyword.split('|').some(k => goalLower.includes(k))) {
-                matchedPattern = steps;
+        // Enhanced pattern matching with confidence scoring
+        for (const [keyword, pattern] of Object.entries(taskPatterns)) {
+            const keywords = keyword.split('|');
+            const matchScore = keywords.reduce((score, k) => {
+                if (goalLower.includes(k)) {
+                    return score + (k.length / goalLower.length); // Longer matches get higher scores
+                }
+                return score;
+            }, 0);
+            
+            if (matchScore > confidence) {
+                matchedPattern = pattern;
                 matchedKeyword = keyword;
-                break;
+                confidence = matchScore;
             }
         }
 
-        // Fallback for unmatched patterns
-        if (matchedPattern.length === 0) {
-            matchedPattern = [
-                { title: 'Analyze the task requirements', priority: 'high', description: 'Understand what needs to be done', confidence: 0.9 },
-                { title: 'Execute the main task', priority: 'high', description: 'Perform the requested work', confidence: 0.8 },
-                { title: 'Verify completion', priority: 'medium', description: 'Ensure the task was completed successfully', confidence: 0.95 }
-            ];
+        // Intelligent fallback with context analysis
+        if (!matchedPattern || confidence < 0.3) {
+            // Analyze context for better fallback
+            const contextClues = this._analyzeTaskContext(mainTask);
+            matchedPattern = {
+                steps: [
+                    { title: 'Analyze the task requirements', priority: 'high', description: 'Understand what needs to be done', confidence: 0.9, estimatedTime: 15 },
+                    { title: 'Plan execution approach', priority: 'high', description: 'Determine the best way to accomplish the task', confidence: 0.8, estimatedTime: 20 },
+                    { title: 'Execute the main task', priority: 'high', description: 'Perform the requested work', confidence: 0.8, estimatedTime: 60 },
+                    { title: 'Verify completion', priority: 'medium', description: 'Ensure the task was completed successfully', confidence: 0.95, estimatedTime: 10 }
+                ],
+                riskLevel: contextClues.riskLevel || 'medium',
+                complexity: contextClues.complexity || 'medium'
+            };
+            matchedKeyword = 'generic';
         }
 
-        console.log(`[TaskManager] Using pattern "${matchedKeyword}" for breakdown`);
+        console.log(`[TaskManager] Using pattern "${matchedKeyword}" for breakdown (confidence: ${confidence.toFixed(2)})`);
 
         const subtasks = [];
         let prevTaskId = null;
+        let totalEstimatedTime = 0;
 
-        
-        for (let i = 0; i < matchedPattern.length; i++) {
-            const step = matchedPattern[i];
+        for (let i = 0; i < matchedPattern.steps.length; i++) {
+            const step = matchedPattern.steps[i];
             const subtask = await this.createTask({
                 title: step.title,
                 description: step.description || '',
                 priority: step.priority || 'medium',
-                confidence: step.confidence || 0.9,
+                confidence: step.confidence || confidence,
                 parentId: mainTask.id,
                 listId: mainTask.listId,
                 dependencies: prevTaskId ? [prevTaskId] : [],
-                tags: ['ai-generated', 'subtask']
+                estimatedTime: step.estimatedTime || 30,
+                tags: ['ai-generated', 'subtask', `pattern:${matchedKeyword}`],
+                context: {
+                    ...mainTask.context,
+                    patternUsed: matchedKeyword,
+                    patternConfidence: confidence,
+                    riskLevel: matchedPattern.riskLevel,
+                    complexity: matchedPattern.complexity
+                }
             });
             subtasks.push(subtask);
             prevTaskId = subtask.id;
+            totalEstimatedTime += step.estimatedTime || 30;
         }
 
-        // Update parent task to show it has been broken down
+        // Enhanced breakdown note with metadata
         const breakdownNote = {
             id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            content: `Task broken down into ${subtasks.length} subtasks`,
+            content: `Task broken down into ${subtasks.length} subtasks using "${matchedKeyword}" pattern (confidence: ${confidence.toFixed(2)}, estimated time: ${totalEstimatedTime}min)`,
             type: 'system',
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            metadata: {
+                patternUsed: matchedKeyword,
+                confidence: confidence,
+                totalEstimatedTime: totalEstimatedTime,
+                riskLevel: matchedPattern.riskLevel,
+                complexity: matchedPattern.complexity
+            }
         };
         
         mainTask.notes = mainTask.notes || [];
         mainTask.notes.push(breakdownNote);
         
         await this.updateTask(mainTask.id, {
-            status: 'in_progress'
+            status: 'in_progress',
+            estimatedTime: totalEstimatedTime,
+            context: {
+                ...mainTask.context,
+                breakdown: {
+                    patternUsed: matchedKeyword,
+                    confidence: confidence,
+                    subtaskCount: subtasks.length,
+                    totalEstimatedTime: totalEstimatedTime
+                }
+            }
         });
 
         this.notifyListeners('tasks_updated', { mainTask, subtasks });
-        console.log(`[TaskManager] Created ${subtasks.length} subtasks for "${mainTask.title}"`);
+        console.log(`[TaskManager] Created ${subtasks.length} subtasks for "${mainTask.title}" (${totalEstimatedTime}min estimated)`);
         return subtasks;
     }
 
     /**
-     * Find the next logical task for the AI to execute.
+     * Analyze task context to provide better fallback patterns
+     */
+    _analyzeTaskContext(task) {
+        const title = task.title.toLowerCase();
+        const description = (task.description || '').toLowerCase();
+        const combined = `${title} ${description}`;
+        
+        // Risk level analysis
+        let riskLevel = 'low';
+        if (combined.match(/delete|remove|drop|destroy|critical|production|live/)) {
+            riskLevel = 'high';
+        } else if (combined.match(/modify|change|update|edit|refactor/)) {
+            riskLevel = 'medium';
+        }
+        
+        // Complexity analysis
+        let complexity = 'low';
+        if (combined.match(/system|architecture|framework|integration|complex|advanced/)) {
+            complexity = 'high';
+        } else if (combined.match(/multiple|several|various|different|across/)) {
+            complexity = 'medium';
+        }
+        
+        return { riskLevel, complexity };
+    }
+
+    /**
+     * Find the next logical task for the AI to execute with intelligent prioritization.
      */
     getNextTask() {
         const pendingTasks = Array.from(this.tasks.values()).filter(t => t.status === 'pending');
         
-        // Sort by priority, then creation time
+        if (pendingTasks.length === 0) return null;
+        
+        // Enhanced sorting with multiple criteria
         const sortedTasks = pendingTasks.sort((a, b) => {
             const priorityOrder = { urgent: 4, high: 3, medium: 2, low: 1 };
             const priorityA = priorityOrder[a.priority] || 0;
             const priorityB = priorityOrder[b.priority] || 0;
+            
+            // Primary: Priority
             if (priorityB !== priorityA) return priorityB - priorityA;
+            
+            // Secondary: Confidence (higher confidence first)
+            const confidenceA = a.confidence || 0.5;
+            const confidenceB = b.confidence || 0.5;
+            if (confidenceB !== confidenceA) return confidenceB - confidenceA;
+            
+            // Tertiary: Risk level (lower risk first for equal priority)
+            const riskOrder = { low: 1, medium: 2, high: 3 };
+            const riskA = riskOrder[a.context?.riskLevel] || 2;
+            const riskB = riskOrder[b.context?.riskLevel] || 2;
+            if (riskA !== riskB) return riskA - riskB;
+            
+            // Quaternary: Creation time
             return a.createdTime - b.createdTime;
         });
 
         // Find the first task with all dependencies met
         for (const task of sortedTasks) {
-
             const deps = task.dependencies || [];
             const depsMet = deps.every(depId => {
                 const depTask = this.tasks.get(depId);
@@ -272,10 +379,329 @@ class TaskManager {
             });
 
             if (depsMet) {
+                // Check if task needs re-evaluation based on context changes
+                if (this._shouldReEvaluateTask(task)) {
+                    console.log(`[TaskManager] Task "${task.title}" needs re-evaluation`);
+                    this._reEvaluateTask(task);
+                }
                 return task;
             }
         }
         return null;
+    }
+
+    /**
+     * Check if a task should be re-evaluated based on execution context
+     */
+    _shouldReEvaluateTask(task) {
+        if (!task.context) return false;
+        
+        // Re-evaluate if parent task has failed subtasks
+        if (task.parentId) {
+            const parent = this.tasks.get(task.parentId);
+            if (parent) {
+                const failedSiblings = parent.subtasks
+                    .map(id => this.tasks.get(id))
+                    .filter(t => t && t.status === 'failed');
+                
+                if (failedSiblings.length > 0) {
+                    return true;
+                }
+            }
+        }
+        
+        // Re-evaluate if task has been pending for too long
+        const now = Date.now();
+        const pendingTime = now - task.createdTime;
+        const maxPendingTime = (task.estimatedTime || 30) * 60 * 1000 * 2; // 2x estimated time
+        
+        return pendingTime > maxPendingTime;
+    }
+
+    /**
+     * Re-evaluate and potentially modify a task based on current context
+     */
+    async _reEvaluateTask(task) {
+        const context = task.context || {};
+        const updates = {};
+        
+        // Adjust priority based on failures
+        if (task.parentId) {
+            const parent = this.tasks.get(task.parentId);
+            if (parent) {
+                const failedSiblings = parent.subtasks
+                    .map(id => this.tasks.get(id))
+                    .filter(t => t && t.status === 'failed');
+                
+                if (failedSiblings.length > 0) {
+                    // Increase priority if siblings have failed
+                    const priorityOrder = { low: 'medium', medium: 'high', high: 'urgent' };
+                    updates.priority = priorityOrder[task.priority] || task.priority;
+                    
+                    // Add note about re-evaluation
+                    const note = {
+                        id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        content: `Task re-evaluated due to ${failedSiblings.length} failed sibling task(s). Priority increased to ${updates.priority}.`,
+                        type: 'system',
+                        timestamp: Date.now()
+                    };
+                    
+                    task.notes = task.notes || [];
+                    task.notes.push(note);
+                }
+            }
+        }
+        
+        if (Object.keys(updates).length > 0) {
+            await this.updateTask(task.id, updates);
+            console.log(`[TaskManager] Re-evaluated task "${task.title}":`, updates);
+        }
+    }
+
+    /**
+     * Dynamic re-planning: Analyze execution results and adapt the plan
+     */
+    async replanBasedOnResults(taskId, executionResult) {
+        const task = this.tasks.get(taskId);
+        if (!task || !task.parentId) return;
+        
+        const parent = this.tasks.get(task.parentId);
+        if (!parent) return;
+        
+        console.log(`[TaskManager] Analyzing execution results for re-planning: ${task.title}`);
+        
+        // Analyze the execution result
+        const analysis = this._analyzeExecutionResult(task, executionResult);
+        
+        if (analysis.shouldReplan) {
+            console.log(`[TaskManager] Re-planning required for parent task: ${parent.title}`);
+            
+            // Get remaining subtasks
+            const remainingSubtasks = parent.subtasks
+                .map(id => this.tasks.get(id))
+                .filter(t => t && t.status === 'pending');
+            
+            // Generate new subtasks based on the analysis
+            const newSubtasks = await this._generateAdaptiveSubtasks(parent, analysis, remainingSubtasks);
+            
+            if (newSubtasks.length > 0) {
+                // Add re-planning note to parent
+                const replanNote = {
+                    id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    content: `Plan adapted based on execution results. Added ${newSubtasks.length} new subtask(s). Reason: ${analysis.reason}`,
+                    type: 'system',
+                    timestamp: Date.now(),
+                    metadata: {
+                        triggerTask: taskId,
+                        analysisReason: analysis.reason,
+                        newSubtaskCount: newSubtasks.length
+                    }
+                };
+                
+                parent.notes = parent.notes || [];
+                parent.notes.push(replanNote);
+                
+                await this.updateTask(parent.id, {
+                    context: {
+                        ...parent.context,
+                        replanned: true,
+                        replanCount: (parent.context?.replanCount || 0) + 1,
+                        lastReplanReason: analysis.reason
+                    }
+                });
+                
+                this.notifyListeners('tasks_replanned', { parent, newSubtasks, analysis });
+            }
+        }
+    }
+
+    /**
+     * Analyze execution results to determine if re-planning is needed
+     */
+    _analyzeExecutionResult(task, result) {
+        const analysis = {
+            shouldReplan: false,
+            reason: '',
+            confidence: 0.5,
+            suggestedActions: []
+        };
+        
+        // Check for error patterns that suggest need for re-planning
+        if (result.error) {
+            const errorMessage = result.error.toLowerCase();
+            
+            if (errorMessage.includes('file not found') || errorMessage.includes('path does not exist')) {
+                analysis.shouldReplan = true;
+                analysis.reason = 'File structure exploration needed';
+                analysis.suggestedActions.push('Add file discovery subtask');
+                analysis.confidence = 0.8;
+            } else if (errorMessage.includes('permission denied') || errorMessage.includes('access denied')) {
+                analysis.shouldReplan = true;
+                analysis.reason = 'Permission issues detected';
+                analysis.suggestedActions.push('Add permission verification subtask');
+                analysis.confidence = 0.9;
+            } else if (errorMessage.includes('dependency') || errorMessage.includes('import') || errorMessage.includes('module')) {
+                analysis.shouldReplan = true;
+                analysis.reason = 'Dependency issues detected';
+                analysis.suggestedActions.push('Add dependency analysis subtask');
+                analysis.confidence = 0.85;
+            }
+        }
+        
+        // Check for incomplete results
+        if (result.incomplete || (result.message && result.message.includes('partial'))) {
+            analysis.shouldReplan = true;
+            analysis.reason = 'Task completed partially, additional steps needed';
+            analysis.suggestedActions.push('Add completion verification subtask');
+            analysis.confidence = 0.7;
+        }
+        
+        return analysis;
+    }
+
+    /**
+     * Generate adaptive subtasks based on execution analysis
+     */
+    async _generateAdaptiveSubtasks(parentTask, analysis, remainingSubtasks) {
+        const newSubtasks = [];
+        
+        for (const action of analysis.suggestedActions) {
+            let subtaskData = null;
+            
+            switch (action) {
+                case 'Add file discovery subtask':
+                    subtaskData = {
+                        title: 'Discover and analyze file structure',
+                        description: 'Explore the project structure to understand file organization and locate required files',
+                        priority: 'high',
+                        confidence: 0.9,
+                        estimatedTime: 15,
+                        tags: ['adaptive', 'file-discovery']
+                    };
+                    break;
+                    
+                case 'Add permission verification subtask':
+                    subtaskData = {
+                        title: 'Verify and resolve permission issues',
+                        description: 'Check file permissions and resolve access issues',
+                        priority: 'high',
+                        confidence: 0.8,
+                        estimatedTime: 10,
+                        tags: ['adaptive', 'permissions']
+                    };
+                    break;
+                    
+                case 'Add dependency analysis subtask':
+                    subtaskData = {
+                        title: 'Analyze and resolve dependencies',
+                        description: 'Review project dependencies and resolve import/module issues',
+                        priority: 'high',
+                        confidence: 0.85,
+                        estimatedTime: 25,
+                        tags: ['adaptive', 'dependencies']
+                    };
+                    break;
+                    
+                case 'Add completion verification subtask':
+                    subtaskData = {
+                        title: 'Verify task completion',
+                        description: 'Ensure all aspects of the task have been properly completed',
+                        priority: 'medium',
+                        confidence: 0.9,
+                        estimatedTime: 10,
+                        tags: ['adaptive', 'verification']
+                    };
+                    break;
+            }
+            
+            if (subtaskData) {
+                // Insert before remaining subtasks
+                const insertIndex = remainingSubtasks.length > 0 ?
+                    parentTask.subtasks.indexOf(remainingSubtasks[0].id) :
+                    parentTask.subtasks.length;
+                
+                const newSubtask = await this.createTask({
+                    ...subtaskData,
+                    parentId: parentTask.id,
+                    listId: parentTask.listId,
+                    context: {
+                        ...parentTask.context,
+                        adaptive: true,
+                        generatedBy: analysis.reason,
+                        insertIndex: insertIndex
+                    }
+                });
+                
+                // Insert into parent's subtask list at the correct position
+                parentTask.subtasks.splice(insertIndex, 0, newSubtask.id);
+                newSubtasks.push(newSubtask);
+            }
+        }
+        
+        return newSubtasks;
+    }
+
+    /**
+     * Performance monitoring for task execution
+     */
+    getExecutionMetrics() {
+        const allTasks = Array.from(this.tasks.values());
+        const now = Date.now();
+        
+        const metrics = {
+            totalTasks: allTasks.length,
+            completionRate: 0,
+            averageExecutionTime: 0,
+            failureRate: 0,
+            adaptiveTasksGenerated: 0,
+            replanningEvents: 0,
+            patternEffectiveness: {}
+        };
+        
+        const completedTasks = allTasks.filter(t => t.status === 'completed');
+        const failedTasks = allTasks.filter(t => t.status === 'failed');
+        const adaptiveTasks = allTasks.filter(t => t.tags?.includes('adaptive'));
+        
+        metrics.completionRate = allTasks.length > 0 ? (completedTasks.length / allTasks.length) * 100 : 0;
+        metrics.failureRate = allTasks.length > 0 ? (failedTasks.length / allTasks.length) * 100 : 0;
+        metrics.adaptiveTasksGenerated = adaptiveTasks.length;
+        
+        // Calculate average execution time for completed tasks
+        const executionTimes = completedTasks
+            .filter(t => t.startTime && t.completedTime)
+            .map(t => t.completedTime - t.startTime);
+        
+        if (executionTimes.length > 0) {
+            metrics.averageExecutionTime = executionTimes.reduce((sum, time) => sum + time, 0) / executionTimes.length;
+        }
+        
+        // Count replanning events
+        metrics.replanningEvents = allTasks.filter(t => t.context?.replanned).length;
+        
+        // Analyze pattern effectiveness
+        const patternStats = {};
+        allTasks.forEach(task => {
+            const pattern = task.context?.patternUsed;
+            if (pattern) {
+                if (!patternStats[pattern]) {
+                    patternStats[pattern] = { total: 0, completed: 0, failed: 0 };
+                }
+                patternStats[pattern].total++;
+                if (task.status === 'completed') patternStats[pattern].completed++;
+                if (task.status === 'failed') patternStats[pattern].failed++;
+            }
+        });
+        
+        // Calculate effectiveness percentages
+        for (const [pattern, stats] of Object.entries(patternStats)) {
+            metrics.patternEffectiveness[pattern] = {
+                ...stats,
+                successRate: stats.total > 0 ? (stats.completed / stats.total) * 100 : 0,
+                failureRate: stats.total > 0 ? (stats.failed / stats.total) * 100 : 0
+            };
+        }
+        
+        return metrics;
     }
     
     /**

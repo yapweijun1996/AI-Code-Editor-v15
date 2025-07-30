@@ -231,7 +231,12 @@
     "TaskRunner"
   ],
   "frontend/js/tool_executor.js": [
-    "stripMarkdownCodeBlock"
+    "trackToolPerformance",
+    "getOptimalTool",
+    "analyzeError",
+    "getSuggestedFix",
+    "getCachedResult",
+    "setCachedResult"
   ],
   "node_modules/JSONStream/index.js": [
     "setHeaderFooter",
@@ -29743,5 +29748,17 @@
     "Phase 2: Systematic Execution",
     "Phase 3: Adapting to New Information",
     "🚦 Best Practices"
+  ],
+  "docs/GIT_ALTERNATIVES.md": [
+    "Git Operations in Browser-Based Editor",
+    "Current Status",
+    "Why Git Commands Were Removed",
+    "Alternative Approaches for Git Operations",
+    "1. Browser-Based Git Libraries",
+    "2. File System Access API Integration",
+    "3. External Git Client Integration",
+    "4. Web-Based Git Services",
+    "Recommended User Workflow",
+    "Future Considerations"
   ]
 }
