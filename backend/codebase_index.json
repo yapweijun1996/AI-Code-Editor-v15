@@ -29815,5 +29815,28 @@
   ],
   "frontend/js/code_quality_analyzer.js": [
     "loadDependencies"
+  ],
+  "docs/AUTO_CONTEXT_FEATURE.md": [
+    "🤖 Intelligent Auto-Context Injection",
+    "🎯 How It Works",
+    "**Smart Query Analysis**",
+    "**Context Intelligence Levels**",
+    "**🔍 Pattern Recognition**",
+    "**📊 Confidence Scoring**",
+    "**Context Types**",
+    "**🎯 Smart Context (Default)**",
+    "**🐛 Error Context**",
+    "**⚡ Selection Context**",
+    "**📍 Line Context**",
+    "🚀 User Experience",
+    "**Before Auto-Context**",
+    "**After Auto-Context**",
+    "🔧 Technical Implementation",
+    "**Architecture Overview**",
+    "**Key Components**",
+    "**1. Context Analyzer** (`context_analyzer.js`)",
+    "**2. Context Builder** (`context_builder.js`)",
+    "**3. Chat Service Integration** (`chat_service.js`)",
+    "**Context Format Example**"
   ]
 }

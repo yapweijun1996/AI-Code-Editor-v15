@@ -11,8 +11,9 @@ The editor now includes advanced AI systems that provide senior engineer-level a
 - **📊 Code Quality Intelligence**: Comprehensive quality metrics, code smell detection, and maintainability analysis
 - **🏗️ Architecture Optimization**: Design pattern recognition, anti-pattern detection, and optimization recommendations
 - **🎯 Engineering Problem Solving**: Holistic problem analysis with multiple solution approaches and trade-off evaluation
+- **🤖 Intelligent Auto-Context**: Automatically provides relevant file context when you ask questions about your current code
 
-See [Senior Engineer AI Documentation](docs/SENIOR_ENGINEER_AI.md) for detailed information.
+See [Senior Engineer AI Documentation](docs/SENIOR_ENGINEER_AI.md) and [Auto-Context Feature Guide](docs/AUTO_CONTEXT_FEATURE.md) for detailed information.
 
 ---
 
@@ -85,6 +86,12 @@ The editor's architecture has been streamlined to use a local Node.js server, si
     *   `get_selected_text` - Get user-selected text
     *   `replace_selected_text` - Replace selected text
     *   `get_file_history` - View file modification history
+*   **🤖 Intelligent Auto-Context Injection**: The AI automatically detects when your questions relate to the currently opened file and provides relevant context without manual intervention:
+    *   **Smart Query Analysis**: Uses natural language processing to determine when file context would be helpful
+    *   **Context Types**: Provides cursor context, selection context, error context, or smart file overview based on your query
+    *   **Confidence Scoring**: Only injects context when confident it's relevant (60%+ confidence threshold)
+    *   **Seamless UX**: Ask "How can I optimize this function?" and the AI immediately knows which function you mean
+    *   **Visual Indicators**: Shows when auto-context is included with file name and confidence level
 *   **Multimodal Input**: The AI chat supports both text and image uploads, allowing you to ask questions about visual content.
 *   **Multiple Agent Modes**: Switch between different AI modes (`Code`, `Plan`, `Search`) to tailor the agent's behavior to your specific needs.
 *   **Persistent Model Selection**: The application remembers your chosen AI model across sessions, saving you from having to re-select it on every visit.

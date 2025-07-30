@@ -100,7 +100,17 @@ export const ChatService = {
         let displayMessage = userPrompt;
         const initialParts = [];
 
-        if (userPrompt) initialParts.push({ text: userPrompt });
+        // Intelligent auto-context injection
+        const contextAnalysis = this._analyzeAndInjectContext(userPrompt);
+        let enhancedPrompt = userPrompt;
+        
+        if (contextAnalysis.contextInjected) {
+            enhancedPrompt = contextAnalysis.enhancedPrompt;
+            displayMessage += `\n🤖 Auto-context: ${contextAnalysis.summary}`;
+            console.log(`[Auto-Context] ${contextAnalysis.summary}`);
+        }
+
+        if (enhancedPrompt) initialParts.push({ text: enhancedPrompt });
 
         if (uploadedImage) {
             displayMessage += `\n📷 Attached: ${uploadedImage.name}`;
@@ -118,6 +128,133 @@ export const ChatService = {
         console.log(`[User Query] ${userPrompt}`);
 
         return initialParts;
+    },
+
+    /**
+     * Analyze user query and inject context if needed
+     */
+    _analyzeAndInjectContext(userPrompt) {
+        const result = {
+            contextInjected: false,
+            enhancedPrompt: userPrompt,
+            summary: '',
+            analysis: null
+        };
+
+        try {
+            // Skip auto-context for task-based queries to avoid workflow interference
+            if (this._isTaskBasedQuery(userPrompt)) {
+                console.log(`[Context Analysis] Skipping auto-context for task-based query`);
+                return result;
+            }
+
+            // Get current file info
+            const currentFileInfo = this._getCurrentFileInfo();
+            if (!currentFileInfo) {
+                return result; // No file open, no context to inject
+            }
+
+            // Analyze if context should be included
+            const analysis = contextAnalyzer.analyzeQuery(userPrompt, currentFileInfo);
+            result.analysis = analysis;
+
+            if (!analysis.shouldIncludeContext) {
+                console.log(`[Context Analysis] ${analysis.reason}`);
+                return result;
+            }
+
+            // Build context
+            const context = contextBuilder.buildContext(analysis.suggestedContext, currentFileInfo);
+            if (!context) {
+                return result;
+            }
+
+            // Format context for AI
+            const contextText = contextBuilder.formatContextForAI(context);
+            
+            // Enhance the prompt with context
+            result.enhancedPrompt = `${contextText}\n\n---\n\n**User Question:** ${userPrompt}`;
+            result.contextInjected = true;
+            result.summary = `${context.file.name} (${context.content.totalLines} lines, confidence: ${Math.round(analysis.confidence * 100)}%)`;
+
+            console.log(`[Context Injected] ${result.summary} - ${analysis.reason}`);
+
+        } catch (error) {
+            console.error('[Context Injection Error]', error);
+            // Fail gracefully - return original prompt
+        }
+
+        return result;
+    },
+
+    /**
+     * Check if query is task-based and should skip auto-context
+     */
+    _isTaskBasedQuery(userPrompt) {
+        const taskIndicators = [
+            // Task creation patterns
+            /create\s+.*task/i,
+            /make\s+.*dashboard/i,
+            /build\s+.*application/i,
+            /develop\s+.*feature/i,
+            /implement\s+.*system/i,
+            
+            // Multi-step project patterns
+            /review\s+all\s+files/i,
+            /analyze\s+the\s+entire/i,
+            /update\s+all/i,
+            /change\s+all/i,
+            /modify\s+the\s+whole/i,
+            
+            // Project-wide operations
+            /refactor\s+the\s+project/i,
+            /optimize\s+the\s+application/i,
+            /redesign\s+the/i,
+            /restructure/i,
+            
+            // Complex multi-file operations
+            /color\s+.*style\s+design/i,
+            /theme\s+.*change/i,
+            /ui\s+.*update/i
+        ];
+
+        return taskIndicators.some(pattern => pattern.test(userPrompt));
+    },
+
+    /**
+     * Get current file information for context analysis
+     */
+    _getCurrentFileInfo() {
+        const activeFile = Editor.getActiveFile();
+        const activeFilePath = Editor.getActiveFilePath();
+        const editorInstance = Editor.getEditorInstance();
+
+        if (!activeFile || !editorInstance) {
+            return null;
+        }
+
+        const model = activeFile.model;
+        const position = editorInstance.getPosition();
+        const selection = editorInstance.getSelection();
+
+        return {
+            path: activeFilePath,
+            name: activeFile.name,
+            language: model.getLanguageId(),
+            totalLines: model.getLineCount(),
+            content: model.getValue(),
+            cursor: {
+                line: position ? position.lineNumber : 1,
+                column: position ? position.column : 1
+            },
+            selection: selection && !selection.isEmpty() ? {
+                startLine: selection.startLineNumber,
+                startColumn: selection.startColumn,
+                endLine: selection.endLineNumber,
+                endColumn: selection.endColumn,
+                text: model.getValueInRange(selection)
+            } : null
+        };
     },
 
     async _performApiCall(history, chatMessages, singleTurn = false) {
@@ -276,13 +413,21 @@ export const ChatService = {
         this.resetErrorTracker();
 
         try {
-            // 1. Create a main task for the user's prompt
+            // 1. Prepare user message with intelligent context injection
+            const messageParts = this._prepareAndRenderUserMessage(chatInput, chatMessages, uploadedImage, clearImagePreview);
+            
+            // 2. Create a main task for the user's prompt
             UI.appendMessage(chatMessages, `Task created: "${userPrompt}"`, 'ai');
             const mainTask = await taskManager.createTask({ title: userPrompt, priority: 'high' });
 
-            // 2. Prepare for autonomous execution
+            // 3. Prepare for autonomous execution with enhanced context
             const history = await DbManager.getChatHistory();
-            history.push({ role: 'user', parts: [{ text: `New user request: "${userPrompt}". The main task ID is ${mainTask.id}. Your first step is to call the "task_breakdown" tool with this ID.` }] });
+            
+            // Use the enhanced message parts that may include auto-context
+            history.push({ role: 'user', parts: messageParts });
+            
+            // Add task breakdown instruction
+            history.push({ role: 'user', parts: [{ text: `The main task ID is ${mainTask.id}. Your first step is to call the "task_breakdown" tool with this ID.` }] });
 
             // 3. First API Call: Force breakdown
             await this._performApiCall(history, chatMessages, true); // singleTurn = true
@@ -439,8 +584,7 @@ Execute this task step by step. When completed, call the task_update tool to mar
         } finally {
             this.isSending = false;
             this._updateUiState(false);
-            chatInput.value = '';
-            clearImagePreview();
+            // Don't clear input here since it's already cleared in _prepareAndRenderUserMessage
         }
     },
 
