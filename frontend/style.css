@@ -828,6 +828,7 @@ button:hover {
     padding-top: 1em;
     border-top: 1px solid var(--border);
     height: calc(100% - 160px);
+    overflow: auto;
 }
 
 .search-result-file {
