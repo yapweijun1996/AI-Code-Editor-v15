@@ -9,6 +9,7 @@ import { performanceOptimizer } from './performance_optimizer.js';
 import { performanceMonitor } from './performance_monitor.js';
 import { progressiveLoader } from './progressive_loader.js';
 import { fileTreeSearch } from './file_tree_search.js';
+import { projectAnalysisUI } from './project_analysis_ui.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -44,6 +45,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.appState = appState;
     window.progressiveLoader = progressiveLoader;
     window.fileTreeSearch = fileTreeSearch;
+    window.projectAnalysisUI = projectAnalysisUI;
 
     // --- Initialization ---
     appState.editor = await Editor.initializeEditor(editorContainer, tabBarContainer);
@@ -83,6 +85,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             
             UI.updateDirectoryButtons(true);
             performanceOptimizer.endTimer('directoryRestore');
+            
+            // Trigger project analysis for AI
+            document.dispatchEvent(new CustomEvent('project-loaded', {
+                detail: { rootHandle: savedHandle }
+            }));
         } else {
             UI.updateDirectoryButtons(false, true);
         }
