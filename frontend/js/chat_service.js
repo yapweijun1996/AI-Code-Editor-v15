@@ -117,7 +117,7 @@ export const ChatService = {
         return initialParts;
     },
 
-    async _performApiCall(initialParts, chatMessages) {
+    async _performApiCall(initialParts, chatMessages, singleTurn = false) {
         if (!this.llmService) {
             UI.showError("LLM Service is not initialized. Please check your settings.");
             return;
@@ -203,13 +203,17 @@ export const ChatService = {
                     }
                     history.push({ role: 'user', parts: toolResults.map(functionResponse => ({ functionResponse })) });
                     
-                    // For OpenAI: Continue the loop to get AI's next response
-                    // For other providers (Gemini, Ollama): Check if AI wants to continue with more tools
-                    if (this.llmService.constructor.name === 'OpenAIService') {
-                        continueLoop = true; // Always continue for OpenAI to get next response
+                    if (singleTurn) {
+                        continueLoop = false;
                     } else {
-                        // For Gemini/Ollama: Continue the loop to allow them to make more tool calls if needed
-                        continueLoop = true;
+                        // For OpenAI: Continue the loop to get AI's next response
+                        // For other providers (Gemini, Ollama): Check if AI wants to continue with more tools
+                        if (this.llmService.constructor.name === 'OpenAIService') {
+                            continueLoop = true; // Always continue for OpenAI to get next response
+                        } else {
+                            // For Gemini/Ollama: Continue the loop to allow them to make more tool calls if needed
+                            continueLoop = true;
+                        }
                     }
                 } else {
                     // No tools called, conversation is complete
@@ -278,7 +282,7 @@ export const ChatService = {
             // For steps that require AI analysis, we can formulate a new prompt
             // and use the existing _performApiCall logic.
             const analysisPrompt = `Continuing with the plan. Current step: ${step.task}. Please analyze the previous tool outputs and proceed.`;
-            await this._performApiCall([{ text: analysisPrompt }], chatMessages);
+            await this._performApiCall([{ text: analysisPrompt }], chatMessages, true);
         }
 
         step.status = 'completed';
