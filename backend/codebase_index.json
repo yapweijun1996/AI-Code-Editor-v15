@@ -125,8 +125,6 @@
     "#search-results-container",
     "#tasks-content",
     "#tasks-container",
-    "#task-output-container",
-    "#task-output",
     "#editor-container",
     "#tab-bar",
     "#editor",

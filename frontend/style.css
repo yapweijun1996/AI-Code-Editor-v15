@@ -2083,7 +2083,7 @@ button:hover {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 12px;
+    padding: 2px;
     background: var(--input-background);
     border: 1px solid var(--border-color);
     border-radius: 6px;
@@ -2091,15 +2091,9 @@ button:hover {
 }
 
 .stat-number {
-    font-size: 18px;
+    font-size: 12px;
     font-weight: bold;
     color: var(--primary-color);
-}
-
-.stat-label {
-    font-size: 12px;
-    color: var(--text-color-secondary);
-    margin-top: 4px;
 }
 
 .recent-tasks h4 {
@@ -2136,7 +2130,7 @@ button:hover {
 .task-status, .task-priority {
     padding: 2px 6px;
     border-radius: 3px;
-    font-size: 11px;
+    font-size: 8px;
     font-weight: 500;
 }
 
@@ -2881,7 +2875,7 @@ button:hover {
 }
 
 .task-title {
-    font-size: 24px;
+    font-size: 12px;
     font-weight: 700;
     color: var(--text-color);
     margin: 0;
@@ -3027,7 +3021,7 @@ button:hover {
 }
 
 .stat-label {
-    font-size: 12px;
+    font-size: 8px;
     font-weight: 600;
     color: var(--text-color-secondary);
     text-transform: uppercase;
