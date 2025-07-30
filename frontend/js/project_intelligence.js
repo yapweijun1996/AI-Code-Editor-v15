@@ -889,6 +889,162 @@ class ProjectIntelligence {
         const lowerName = directoryName.toLowerCase();
         return architecturalPatterns.includes(lowerName);
     }
+
+    /**
+     * Extract API endpoints and service calls from code
+     */
+    extractAPIs(content, language) {
+        const apis = [];
+        
+        try {
+            if (language === 'JavaScript' || language === 'TypeScript') {
+                // REST API patterns
+                const restPatterns = [
+                    // fetch API
+                    /fetch\s*\(\s*['"`]([^'"`]+)['"`]/g,
+                    // axios
+                    /axios\s*\.\s*(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)['"`]/g,
+                    // $.ajax or jQuery
+                    /\$\s*\.\s*ajax\s*\(\s*\{[^}]*url\s*:\s*['"`]([^'"`]+)['"`]/g,
+                    // XMLHttpRequest
+                    /open\s*\(\s*['"`](GET|POST|PUT|DELETE|PATCH)['"`]\s*,\s*['"`]([^'"`]+)['"`]/g
+                ];
+                
+                restPatterns.forEach(pattern => {
+                    let match;
+                    while ((match = pattern.exec(content)) !== null) {
+                        const url = match[2] || match[1];
+                        if (url && !apis.find(api => api.endpoint === url)) {
+                            apis.push({
+                                type: 'REST',
+                                method: match[1] || 'unknown',
+                                endpoint: url,
+                                line: this.getLineNumber(content, match.index)
+                            });
+                        }
+                    }
+                });
+                
+                // GraphQL patterns
+                const graphqlPattern = /gql`([^`]+)`|graphql\s*\(\s*['"`]([^'"`]+)['"`]/g;
+                let graphqlMatch;
+                while ((graphqlMatch = graphqlPattern.exec(content)) !== null) {
+                    const query = graphqlMatch[1] || graphqlMatch[2];
+                    if (query) {
+                        apis.push({
+                            type: 'GraphQL',
+                            query: query.substring(0, 100) + '...',
+                            line: this.getLineNumber(content, graphqlMatch.index)
+                        });
+                    }
+                }
+                
+            } else if (language === 'Python') {
+                // Python API patterns
+                const pythonPatterns = [
+                    // requests library
+                    /requests\s*\.\s*(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)['"`]/g,
+                    // urllib
+                    /urllib\.request\.urlopen\s*\(\s*['"`]([^'"`]+)['"`]/g,
+                    // httpx
+                    /httpx\s*\.\s*(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)['"`]/g
+                ];
+                
+                pythonPatterns.forEach(pattern => {
+                    let match;
+                    while ((match = pattern.exec(content)) !== null) {
+                        const url = match[2] || match[1];
+                        if (url && !apis.find(api => api.endpoint === url)) {
+                            apis.push({
+                                type: 'REST',
+                                method: match[1] || 'unknown',
+                                endpoint: url,
+                                line: this.getLineNumber(content, match.index)
+                            });
+                        }
+                    }
+                });
+                
+            } else if (language === 'Java') {
+                // Java API patterns
+                const javaPatterns = [
+                    // Spring RestTemplate
+                    /restTemplate\s*\.\s*(getForObject|postForObject|exchange)\s*\(\s*['"`]([^'"`]+)['"`]/g,
+                    // OkHttp
+                    /new\s+Request\s*\.\s*Builder\s*\(\s*\)\s*\.url\s*\(\s*['"`]([^'"`]+)['"`]/g,
+                    // HttpURLConnection
+                    /new\s+URL\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g
+                ];
+                
+                javaPatterns.forEach(pattern => {
+                    let match;
+                    while ((match = pattern.exec(content)) !== null) {
+                        const url = match[2] || match[1];
+                        if (url && !apis.find(api => api.endpoint === url)) {
+                            apis.push({
+                                type: 'REST',
+                                endpoint: url,
+                                line: this.getLineNumber(content, match.index)
+                            });
+                        }
+                    }
+                });
+            }
+            
+            // Generic URL patterns (fallback)
+            if (apis.length === 0) {
+                const genericUrlPattern = /['"`](https?:\/\/[^'"`\s]+)['"`]/g;
+                let genericMatch;
+                while ((genericMatch = genericUrlPattern.exec(content)) !== null) {
+                    const url = genericMatch[1];
+                    if (url && !apis.find(api => api.endpoint === url)) {
+                        apis.push({
+                            type: 'URL',
+                            endpoint: url,
+                            line: this.getLineNumber(content, genericMatch.index)
+                        });
+                    }
+                }
+            }
+            
+        } catch (error) {
+            console.warn('Error extracting APIs:', error);
+        }
+        
+        return apis.slice(0, 20); // Limit to 20 APIs per file
+    }
+
+    /**
+     * Get line number from character index
+     */
+    getLineNumber(content, index) {
+        return content.substring(0, index).split('\n').length;
+    }
+
+    /**
+     * Update analysis progress with callback support
+     */
+    updateProgress(message, progress, callback = null) {
+        this.analysisProgress = {
+            message: message,
+            progress: Math.min(Math.max(progress, 0), 100),
+            timestamp: Date.now()
+        };
+        
+        // Call the callback if provided (for UI updates)
+        if (callback && typeof callback === 'function') {
+            try {
+                callback(message, progress);
+            } catch (error) {
+                console.warn('Error in progress callback:', error);
+            }
+        }
+        
+        // Log progress for debugging
+        if (progress % 25 === 0 || progress === 100) {
+            console.log(`Project Analysis: ${message} (${progress}%)`);
+        }
+    }
 }
 
 // Export singleton instance
