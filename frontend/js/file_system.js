@@ -173,37 +173,24 @@ export async function searchInDirectory(
 }
 
 
-export const buildTree = async (dirHandle, ignorePatterns, currentPath = '') => {
-    const children = [];
-    for await (const entry of dirHandle.values()) {
-        const newPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
-        if (ignorePatterns.some(pattern => newPath.startsWith(pattern.replace(/\/$/, '')))) {
-            continue;
-        }
-        if (entry.kind === 'directory') {
-            children.push({
-                id: newPath,
-                text: entry.name,
-                type: 'folder',
-                children: await buildTree(entry, ignorePatterns, newPath),
-            });
-        } else {
-            children.push({
-                id: newPath,
-                text: entry.name,
-                type: 'file',
-                li_attr: { 'data-path': newPath, 'data-handle': entry }, // Store path and handle
-            });
-        }
-    }
-    // Sort so folders appear before files
-    children.sort((a, b) => {
-        if (a.type === 'folder' && b.type !== 'folder') return -1;
-        if (a.type !== 'folder' && b.type === 'folder') return 1;
-        return a.text.localeCompare(b.text);
+export function buildTree(dirHandle, ignorePatterns) {
+    return new Promise((resolve, reject) => {
+        const worker = new Worker('/js/workers/file-tree.worker.js');
+        worker.onmessage = (event) => {
+            if (event.data.success) {
+                resolve(event.data.treeData);
+            } else {
+                reject(new Error(event.data.error));
+            }
+            worker.terminate();
+        };
+        worker.onerror = (error) => {
+            reject(error);
+            worker.terminate();
+        };
+        worker.postMessage({ dirHandle, ignorePatterns });
     });
-    return children;
-};
+}
 export async function verifyAndRequestPermission(fileHandle, withWrite = false) {
     const options = { mode: withWrite ? 'readwrite' : 'read' };
     if (await fileHandle.queryPermission(options) === 'granted') {
