@@ -1127,6 +1127,24 @@ class ProjectIntelligence {
             console.log(`Project Analysis: ${message} (${progress}%)`);
         }
     }
+    // Placeholder implementations for summary generation
+    getEntryPoints() { return []; }
+    getCoreModules() { return []; }
+    getAPIEndpoints() { return []; }
+    getDependencyHotspots() { return []; }
+    getMostImportantFiles(count) { return []; }
+    getCommonPatterns() { return []; }
+    assessTechnicalDebt() { return {}; }
+    getComplexityMetrics() { return {}; }
+    identifyFocusAreas() { return []; }
+    identifyRefactoringOpportunities() { return []; }
+    generateLearningPath() { return []; }
+	resolveImportPath(importPath, currentFile, allFiles) { return null; }
+    getRelatedFiles(currentFile, count) { return []; }
+    getRelatedSymbols(currentFile) { return []; }
+    getArchitecturalContext(currentFile) { return {}; }
+    searchRelevantFiles(query, count) { return []; }
+    generateQuerySuggestions(query) { return []; }
 }
 
 // Export singleton instance
