@@ -29840,5 +29840,22 @@
     "getSuggestedFix",
     "getCachedResult",
     "setCachedResult"
+  ],
+  "CLAUDE.md": [
+    "CLAUDE.md",
+    "Project Overview",
+    "Core Architecture",
+    "Development Commands",
+    "Backend",
+    "Frontend",
+    "Root Level",
+    "Application Management",
+    "Key Components",
+    "Tool Execution System",
+    "LLM Services",
+    "Core Modules",
+    "Senior Engineer AI Features",
+    "Development Notes",
+    "File Structure"
   ]
 }

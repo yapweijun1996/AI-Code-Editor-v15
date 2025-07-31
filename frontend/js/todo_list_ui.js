@@ -1018,7 +1018,7 @@ export class TodoListUI {
 
     renderTaskActivity(todo) {
         const container = document.getElementById('todo-detail-timeline');
-        const notes = todo.notes || [];
+        const notes = Array.isArray(todo.notes) ? todo.notes : [];
         
         if (notes.length === 0) {
             container.innerHTML = `
