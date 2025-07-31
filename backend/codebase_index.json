@@ -29528,8 +29528,6 @@
     "#search-results-container",
     "#tasks-content",
     "#tasks-container",
-    "#task-output-container",
-    "#task-output",
     "#editor-container",
     "#tab-bar",
     "#editor",
@@ -29572,6 +29570,22 @@
     "#ollama-settings",
     "#ollama-base-url",
     "#ollama-model-name",
+    "#completion-settings",
+    "#completion-enabled",
+    "#completion-debounce",
+    "#completion-max-items",
+    "#completion-streaming",
+    "#completion-personalization",
+    "#completion-auto-trigger",
+    "#completion-aggressive-trigger",
+    "#completion-context-length",
+    "#completion-caching",
+    "#completion-min-trigger",
+    "#completion-stats",
+    "#stat-acceptance-rate",
+    "#stat-total-completions",
+    "#stat-avg-response-time",
+    "#stat-cache-hit-rate",
     "#save-llm-settings-button",
     "#theme-toggle-button",
     "#context-modal",
@@ -29592,6 +29606,7 @@
     "#tool-logs-modal",
     "#tool-logs-filter",
     "#tool-logs-list",
+    ".overlay",
     ".container",
     ".sidebar",
     ".sidebar-tabs",
@@ -29620,6 +29635,15 @@
     ".model-selector",
     ".api-key-input",
     ".settings-input",
+    ".toggle-label",
+    ".toggle-checkbox",
+    ".toggle-slider",
+    ".toggle-text",
+    ".form-help",
+    ".advanced-settings",
+    ".completion-stats",
+    ".stats-grid",
+    ".stat-item",
     ".settings-actions",
     ".modal",
     ".modal-content",
@@ -29755,7 +29779,12 @@
     "**JavaScript API**"
   ],
   "frontend\\js\\tool_executor.js": [
-    "stripMarkdownCodeBlock"
+    "trackToolPerformance",
+    "getOptimalTool",
+    "analyzeError",
+    "getSuggestedFix",
+    "getCachedResult",
+    "setCachedResult"
   ],
   "AI_TASK_MANAGEMENT_GUIDE.md": [
     "🚀 AI Task Management System",
@@ -29949,5 +29978,8 @@
   ],
   "frontend/js/editor.js": [
     "getLanguageFromExtension"
+  ],
+  "frontend\\js\\symbol_resolver.js": [
+    "loadDependencies"
   ]
 }
