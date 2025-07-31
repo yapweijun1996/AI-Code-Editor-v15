@@ -130,6 +130,7 @@
                 <button class="tab-link active" data-tab="gemini-settings">Google Gemini</button>
                 <button class="tab-link" data-tab="openai-settings">OpenAI</button>
                 <button class="tab-link" data-tab="ollama-settings">Ollama</button>
+                <button class="tab-link" data-tab="completion-settings">AI Completion</button>
             </div>
 
             <div id="gemini-settings" class="tab-content active">
@@ -187,6 +188,111 @@
                 <div class="form-group">
                     <label for="ollama-model-name">Model Name</label>
                     <input type="text" id="ollama-model-name" class="settings-input" placeholder="e.g., llama3">
+                </div>
+            </div>
+
+            <div id="completion-settings" class="tab-content">
+                <h3>AI Code Completion Settings</h3>
+                <p>Configure intelligent auto-completion behavior and performance.</p>
+                
+                <!-- Main Toggle -->
+                <div class="form-group">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="completion-enabled" class="toggle-checkbox">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-text">Enable AI Completions</span>
+                    </label>
+                    <p class="form-help">Turn AI-powered code completions on or off (Ctrl/Cmd+Shift+A)</p>
+                </div>
+
+                <!-- Performance Settings -->
+                <div class="form-group">
+                    <label for="completion-debounce">Response Delay (ms)</label>
+                    <input type="number" id="completion-debounce" class="settings-input" min="100" max="2000" step="50" placeholder="300">
+                    <p class="form-help">Delay before requesting completions (lower = faster, higher = fewer API calls)</p>
+                </div>
+
+                <div class="form-group">
+                    <label for="completion-max-items">Max Completions</label>
+                    <input type="number" id="completion-max-items" class="settings-input" min="5" max="20" step="1" placeholder="10">
+                    <p class="form-help">Maximum number of completion suggestions to show</p>
+                </div>
+
+                <!-- Feature Toggles -->
+                <div class="form-group">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="completion-streaming" class="toggle-checkbox">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-text">Enable Streaming Completions</span>
+                    </label>
+                    <p class="form-help">Show basic completions immediately while AI processes</p>
+                </div>
+
+                <div class="form-group">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="completion-personalization" class="toggle-checkbox">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-text">Learn from My Patterns</span>
+                    </label>
+                    <p class="form-help">Personalize completions based on your coding preferences</p>
+                </div>
+
+                <div class="form-group">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="completion-auto-trigger" class="toggle-checkbox">
+                        <span class="toggle-slider"></span>
+                        <span class="toggle-text">Auto-trigger on Typing</span>
+                    </label>
+                    <p class="form-help">Automatically show completions while typing (disable for manual-only)</p>
+                </div>
+
+                <!-- Advanced Settings -->
+                <details class="advanced-settings">
+                    <summary>Advanced Settings</summary>
+                    
+                    <div class="form-group">
+                        <label for="completion-context-length">Context Window Size</label>
+                        <input type="number" id="completion-context-length" class="settings-input" min="1000" max="50000" step="1000" placeholder="10000">
+                        <p class="form-help">Amount of code context to analyze (bytes)</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="toggle-label">
+                            <input type="checkbox" id="completion-caching" class="toggle-checkbox">
+                            <span class="toggle-slider"></span>
+                            <span class="toggle-text">Enable Caching</span>
+                        </label>
+                        <p class="form-help">Cache completions for better performance</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="completion-min-trigger">Minimum Trigger Length</label>
+                        <input type="number" id="completion-min-trigger" class="settings-input" min="0" max="5" step="1" placeholder="1">
+                        <p class="form-help">Minimum characters before triggering completions</p>
+                    </div>
+                </details>
+
+                <!-- Status & Statistics -->
+                <div class="completion-stats" id="completion-stats" style="display: none;">
+                    <h4>Performance Statistics</h4>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <label>Acceptance Rate</label>
+                            <span id="stat-acceptance-rate">Loading...</span>
+                        </div>
+                        <div class="stat-item">
+                            <label>Total Completions</label>
+                            <span id="stat-total-completions">Loading...</span>
+                        </div>
+                        <div class="stat-item">
+                            <label>Average Response Time</label>
+                            <span id="stat-avg-response-time">Loading...</span>
+                        </div>
+                        <div class="stat-item">
+                            <label>Cache Hit Rate</label>
+                            <span id="stat-cache-hit-rate">Loading...</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -285,6 +391,8 @@
     <script src="js/undo_manager.js" type="module"></script>
     <script src="js/settings.js" type="module"></script>
     <script src="js/todo_list_ui.js" type="module"></script>
+    <script src="js/ai_completion_settings_ui.js" type="module"></script>
+    <script type="module" src="js/ai_completion_test.js"></script>
     <script type="module" src="js/main.js"></script>
     <script type="module" src="js/events.js"></script>
   </body>

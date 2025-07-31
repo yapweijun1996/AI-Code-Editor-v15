@@ -95,13 +95,13 @@ export const ChatService = {
         this.lastRequestTime = Date.now();
     },
 
-    _prepareAndRenderUserMessage(chatInput, chatMessages, uploadedImage, clearImagePreview) {
+    async _prepareAndRenderUserMessage(chatInput, chatMessages, uploadedImage, clearImagePreview) {
         const userPrompt = chatInput.value.trim();
         let displayMessage = userPrompt;
         const initialParts = [];
 
-        // Intelligent auto-context injection
-        const contextAnalysis = this._analyzeAndInjectContext(userPrompt);
+        // Intelligent auto-context injection (now properly awaited)
+        const contextAnalysis = await this._analyzeAndInjectContext(userPrompt);
         let enhancedPrompt = userPrompt;
         
         if (contextAnalysis.contextInjected) {
@@ -233,14 +233,15 @@ Examples of NON-task-based queries:
 
 Return ONLY "true" or "false" (no quotes, no explanation).`;
 
-            const response = await this.sendMessage(analysisPrompt, [], false);
+            const response = await this._queryAI(analysisPrompt, 100); // Short response expected
             const isTaskBased = response.trim().toLowerCase() === 'true';
             
             console.log(`[Context Analysis] AI determined query is ${isTaskBased ? 'task-based' : 'not task-based'}`);
             return isTaskBased;
             
         } catch (error) {
-            console.warn('[Context Analysis] AI analysis failed, using heuristic:', error);
+            console.warn('[Context Analysis] AI analysis failed, using heuristic fallback:', error);
+            console.warn('[Context Analysis] Query was:', userPrompt);
             // Fallback to heuristic if AI fails
             return hasQuickIndicator && userPrompt.split(' ').length > 5; // Complex queries are likely task-based
         }
@@ -280,6 +281,37 @@ Return ONLY "true" or "false" (no quotes, no explanation).`;
                 text: model.getValueInRange(selection)
             } : null
         };
+    },
+
+    /**
+     * Internal AI query method for system use (task breakdown, context analysis)
+     * Separate from the main UI-focused sendMessage method
+     */
+    async _queryAI(prompt, maxTokens = 1000) {
+        if (!this.llmService || !(await this.llmService.isConfigured())) {
+            throw new Error('LLM service not configured');
+        }
+
+        try {
+            const history = [{ role: 'user', parts: [{ text: prompt }] }];
+            const stream = this.llmService.sendMessageStream(history, [], ''); // No tools, no custom rules
+            
+            let response = '';
+            for await (const chunk of stream) {
+                if (chunk.text) {
+                    response += chunk.text;
+                    // Limit response length for internal queries
+                    if (response.length > maxTokens) {
+                        break;
+                    }
+                }
+            }
+            
+            return response.trim();
+        } catch (error) {
+            console.error('[ChatService._queryAI] Error:', error);
+            throw error;
+        }
     },
 
     async _performApiCall(history, chatMessages, singleTurn = false) {
@@ -438,8 +470,8 @@ Return ONLY "true" or "false" (no quotes, no explanation).`;
         this.resetErrorTracker();
 
         try {
-            // 1. Prepare user message with intelligent context injection
-            const messageParts = this._prepareAndRenderUserMessage(chatInput, chatMessages, uploadedImage, clearImagePreview);
+            // 1. Prepare user message with intelligent context injection (now properly awaited)
+            const messageParts = await this._prepareAndRenderUserMessage(chatInput, chatMessages, uploadedImage, clearImagePreview);
             
             // 2. Create a main task for the user's prompt
             UI.appendMessage(chatMessages, `Task created: "${userPrompt}"`, 'ai');

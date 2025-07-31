@@ -15,7 +15,9 @@ export class OpenAIService extends BaseLLMService {
         return !!currentApiKey;
     }
 
-    async *sendMessageStream(history, tools, customRules) {
+    async *sendMessageStream(history, toolDefinition, abortSignal) {
+        const tools = toolDefinition || [];
+        const customRules = '';
         await this.apiKeyManager.loadKeys('openai');
         const currentApiKey = this.apiKeyManager.getCurrentKey();
         if (!currentApiKey) {
@@ -57,6 +59,12 @@ export class OpenAIService extends BaseLLMService {
         let currentToolCalls = {}; // State to aggregate tool call chunks
 
         while (true) {
+            // Check for abort signal before each read
+            if (abortSignal && abortSignal.aborted) {
+                console.debug('[OpenAI Service] Request was cancelled');
+                return;
+            }
+
             const { done, value } = await reader.read();
             if (done) break;
 
@@ -77,6 +85,11 @@ export class OpenAIService extends BaseLLMService {
                         const delta = json.choices[0].delta;
 
                         if (delta.content) {
+                            // Check if the request was aborted before yielding
+                            if (abortSignal && abortSignal.aborted) {
+                                console.debug('[OpenAI Service] Request cancelled during content streaming');
+                                return;
+                            }
                             yield { text: delta.content, functionCalls: null };
                         }
                         
@@ -89,6 +102,11 @@ export class OpenAIService extends BaseLLMService {
                         }
 
                     } catch (e) {
+                        // Don't log parsing errors if the request was aborted
+                        if (abortSignal && abortSignal.aborted) {
+                            console.debug('[OpenAI Service] Ignoring parsing error due to request cancellation');
+                            return;
+                        }
                         console.error('Error parsing OpenAI stream chunk:', data, e);
                     }
                 }
@@ -96,7 +114,12 @@ export class OpenAIService extends BaseLLMService {
             
             const completeCalls = this._getCompleteToolCalls(currentToolCalls);
             if (completeCalls.length > 0) {
-                 yield { text: '', functionCalls: completeCalls };
+                // Check if the request was aborted before yielding
+                if (abortSignal && abortSignal.aborted) {
+                    console.debug('[OpenAI Service] Request cancelled during tool call processing');
+                    return;
+                }
+                yield { text: '', functionCalls: completeCalls };
             }
         }
         

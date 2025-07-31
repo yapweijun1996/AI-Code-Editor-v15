@@ -3,6 +3,7 @@ import { ChatService } from './chat_service.js';
 import * as UI from './ui.js';
 import { monacoModelManager } from './monaco_model_manager.js';
 import { appState } from './main.js';
+import { aiCompletionProvider } from './ai_completion_provider.js';
 
 const MONACO_CDN_PATH = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs';
 
@@ -60,6 +61,11 @@ export function clearEditor() {
         editor.updateOptions({ readOnly: true });
     }
     
+    // Dispose AI completion provider
+    if (aiCompletionProvider) {
+        aiCompletionProvider.dispose();
+    }
+    
     // Properly dispose of all open file models
     for (const [filePath] of openFiles) {
         monacoModelManager.disposeModel(filePath);
@@ -72,7 +78,7 @@ export function clearEditor() {
 export function initializeEditor(editorContainer, tabBarContainer, appState) {
     return new Promise((resolve) => {
         require.config({ paths: { 'vs': MONACO_CDN_PATH } });
-        require(['vs/editor/editor.main'], () => {
+        require(['vs/editor/editor.main'], async () => {
             monaco.editor.defineTheme('cfmlTheme', {
                 base: 'vs-dark',
                 inherit: true,
@@ -126,7 +132,14 @@ export function initializeEditor(editorContainer, tabBarContainer, appState) {
                     const prompt = `The following line of code in the file "${getActiveFilePath()}" on line ${marker.startLineNumber} has an error:\n\n` +
                                    `\`\`\`\n${lineContent}\n\`\`\`\n\n` +
                                    `The error message is: "${marker.message}".\n\n` +
-                                   `Please provide the corrected code to replace this line. Use the 'replace_selected_text' tool.`;
+                                   `Please fix this error by:\n` +
+                                   `1. First, use the smart selection tools to precisely select the code that needs fixing:\n` +
+                                   `   - Use 'select_lines' to select the exact lines that need modification\n` +
+                                   `   - Use 'select_function' if the error is in a function that needs complete fixing\n` +
+                                   `   - Use 'select_block' if you need to select a complete code block\n` +
+                                   `2. Then provide the corrected code using 'replace_selected_text'\n` +
+                                   `3. Explain what caused the error and how your fix resolves it\n\n` +
+                                   `IMPORTANT: Always use the smart selection tools first to ensure you're working with the exact code scope needed to fix the error completely.`;
 
                     const chatInput = document.getElementById('chat-input');
                     const chatMessages = document.getElementById('chat-messages');
@@ -174,6 +187,123 @@ export function initializeEditor(editorContainer, tabBarContainer, appState) {
                     return codeLens;
                 }
             });
+
+            // Register AI completion commands FIRST (before registering the provider)
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Space, function() {
+                editor.trigger('', 'editor.action.triggerSuggest', {});
+            });
+
+            // Register tracking command for AI completion acceptance
+            // First register as an action
+            editor.addAction({
+                id: 'ai-completion.track-acceptance',
+                label: 'Track AI Completion Acceptance',
+                run: async function(ed, ...args) {
+                    const [completion, context, action, modelUri, position] = args;
+                    
+                    try {
+                        // Import here to avoid circular dependencies
+                        const { userAdaptationSystem } = await import('./user_adaptation_system.js');
+                        
+                        await userAdaptationSystem.recordCompletionInteraction({
+                            completion,
+                            context,
+                            action,
+                            timingMs: Date.now() - (completion.requestTime || Date.now()),
+                            position
+                        });
+                        
+                        console.log(`[AI Completion] Tracked ${action}: ${completion.label}`);
+                    } catch (error) {
+                        console.error('[AI Completion] Failed to track interaction:', error);
+                    }
+                }
+            });
+
+            // Also register as a command so Monaco can execute it via executeCommand
+            editor.addCommand(0, async function(ed, ...args) {
+                // Delegate to the action
+                const action = ed.getAction('ai-completion.track-acceptance');
+                if (action) {
+                    return action.run(ed, ...args);
+                }
+            }, 'ai-completion.track-acceptance');
+
+            // Register toggle command for AI completions
+            editor.addAction({
+                id: 'ai-completion.toggle',
+                label: 'Toggle AI Completions',
+                keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyA],
+                contextMenuGroupId: 'navigation',
+                contextMenuOrder: 2.0,
+                run: function() {
+                    const currentState = aiCompletionProvider.isEnabled;
+                    aiCompletionProvider.setEnabled(!currentState);
+                    UI.showInfo(`AI Completions ${!currentState ? 'enabled' : 'disabled'}`);
+                }
+            });
+
+            // Initialize AI completion provider AFTER commands are registered
+            try {
+                const registered = await aiCompletionProvider.register();
+                if (registered) {
+                    console.log('[Editor] AI completion provider registered successfully');
+                } else {
+                    console.warn('[Editor] AI completion provider registration failed, will retry later');
+                }
+
+                // Register "Ask AI to fix this code" context menu action
+                editor.addAction({
+                    id: 'ai-completion.fix-selected-code',
+                    label: 'Ask AI to fix this code',
+                    contextMenuGroupId: 'navigation',
+                    contextMenuOrder: 1.6,
+                    precondition: 'editorHasSelection',
+                    run: function(ed) {
+                        const selection = ed.getSelection();
+                        const model = ed.getModel();
+                        
+                        if (!selection || selection.isEmpty()) {
+                            UI.showError('Please select some code first');
+                            return;
+                        }
+                        
+                        const selectedText = model.getValueInRange(selection);
+                        const filePath = getActiveFilePath();
+                        const startLine = selection.startLineNumber;
+                        const endLine = selection.endLineNumber;
+                        
+                        // Create a detailed prompt for the AI with smart selection instructions
+                        const prompt = `I need help fixing this code from "${filePath}" (lines ${startLine}-${endLine}):\n\n` +
+                                      `\`\`\`${model.getLanguageId()}\n${selectedText}\n\`\`\`\n\n` +
+                                      `Please analyze this code and:\n` +
+                                      `1. First, use the smart selection tools to precisely select the exact code you need to fix:\n` +
+                                      `   - Use 'select_lines' if you need specific lines\n` +
+                                      `   - Use 'select_function' if this is part of a function that needs complete fixing\n` +
+                                      `   - Use 'select_block' if you need to select a complete code block\n` +
+                                      `2. Then identify any issues, bugs, or improvements needed\n` +
+                                      `3. Provide the corrected/improved version using 'replace_selected_text'\n` +
+                                      `4. Explain what was wrong and why your solution is better\n\n` +
+                                      `IMPORTANT: Always use the smart selection tools first to ensure you're working with the exact code scope you intend to modify. This prevents partial fixes and ensures complete, accurate corrections.`;
+                        
+                        // Send to chat
+                        const chatInput = document.getElementById('chat-input');
+                        const chatMessages = document.getElementById('chat-messages');
+                        const chatSendButton = document.getElementById('chat-send-button');
+                        const chatCancelButton = document.getElementById('chat-cancel-button');
+                        
+                        chatInput.value = prompt;
+                        ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, null, appState.clearImagePreview);
+                        
+                        // Show info to user
+                        UI.showInfo(`Asking AI to analyze and fix selected code (${selectedText.split('\n').length} lines) - AI will auto-select precise scope`);
+                    }
+                });
+
+            } catch (error) {
+                console.error('[Editor] Failed to initialize AI completion provider:', error);
+                UI.showError('Failed to initialize AI completions. Some features may not work.');
+            }
 
             resolve(editor);
         });

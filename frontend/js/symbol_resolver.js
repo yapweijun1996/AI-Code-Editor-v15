@@ -27,6 +27,15 @@ export class SymbolResolver {
      */
     async buildSymbolTable(fileContent, filePath) {
         try {
+            // Check if this is a JavaScript file
+            const fileExtension = filePath ? filePath.split('.').pop().toLowerCase() : '';
+            const jsExtensions = ['js', 'mjs', 'jsx', 'ts', 'tsx'];
+            
+            if (!jsExtensions.includes(fileExtension)) {
+                console.log(`[SymbolResolver] Skipping non-JavaScript file: ${filePath}`);
+                return null;
+            }
+            
             // Load dependencies first
             await loadDependencies();
             
@@ -70,8 +79,35 @@ export class SymbolResolver {
             return symbolTable;
             
         } catch (error) {
-            console.error(`[SymbolResolver] Failed to parse ${filePath}:`, error);
-            return null;
+            // Check if this is a syntax error in a development file
+            const isDevelopmentFile = filePath && (
+                filePath.endsWith('script.js') ||
+                filePath.includes('/temp/') ||
+                filePath.includes('/draft/') ||
+                filePath.includes('/test/')
+            );
+            
+            if (isDevelopmentFile) {
+                console.warn(`[SymbolResolver] Skipping file with syntax errors (development file): ${filePath}`);
+                console.debug(`[SymbolResolver] Syntax error details:`, error.message);
+            } else {
+                console.error(`[SymbolResolver] Failed to parse ${filePath}:`, error);
+            }
+            
+            // Return a minimal symbol table to prevent cascading failures
+            return {
+                filePath,
+                symbols: new Map(),
+                scopes: [],
+                imports: [],
+                exports: [],
+                functions: [],
+                classes: [],
+                variables: [],
+                ast: null,
+                parseError: true,
+                errorMessage: error.message
+            };
         }
     }
 

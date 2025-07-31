@@ -186,7 +186,24 @@ class TaskManager {
             return subtasks;
         } catch (error) {
             console.error('[TaskManager] AI-driven breakdown failed:', error);
-            // Fallback to simple breakdown
+            console.warn('[TaskManager] Falling back to contextual breakdown patterns');
+            
+            // Add a note about the fallback
+            const fallbackNote = {
+                id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                content: `AI-driven breakdown failed (${error.message}). Using contextual fallback patterns.`,
+                type: 'system',
+                timestamp: Date.now(),
+                metadata: {
+                    method: 'fallback',
+                    originalError: error.message
+                }
+            };
+            
+            mainTask.notes = mainTask.notes || [];
+            mainTask.notes.push(fallbackNote);
+            
+            // Fallback to contextual breakdown
             return await this._fallbackTaskBreakdown(mainTask);
         }
     }
@@ -197,7 +214,6 @@ class TaskManager {
     async _aiDrivenTaskBreakdown(mainTask) {
         // Import ChatService dynamically to avoid circular dependency
         const { ChatService } = await import('./chat_service.js');
-        const chatService = new ChatService();
         
         const prompt = `You are an expert project manager. Break down this task into specific, actionable subtasks.
 
@@ -225,15 +241,18 @@ Return ONLY a JSON array of subtasks in this exact format:
 Do not include any other text or explanation.`;
 
         try {
-            const response = await chatService.sendMessage(prompt, [], false);
+            console.log('[TaskManager] Requesting AI-driven task breakdown...');
+            const response = await ChatService._queryAI(prompt, 2000); // Allow more tokens for JSON response
             
             // Extract JSON from response
             let jsonMatch = response.match(/\[[\s\S]*\]/);
             if (!jsonMatch) {
+                console.warn('[TaskManager] No JSON array found in AI response:', response);
                 throw new Error('No JSON array found in AI response');
             }
             
             const aiSubtasks = JSON.parse(jsonMatch[0]);
+            console.log(`[TaskManager] AI generated ${aiSubtasks.length} subtasks`);
             
             // Validate and create actual subtasks
             const subtasks = [];
@@ -261,8 +280,15 @@ Do not include any other text or explanation.`;
             
             return subtasks;
         } catch (error) {
-            console.error('[TaskManager] AI breakdown parsing failed:', error);
-            throw error;
+            console.error('[TaskManager] AI breakdown failed:', error);
+            console.error('[TaskManager] AI Response was:', response || 'No response received');
+            
+            // Provide more specific error information
+            if (error.message.includes('JSON')) {
+                console.error('[TaskManager] JSON parsing failed. Raw response:', response);
+            }
+            
+            throw new Error(`AI-driven task breakdown failed: ${error.message}`);
         }
     }
 
