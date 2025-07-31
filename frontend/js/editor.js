@@ -139,24 +139,10 @@ export function initializeEditor(editorContainer, tabBarContainer, appState) {
             }, 'editor.action.fixErrorWithAI');
             console.log('[Editor] Command "editor.action.fixErrorWithAI" registered.');
 
-            // 2. Register 'Track Acceptance' command
-            editor.addCommand(0, async function(ed, ...args) {
-                console.log('[Editor] ai-completion.track-acceptance command executed.');
-                const [completion, context, action] = args;
-                try {
-                    const { userAdaptationSystem } = await import('./user_adaptation_system.js');
-                    await userAdaptationSystem.recordCompletionInteraction({
-                        completion,
-                        context,
-                        action,
-                        timingMs: Date.now() - (completion.requestTime || Date.now()),
-                        position: ed.getPosition()
-                    });
-                } catch (error) {
-                    console.error('[AI Completion] Failed to track interaction:', error);
-                }
-            }, 'ai-completion.track-acceptance');
-            console.log('[Editor] Command "ai-completion.track-acceptance" registered.');
+            // 2. Register 'Track Acceptance' command - THIS IS NOW HANDLED BY THE PROVIDER ITSELF
+            // This logic has been moved to AiCompletionProvider._registerCommands() to ensure
+            // the command is always available when the provider is active.
+            console.log('[Editor] Skipping registration of "ai-completion.track-acceptance" as it is now provider-managed.');
 
             // --- PROVIDER REGISTRATION ---
             // Now that commands are registered, we can safely register the providers that use them.
@@ -196,11 +182,22 @@ export function initializeEditor(editorContainer, tabBarContainer, appState) {
             editor.addAction({
                 id: 'ai-completion.toggle',
                 label: 'Toggle AI Completions',
-                keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyA],
+                keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.KeyA],
                 run: function() {
                     const currentState = aiCompletionProvider.isEnabled;
                     aiCompletionProvider.setEnabled(!currentState);
                     UI.showInfo(`AI Completions ${!currentState ? 'enabled' : 'disabled'}`);
+                }
+            });
+
+            // Register manual AI completion trigger
+            editor.addAction({
+                id: 'ai-completion.trigger-manual',
+                label: 'Trigger AI Completion',
+                keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Space],
+                run: function() {
+                    // Trigger completion manually by invoking the suggest widget
+                    editor.trigger('ai-completion', 'editor.action.triggerSuggest');
                 }
             });
 
@@ -230,7 +227,7 @@ export function initializeEditor(editorContainer, tabBarContainer, appState) {
             // 2. Register AI Completion Provider - THIS MUST BE LAST
             console.log('[Editor] All commands and actions registered. Now registering AI Completion Provider.');
             try {
-                const registered = await aiCompletionProvider.register();
+                const registered = await aiCompletionProvider.register(editor);
                 if (registered) {
                     console.log('[Editor] AI completion provider registered successfully');
                 } else {

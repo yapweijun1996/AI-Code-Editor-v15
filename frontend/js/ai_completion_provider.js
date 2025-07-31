@@ -17,6 +17,7 @@ export class AiCompletionProvider {
         this.aggressiveTriggering = false; // Default to non-aggressive
         this.debounceTimeout = null;
         this.debounceMs = 300;
+        this.editor = null; // Will hold the editor instance
         
         // Trigger characters will be set dynamically based on settings
         this.triggerCharacters = ['.'];
@@ -46,15 +47,64 @@ export class AiCompletionProvider {
     }
 
     /**
-     * Register the AI completion provider with Monaco Editor
+     * Ensures that all necessary commands for the provider are registered with the editor.
+     * This is done only once to prevent errors on re-registration.
      */
-    async register() {
+    _registerCommands() {
+        if (!this.editor) {
+            console.warn('[AI Completion Provider] Cannot register commands without an editor instance.');
+            return;
+        }
+
+        // Re-register the command every time. Monaco's addCommand safely overwrites existing commands.
+        // This is more robust than using a static flag and prevents race conditions on re-initialization.
+        console.log('[AI Completion Provider] Registering "ai-completion.track-acceptance" command...');
+        
+        this.editor.addCommand(0, async (ed, ...args) => {
+            console.log('[AI Completion Provider] "ai-completion.track-acceptance" command executed with args:', args);
+            const [completion, context, action] = args;
+            try {
+                const { userAdaptationSystem } = await import('./user_adaptation_system.js');
+                await userAdaptationSystem.recordCompletionInteraction({
+                    completion,
+                    context,
+                    action,
+                    timingMs: Date.now() - (completion.requestTime || Date.now()),
+                    position: ed.getPosition()
+                });
+            } catch (error) {
+                console.error('[AI Completion Provider] Failed to track interaction:', error);
+            }
+        }, 'ai-completion.track-acceptance');
+
+        console.log('[AI Completion Provider] Command "ai-completion.track-acceptance" is registered.');
+    }
+
+    /**
+     * Register the AI completion provider with Monaco Editor
+     * @param {monaco.editor.IStandaloneCodeEditor} [editor] - The editor instance. Required on first call.
+     */
+    async register(editor) {
         try {
+            // Store the editor instance if provided
+            if (editor) {
+                this.editor = editor;
+            }
+
+            // Ensure the editor instance exists before proceeding
+            if (!this.editor) {
+                console.error('[AI Completion Provider] Registration failed: Editor instance is not available.');
+                return false;
+            }
+
             // Check if Monaco is available
             if (typeof monaco === 'undefined') {
                 console.warn('[AI Completion Provider] Monaco Editor not available yet');
                 return false;
             }
+
+            // Ensure commands are registered
+            this._registerCommands();
 
             // Initialize Monaco-dependent properties
             this._initializeMonacoProperties();
@@ -62,7 +112,7 @@ export class AiCompletionProvider {
             // Load settings and configure triggers
             await this._loadAndConfigure();
 
-            // Listen for future settings changes
+            // Listen for future settings changes (if not already listening)
             this._setupSettingsListener();
 
             // Register for multiple languages
@@ -71,9 +121,9 @@ export class AiCompletionProvider {
             languages.forEach(language => {
                 const disposable = monaco.languages.registerCompletionItemProvider(language, {
                     triggerCharacters: this.triggerCharacters,
-                    provideCompletionItems: (model, position, context, token) => 
+                    provideCompletionItems: (model, position, context, token) =>
                         this._provideCompletionItems(model, position, context, token),
-                    resolveCompletionItem: (item, token) => 
+                    resolveCompletionItem: (item, token) =>
                         this._resolveCompletionItem(item, token)
                 });
                 
@@ -92,7 +142,7 @@ export class AiCompletionProvider {
                 this.disposables.push(inlineDisposable);
             }
 
-            console.log('[AI Completion Provider] Registered successfully');
+            console.log(`[AI Completion Provider] Registered successfully. Aggressive: ${this.aggressiveTriggering}`);
             return true;
         } catch (error) {
             console.error('[AI Completion Provider] Registration failed:', error);
@@ -463,15 +513,22 @@ export class AiCompletionProvider {
      * Listen for settings changes and re-register the provider if necessary.
      */
     _setupSettingsListener() {
+        // Ensure the listener is only added once
+        if (this.settingsListenerAttached) {
+            return;
+        }
+
         document.addEventListener('ai-completion-settings-updated', async (event) => {
             console.log('[AI Completion Provider] Settings updated, re-configuring...');
             
             // Dispose existing providers before re-registering
             this.dispose();
             
-            // Re-register with new settings
+            // Re-register with new settings. The editor instance is already stored.
             await this.register();
         });
+
+        this.settingsListenerAttached = true;
     }
 }
 
@@ -487,8 +544,8 @@ export const aiCompletionProvider = {
     },
     
     // Delegate methods to the instance
-    async register() {
-        return await this.instance.register();
+    async register(editor) {
+        return await this.instance.register(editor);
     },
     
     dispose() {

@@ -301,15 +301,21 @@ Complete the code.`;
     }
 
     _parseCompletions(text, request) {
-        const lines = text.split('\n').filter(line => line.trim().length > 0);
-        return lines.map((completion, index) => ({
-            label: completion.trim(),
-            kind: this._inferCompletionKind(completion, request),
-            insertText: completion.trim(),
-            detail: 'AI Completion',
-            sortText: `ai_${index.toString().padStart(3, '0')}`,
+        // Handle the entire block as a single completion
+        const fullCompletion = text.trim();
+        if (fullCompletion.length === 0) {
+            return [];
+        }
+
+        // Create a single suggestion for the whole block
+        return [{
+            label: fullCompletion.split('\n')[0].trim() + '...', // Show first line as label
+            kind: this._inferCompletionKind(fullCompletion, request),
+            insertText: fullCompletion,
+            detail: 'AI Multi-line Completion',
+            sortText: 'ai_000', // Highest priority
             aiGenerated: true
-        }));
+        }];
     }
 
     _inferCompletionKind(completion, request) {
