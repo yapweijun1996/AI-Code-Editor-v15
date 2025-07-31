@@ -8,6 +8,11 @@ export class MonacoModelManager {
         this.largeFileThreshold = 5 * 1024 * 1024; // 5MB threshold for large files
         this.hibernatedModels = new Map(); // filename -> { content, lastAccessed, language }
         this.memoryPressureCallbacks = new Set();
+        this.createModelFn = null;
+    }
+
+    setCreateModelFunction(fn) {
+        this.createModelFn = fn;
     }
 
     /**
@@ -73,13 +78,16 @@ export class MonacoModelManager {
      * Create a Monaco model with the appropriate strategy
      */
     createModelWithStrategy(content, language, strategy, options, filename) {
+        if (!this.createModelFn) {
+            throw new Error('MonacoModelManager: createModel function is not set. Ensure editor is initialized before creating models.');
+        }
         let model;
         const uri = filename ? monaco.Uri.parse(`file://${filename}`) : undefined;
 
         switch (strategy) {
             case 'large':
                 // For large files, we might want to disable certain features
-                model = monaco.editor.createModel(content, language, uri);
+                model = this.createModelFn(content, language, uri);
                 
                 // Disable expensive features for large files
                 if (content.length > this.largeFileThreshold) {
@@ -90,12 +98,12 @@ export class MonacoModelManager {
                 
             case 'truncated':
                 // Model with truncated content
-                model = monaco.editor.createModel(content, language, uri);
+                model = this.createModelFn(content, language, uri);
                 // Add a marker or warning about truncation
                 break;
                 
             default:
-                model = monaco.editor.createModel(content, language, uri);
+                model = this.createModelFn(content, language, uri);
         }
         
         return model;

@@ -13,8 +13,8 @@ The editor now includes advanced AI systems that provide senior engineer-level a
 - **🎯 Engineering Problem Solving**: Holistic problem analysis with multiple solution approaches and trade-off evaluation
 - **🤖 Intelligent Auto-Context**: Automatically provides relevant file context when you ask questions about your current code
 
-See [Senior Engineer AI Documentation](docs/SENIOR_ENGINEER_AI.md) and [Auto-Context Feature Guide](docs/AUTO_CONTEXT_FEATURE.md) for detailed information.
 
+See [Senior Engineer AI Documentation](docs/SENIOR_ENGINEER_AI.md), [Auto-Context Feature Guide](docs/AUTO_CONTEXT_FEATURE.md), and [Task Management System](docs/TASK_MANAGEMENT.md) for detailed information.
 ---
 
 ## Core Architecture
@@ -48,6 +48,11 @@ The editor's architecture has been streamlined to use a local Node.js server, si
     *   **Automatic Focus**: When the AI uses a tool like `read_file` or `rewrite_file`, the application automatically opens the relevant file or switches to its existing tab, providing a seamless workflow.
     *   **Stateful UI**: The file tree and open tabs are rendered dynamically, providing a clear and consistent view of the project state.
 *   **Automatic File Opening**: When the AI agent reads, creates, or rewrites a file, it is automatically opened or focused, providing immediate visibility into the agent's actions.
+*   **Task Management System**:
+    *   **Task Tracking**: Create, update, and manage tasks with status tracking
+    *   **Task Sessions**: Start focused work sessions for specific tasks
+    *   **Session History**: Track time spent on each task with session records
+
 *   **Comprehensive Tool Suite**: The AI has access to 30+ specialized tools organized by category:
     
     **🧠 Senior Engineer AI Tools:**
@@ -86,6 +91,11 @@ The editor's architecture has been streamlined to use a local Node.js server, si
     *   `get_selected_text` - Get user-selected text
     *   `replace_selected_text` - Replace selected text
     *   `get_file_history` - View file modification history
+    
+    **Task Management:**
+    *   `start_task_session` - Begin a focused work session on a specific task
+    *   `update_task_status` - Update task progress and status
+    *   `get_task_history` - View history of task sessions and updates
 *   **🤖 Intelligent Auto-Context Injection**: The AI automatically detects when your questions relate to the currently opened file and provides relevant context without manual intervention:
     *   **Smart Query Analysis**: Uses natural language processing to determine when file context would be helpful
     *   **Context Types**: Provides cursor context, selection context, error context, or smart file overview based on your query

@@ -328,6 +328,9 @@ export function initializeEditor(editorContainer, tabBarContainer, appState) {
                 readOnly: true,
             });
             
+            // Set the createModel function in the manager now that Monaco is loaded
+            monacoModelManager.setCreateModelFunction(monaco.editor.createModel);
+
             const onTabClick = (filePath) => switchTab(filePath, tabBarContainer);
             const onTabClose = (filePath) => closeTab(filePath, tabBarContainer);
             

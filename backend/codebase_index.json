@@ -15,6 +15,7 @@
   "README.md": [
     "AI-Powered Browser-Based Code Editor with Senior Engineer AI",
     "🧠 Senior Engineer AI Capabilities",
+    "See [Senior Engineer AI Documentation](docs/SENIOR_ENGINEER_AI.md), [Auto-Context Feature Guide](docs/AUTO_CONTEXT_FEATURE.md), and [Task Management System](docs/TASK_MANAGEMENT.md) for detailed information.",
     "Core Architecture",
     "Features",
     "Application Workflow",
@@ -29937,7 +29938,51 @@
   "frontend/js/cache_manager.js": [
     "CacheEntry"
   ],
-  "frontend/test_research.html": [
+  "RESEARCH_IMPLEMENTATION.md": [
+    "Multi-Stage Research Implementation Documentation",
+    "Overview",
+    "Multi-Stage Research Architecture",
+    "Stage 1: Broad Exploration with Parallel Searches",
+    "Stage 2: Content Analysis and Knowledge Gap Identification",
+    "Stage 3: Focused Content Reading and Synthesis",
+    "Key Improvements",
+    "Task Management Integration",
+    "Sequential Task Completion",
+    "Automated Task Cleanup System",
+    "Task Cleanup Features",
+    "Testing Results",
+    "Metrics Comparison",
+    "Sample Testing Output",
+    "Test Execution Instructions",
+    "Conclusion"
+  ],
+  "Testing/test_task_session.html": [
+    "#createTaskBtn",
+    "#startSessionBtn",
+    "#checkStatusBtn",
+    "#cleanupBtn",
+    "#results",
+    "#log",
+    ".card"
+  ],
+  "Testing/test_task_session.js": [
+    "testTaskSession"
+  ],
+  "Testing/run_test.html": [
+    "#test-controls",
+    "#query",
+    "#runTest",
+    "#spinner",
+    "#cleanupTasks",
+    "#autoCleanup",
+    "#output",
+    ".spinner"
+  ],
+  "Testing/run_test.js": [
+    "runTest",
+    "cleanupStaleTasks"
+  ],
+  "Testing/test_research.html": [
     "#query",
     "#runTestBtn",
     "#spinner",
@@ -29960,48 +30005,19 @@
     ".stat-label",
     ".results"
   ],
-  "frontend/run_test.js": [
-    "runTest",
-    "cleanupStaleTasks"
-  ],
-  "frontend/run_test.html": [
-    "#test-controls",
-    "#query",
-    "#runTest",
-    "#spinner",
-    "#cleanupTasks",
-    "#autoCleanup",
-    "#output",
-    ".spinner"
-  ],
-  "RESEARCH_IMPLEMENTATION.md": [
-    "Multi-Stage Research Implementation Documentation",
+  "docs/TASK_MANAGEMENT.md": [
+    "Task Management System",
     "Overview",
-    "Multi-Stage Research Architecture",
-    "Stage 1: Broad Exploration with Parallel Searches",
-    "Stage 2: Content Analysis and Knowledge Gap Identification",
-    "Stage 3: Focused Content Reading and Synthesis",
-    "Key Improvements",
-    "Task Management Integration",
-    "Sequential Task Completion",
-    "Automated Task Cleanup System",
-    "Task Cleanup Features",
-    "Testing Results",
-    "Metrics Comparison",
-    "Sample Testing Output",
-    "Test Execution Instructions",
-    "Conclusion"
-  ],
-  "test_task_session.js": [
-    "testTaskSession"
-  ],
-  "test_task_session.html": [
-    "#createTaskBtn",
-    "#startSessionBtn",
-    "#checkStatusBtn",
-    "#cleanupBtn",
-    "#results",
-    "#log",
-    ".card"
+    "Key Components",
+    "Task Manager",
+    "Task Sessions",
+    "Implementation Details",
+    "TaskTools Class",
+    "Tool Integration",
+    "Usage",
+    "Starting a Task Session",
+    "Viewing Task History",
+    "Future Enhancements",
+    "Related Documentation"
   ]
 }
