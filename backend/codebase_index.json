@@ -228,14 +228,6 @@
   "frontend/js/task_runner.js": [
     "TaskRunner"
   ],
-  "frontend/js/tool_executor.js": [
-    "trackToolPerformance",
-    "getOptimalTool",
-    "analyzeError",
-    "getSuggestedFix",
-    "getCachedResult",
-    "setCachedResult"
-  ],
   "node_modules/JSONStream/index.js": [
     "setHeaderFooter",
     "check"
@@ -29835,5 +29827,13 @@
     "**2. Context Builder** (`context_builder.js`)",
     "**3. Chat Service Integration** (`chat_service.js`)",
     "**Context Format Example**"
+  ],
+  "frontend/js/tool_executor.js": [
+    "trackToolPerformance",
+    "getOptimalTool",
+    "analyzeError",
+    "getSuggestedFix",
+    "getCachedResult",
+    "setCachedResult"
   ]
 }

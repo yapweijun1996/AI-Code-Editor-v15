@@ -795,28 +795,39 @@ async function _applyDiff({ filename, diff }, rootHandle) {
     // new content
     // >>>>>>> REPLACE
     
-    const diffBlocks = [];
-    
     // Debug: Log the raw diff content to understand the format
     console.log('Raw diff content:', JSON.stringify(diff));
     
-    // More flexible regex pattern that handles various whitespace and newline combinations
-    const diffPattern = /<<<<<<< SEARCH\s*\n:start_line:(\d+)\s*\n-------\s*\n([\s\S]*?)\n=======\s*\n([\s\S]*?)\n>>>>>>> REPLACE/g;
+    // Split diff into individual blocks first, then parse each one
+    // This approach is more reliable than a single regex for complex content
+    const diffBlocks = [];
     
-    let match;
-    while ((match = diffPattern.exec(diff)) !== null) {
-        const startLine = parseInt(match[1]);
-        const searchContent = match[2];
-        const replaceContent = match[3];
+    // Split by the SEARCH markers to get individual blocks
+    const blockSeparator = /<<<<<<< SEARCH/g;
+    const rawBlocks = diff.split(blockSeparator).filter(block => block.trim());
+    
+    for (const rawBlock of rawBlocks) {
+        // Parse each block individually
+        const blockPattern = /^\s*\n:start_line:(\d+)\s*\n-------\s*\n([\s\S]*?)\n=======\s*\n([\s\S]*?)\n>>>>>>> REPLACE/;
+        const match = rawBlock.match(blockPattern);
         
-        diffBlocks.push({
-            startLine,
-            searchContent,
-            replaceContent
-        });
+        if (match) {
+            const startLine = parseInt(match[1]);
+            const searchContent = match[2];
+            const replaceContent = match[3];
+            
+            diffBlocks.push({
+                startLine,
+                searchContent,
+                replaceContent
+            });
+        } else {
+            // Try to provide more specific error information
+            console.warn('Failed to parse diff block:', rawBlock.substring(0, 200) + '...');
+        }
     }
     
-    // If no matches found, try alternative patterns or provide detailed debugging
+    // If no blocks were parsed successfully, provide detailed debugging
     if (diffBlocks.length === 0) {
         // Try to identify what parts of the expected format are present
         const hasSearchMarker = diff.includes('<<<<<<< SEARCH');
@@ -855,16 +866,26 @@ async function _applyDiff({ filename, diff }, rootHandle) {
         
         // Verify the search content matches exactly
         let matches = true;
+        let mismatchDetails = '';
+        
         for (let i = 0; i < searchLines.length; i++) {
             const lineIndex = searchStartIndex + i;
-            if (lineIndex >= modifiedLines.length || modifiedLines[lineIndex] !== searchLines[i]) {
+            if (lineIndex >= modifiedLines.length) {
                 matches = false;
+                mismatchDetails = `Search content extends beyond file end (line ${lineIndex + 1})`;
+                break;
+            }
+            
+            if (modifiedLines[lineIndex] !== searchLines[i]) {
+                matches = false;
+                mismatchDetails = `Line ${lineIndex + 1} mismatch:\nExpected: "${searchLines[i]}"\nActual:   "${modifiedLines[lineIndex]}"`;
                 break;
             }
         }
         
         if (!matches) {
-            throw new Error(`Search content does not match at line ${startLine}. Expected:\n${searchContent}\n\nActual content at that location:\n${modifiedLines.slice(searchStartIndex, searchStartIndex + searchLines.length).join('\n')}`);
+            const actualContent = modifiedLines.slice(searchStartIndex, searchStartIndex + searchLines.length).join('\n');
+            throw new Error(`Search content does not match at line ${startLine}.\n\n${mismatchDetails}\n\nExpected content:\n${searchContent}\n\nActual content:\n${actualContent}`);
         }
         
         // Apply the replacement
