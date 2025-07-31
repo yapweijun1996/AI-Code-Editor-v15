@@ -215,7 +215,7 @@ graph TD
 
 ## High-Performance Diffing Architecture
 
-The `create_and_apply_diff` tool provides an efficient and stable way to modify files. To avoid performance bottlenecks and stack overflow errors when processing large files, the application uses a **line-based diffing strategy** implemented in `frontend/js/tool_executor.js`.
+The `apply_diff` tool provides an efficient and stable way to modify files. To avoid performance bottlenecks and stack overflow errors when processing large files, the application uses a **line-based diffing strategy** implemented in `frontend/js/tool_executor.js`.
 
 This approach, powered by the `diff-match-patch` library, avoids a direct, character-by-character comparison of the entire file content. Instead, it converts each line into a single character, performs the diff on this much smaller dataset, and then translates the results back into line-based changes.
 
@@ -265,3 +265,5 @@ graph TD
 ```
 
 This architecture ensures that the diffing process is both fast and memory-efficient, making the AI agent's file modification capabilities robust and scalable.
+
+---
