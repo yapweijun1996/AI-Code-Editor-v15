@@ -29730,7 +29730,12 @@
     "**JavaScript API**"
   ],
   "frontend\\js\\tool_executor.js": [
-    "stripMarkdownCodeBlock"
+    "trackToolPerformance",
+    "getOptimalTool",
+    "analyzeError",
+    "getSuggestedFix",
+    "getCachedResult",
+    "setCachedResult"
   ],
   "AI_TASK_MANAGEMENT_GUIDE.md": [
     "🚀 AI Task Management System",
