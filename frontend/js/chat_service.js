@@ -619,6 +619,30 @@ Execute this task step by step. When completed, call the task_update tool to mar
         }
     },
 
+    async sendDirectCommand(prompt, chatMessages) {
+        if (this.isSending) return;
+
+        this.isSending = true;
+        this.isCancelled = false;
+        this._updateUiState(true);
+
+        try {
+            UI.appendMessage(chatMessages, prompt, 'user');
+            const history = await DbManager.getChatHistory();
+            history.push({ role: 'user', parts: [{ text: prompt }] });
+
+            await this._performApiCall(history, chatMessages, true); // singleTurn = true
+
+            await DbManager.saveChatHistory(history);
+        } catch (error) {
+            UI.showError(`An error occurred: ${error.message}`);
+            console.error('Direct Command Error:', error);
+        } finally {
+            this.isSending = false;
+            this._updateUiState(false);
+        }
+    },
+
     async clearHistory(chatMessages) {
         chatMessages.innerHTML = '';
         UI.appendMessage(chatMessages, 'Conversation history cleared.', 'ai');

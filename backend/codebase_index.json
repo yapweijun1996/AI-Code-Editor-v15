@@ -225,9 +225,6 @@
     ".storage-usage-info",
     ".tool-logs-filter-input"
   ],
-  "frontend/js/editor.js": [
-    "getLanguageFromExtension"
-  ],
   "frontend/js/task_runner.js": [
     "TaskRunner"
   ],

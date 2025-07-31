@@ -772,9 +772,9 @@ export function initializeEventListeners(appState) {
         chartsInitialized = true;
     }
     
-    // Additions: Keyboard shortcut to toggle sidebar (Ctrl+S)
+    // Keyboard shortcut to toggle sidebar (Ctrl+B, like VS Code)
     document.addEventListener('keydown', (e) => {
-        if (e.ctrlKey && e.key.toLowerCase() === 's') {
+        if (e.ctrlKey && e.key.toLowerCase() === 'b') {
             e.preventDefault();
             btnCollapse.click();
         }

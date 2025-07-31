@@ -6,6 +6,230 @@ import { appState } from './main.js';
 
 const MONACO_CDN_PATH = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs';
 
+// Enhanced AI Fix Helper Functions
+class AIFixAnalyzer {
+    static getContextualCode(editor, lineNumber, contextLines = 10) {
+        const model = editor.getModel();
+        const totalLines = model.getLineCount();
+        
+        const startLine = Math.max(1, lineNumber - contextLines);
+        const endLine = Math.min(totalLines, lineNumber + contextLines);
+        
+        let contextCode = '';
+        for (let i = startLine; i <= endLine; i++) {
+            const lineContent = model.getLineContent(i);
+            const marker = i === lineNumber ? '>>> ' : '    ';
+            contextCode += `${marker}${i}: ${lineContent}\n`;
+        }
+        
+        return {
+            contextCode,
+            startLine,
+            endLine,
+            targetLine: lineNumber
+        };
+    }
+    
+    static analyzeCodeScope(editor, position) {
+        const model = editor.getModel();
+        const lineContent = model.getLineContent(position.lineNumber);
+        
+        // Detect if we're inside a function, class, or block
+        let scopeStart = position.lineNumber;
+        let scopeEnd = position.lineNumber;
+        let indentLevel = this.getIndentLevel(lineContent);
+        
+        // Look backwards for function/class/block start
+        for (let i = position.lineNumber - 1; i >= 1; i--) {
+            const line = model.getLineContent(i);
+            const currentIndent = this.getIndentLevel(line);
+            
+            if (line.trim() && currentIndent < indentLevel) {
+                if (this.isScopeStart(line)) {
+                    scopeStart = i;
+                    break;
+                }
+            }
+        }
+        
+        // Look forwards for scope end
+        for (let i = position.lineNumber + 1; i <= model.getLineCount(); i++) {
+            const line = model.getLineContent(i);
+            const currentIndent = this.getIndentLevel(line);
+            
+            if (line.trim() && currentIndent <= indentLevel && this.isScopeEnd(line, indentLevel)) {
+                scopeEnd = i - 1;
+                break;
+            }
+        }
+        
+        return { scopeStart, scopeEnd, indentLevel };
+    }
+    
+    static getIndentLevel(line) {
+        const match = line.match(/^(\s*)/);
+        return match ? match[1].length : 0;
+    }
+    
+    static isScopeStart(line) {
+        const trimmed = line.trim();
+        return /^(function|class|if|for|while|try|catch|switch)\b/.test(trimmed) ||
+               /\{$/.test(trimmed) ||
+               /^def\s/.test(trimmed) ||
+               /^class\s/.test(trimmed);
+    }
+    
+    static isScopeEnd(line, expectedIndent) {
+        const trimmed = line.trim();
+        return trimmed === '}' ||
+               (this.getIndentLevel(line) < expectedIndent && trimmed.length > 0);
+    }
+    
+    static smartSelectCode(editor, marker, userSelection) {
+        const model = editor.getModel();
+        let selection;
+        
+        if (userSelection && !userSelection.isEmpty()) {
+            // User has selected text, expand to complete lines to avoid alignment issues
+            selection = this.expandToCompleteLines(editor, userSelection);
+        } else if (marker) {
+            // Error marker exists, analyze the scope around the error
+            const scope = this.analyzeCodeScope(editor, { lineNumber: marker.startLineNumber });
+            
+            // Determine if we need single line or multi-line fix
+            if (this.isSimpleLineFix(model.getLineContent(marker.startLineNumber))) {
+                // Always select complete line to preserve indentation
+                selection = new monaco.Selection(
+                    marker.startLineNumber, 1,
+                    marker.startLineNumber, model.getLineMaxColumn(marker.startLineNumber)
+                );
+            } else {
+                // Select the logical scope as complete lines
+                selection = new monaco.Selection(
+                    scope.scopeStart, 1,
+                    scope.scopeEnd, model.getLineMaxColumn(scope.scopeEnd)
+                );
+            }
+        } else {
+            // No marker, no selection - use current line and analyze
+            const position = editor.getPosition();
+            const scope = this.analyzeCodeScope(editor, position);
+            
+            // Always select complete lines
+            selection = new monaco.Selection(
+                scope.scopeStart, 1,
+                scope.scopeEnd, model.getLineMaxColumn(scope.scopeEnd)
+            );
+        }
+        
+        return selection;
+    }
+    
+    static expandToCompleteLines(editor, selection) {
+        const model = editor.getModel();
+        const startLine = selection.startLineNumber;
+        const endLine = selection.endLineNumber;
+        
+        // Always expand to complete lines to avoid alignment issues
+        let expandedStartLine = startLine;
+        let expandedEndLine = endLine;
+        
+        // Check if selection is incomplete (e.g., missing closing braces)
+        const selectedText = model.getValueInRange(new monaco.Selection(
+            startLine, 1,
+            endLine, model.getLineMaxColumn(endLine)
+        ));
+        
+        const openBraces = (selectedText.match(/\{/g) || []).length;
+        const closeBraces = (selectedText.match(/\}/g) || []).length;
+        
+        if (openBraces > closeBraces) {
+            // Expand selection to include closing braces as complete lines
+            for (let i = endLine + 1; i <= model.getLineCount(); i++) {
+                const line = model.getLineContent(i);
+                if (line.includes('}')) {
+                    expandedEndLine = i;
+                    break;
+                }
+            }
+        }
+        
+        // Return selection that covers complete lines
+        return new monaco.Selection(
+            expandedStartLine, 1,
+            expandedEndLine, model.getLineMaxColumn(expandedEndLine)
+        );
+    }
+    
+    static isSimpleLineFix(lineContent) {
+        const trimmed = lineContent.trim();
+        // Simple fixes: missing semicolon, typos, simple syntax errors
+        return trimmed.length < 100 &&
+               !trimmed.includes('{') &&
+               !trimmed.includes('function') &&
+               !trimmed.includes('class');
+    }
+    
+    static gatherErrorContext(editor, position) {
+        const markers = monaco.editor.getModelMarkers({ resource: editor.getModel().uri });
+        const relevantMarkers = markers.filter(m =>
+            Math.abs(m.startLineNumber - position.lineNumber) <= 5
+        );
+        
+        return relevantMarkers.map(m => ({
+            line: m.startLineNumber,
+            message: m.message,
+            severity: m.severity === monaco.MarkerSeverity.Error ? 'Error' : 'Warning'
+        }));
+    }
+    
+    static generateEnhancedPrompt(editor, marker, selection, filePath) {
+        const model = editor.getModel();
+        const context = this.gatherErrorContext(editor, { lineNumber: marker ? marker.startLineNumber : selection.startLineNumber });
+        const contextualCode = this.getContextualCode(editor, marker ? marker.startLineNumber : selection.startLineNumber);
+        const selectedText = model.getValueInRange(selection);
+        
+        let prompt = `ENHANCED AI CODE ANALYSIS AND FIX REQUEST\n\n`;
+        
+        prompt += `FILE: ${filePath}\n`;
+        prompt += `TARGET LINES: ${selection.startLineNumber}-${selection.endLineNumber}\n\n`;
+        
+        if (marker) {
+            prompt += `PRIMARY ERROR:\n`;
+            prompt += `- Line ${marker.startLineNumber}: ${marker.message}\n\n`;
+        }
+        
+        if (context.length > 0) {
+            prompt += `RELATED ISSUES IN NEARBY CODE:\n`;
+            context.forEach(ctx => {
+                prompt += `- Line ${ctx.line} (${ctx.severity}): ${ctx.message}\n`;
+            });
+            prompt += `\n`;
+        }
+        
+        prompt += `CODE CONTEXT (with target area marked >>>):\n`;
+        prompt += `\`\`\`\n${contextualCode.contextCode}\`\`\`\n\n`;
+        
+        prompt += `SELECTED CODE TO FIX:\n`;
+        prompt += `\`\`\`\n${selectedText}\`\`\`\n\n`;
+        
+        prompt += `ANALYSIS REQUIREMENTS:\n`;
+        prompt += `1. Identify the root cause of the issue(s)\n`;
+        prompt += `2. Analyze the code scope and determine if the selection is optimal\n`;
+        prompt += `3. Check for related issues that should be fixed together\n`;
+        prompt += `4. Consider the broader context and potential side effects\n\n`;
+        
+        prompt += `TASK:\n`;
+        prompt += `Provide the corrected code that fixes all identified issues. `;
+        prompt += `Use the 'replace_selected_text' tool to apply the fix. `;
+        prompt += `Explain what was wrong and how your fix addresses the problems.\n\n`;
+        
+        prompt += `IMPORTANT: The fix should be comprehensive and consider the full context, not just the immediate error.`;
+        
+        return prompt;
+    }
+}
+
 let editor;
 let openFiles = new Map(); // Key: filePath (string), Value: { handle, name, model, viewState }
 let activeFilePath = null;
@@ -109,33 +333,120 @@ export function initializeEditor(editorContainer, tabBarContainer, appState) {
             // Initial render
             renderTabs(tabBarContainer, onTabClick, onTabClose);
 
-            // Register the AI fix action FIRST before the code lens provider references it
+            // Register the enhanced AI fix command
+            monaco.editor.registerCommand("editor.action.fixErrorWithAI", function(accessor, marker) {
+                // Enhanced workflow with smart analysis and auto-selection
+                const currentSelection = editor.getSelection();
+                
+                // Phase 1: Smart Selection - Determine optimal code range to fix
+                const smartSelection = AIFixAnalyzer.smartSelectCode(editor, marker, currentSelection);
+                
+                // Phase 2: Apply the smart selection to highlight what will be fixed
+                editor.setSelection(smartSelection);
+                
+                // Phase 3: Generate enhanced prompt with comprehensive context
+                const enhancedPrompt = AIFixAnalyzer.generateEnhancedPrompt(
+                    editor,
+                    marker,
+                    smartSelection,
+                    getActiveFilePath()
+                );
+
+                // Phase 4: Send to AI with enhanced context and auto-save callback
+                const chatMessages = document.getElementById('chat-messages');
+                
+                // Create a wrapper for the enhanced prompt that includes auto-save instruction
+                const promptWithAutoSave = `${enhancedPrompt}
+
+IMPORTANT: After successfully applying the fix using the 'replace_selected_text' tool, automatically save the file to preserve the changes.`;
+
+                ChatService.sendDirectCommand(promptWithAutoSave, chatMessages).then(() => {
+                    // Auto-save after AI completes the fix
+                    setTimeout(() => {
+                        saveActiveFile();
+                        console.log('Auto-saved file after AI fix');
+                    }, 1000); // Small delay to ensure AI operations complete
+                });
+                
+                // Show user feedback about what was selected
+                const selectedLines = smartSelection.endLineNumber - smartSelection.startLineNumber + 1;
+                const selectionInfo = selectedLines === 1 ?
+                    `line ${smartSelection.startLineNumber}` :
+                    `lines ${smartSelection.startLineNumber}-${smartSelection.endLineNumber}`;
+                
+                console.log(`AI Fix: Analyzing and fixing ${selectionInfo} with enhanced context`);
+            });
+
+            // Add the enhanced context menu action
             editor.addAction({
-                id: "editor.action.fixErrorWithAI",
-                label: "Fix Error with AI",
+                id: "editor.action.fixErrorWithAIContextMenu",
+                label: "Fix with AI (Enhanced)",
                 contextMenuGroupId: "navigation",
                 contextMenuOrder: 1.5,
-                run: function(ed, marker) {
-                    const model = ed.getModel();
-                    const lineContent = model.getLineContent(marker.startLineNumber);
+                run: function(ed) {
+                    const position = ed.getPosition();
+                    const markers = monaco.editor.getModelMarkers({ resource: ed.getModel().uri })
+                        .filter(m => m.severity === monaco.MarkerSeverity.Error && m.startLineNumber === position.lineNumber);
                     
-                    // Automatically select the full line of the error
-                    const selection = new monaco.Selection(marker.startLineNumber, 1, marker.startLineNumber, model.getLineMaxColumn(marker.startLineNumber));
-                    ed.setSelection(selection);
+                    if (markers.length > 0) {
+                        // Use the enhanced command for error markers
+                        ed.trigger('source', 'editor.action.fixErrorWithAI', markers[0]);
+                    } else {
+                        // Enhanced workflow for general code improvement
+                        const currentSelection = ed.getSelection();
+                        
+                        // Create a pseudo-marker for non-error fixes
+                        const pseudoMarker = {
+                            startLineNumber: currentSelection.isEmpty() ? position.lineNumber : currentSelection.startLineNumber,
+                            endLineNumber: currentSelection.isEmpty() ? position.lineNumber : currentSelection.endLineNumber,
+                            message: "Code improvement requested by user"
+                        };
+                        
+                        // Use the same enhanced workflow
+                        const smartSelection = AIFixAnalyzer.smartSelectCode(editor, pseudoMarker, currentSelection);
+                        editor.setSelection(smartSelection);
+                        
+                        const enhancedPrompt = AIFixAnalyzer.generateEnhancedPrompt(
+                            editor,
+                            null, // No actual error marker
+                            smartSelection,
+                            getActiveFilePath()
+                        );
+                        
+                        // Modify prompt for general improvement
+                        const improvementPrompt = enhancedPrompt.replace(
+                            'ENHANCED AI CODE ANALYSIS AND FIX REQUEST',
+                            'ENHANCED AI CODE ANALYSIS AND IMPROVEMENT REQUEST'
+                        ).replace(
+                            'PRIMARY ERROR:',
+                            'IMPROVEMENT REQUEST:'
+                        ).replace(
+                            'Provide the corrected code that fixes all identified issues',
+                            'Analyze the code and provide improvements for better quality, performance, or readability'
+                        );
+                        
+                        const chatMessages = document.getElementById('chat-messages');
+                        
+                        // Add auto-save instruction to the improvement prompt
+                        const improvementPromptWithAutoSave = `${improvementPrompt}
 
-                    const prompt = `The following line of code in the file "${getActiveFilePath()}" on line ${marker.startLineNumber} has an error:\n\n` +
-                                   `\`\`\`\n${lineContent}\n\`\`\`\n\n` +
-                                   `The error message is: "${marker.message}".\n\n` +
-                                   `Please provide the corrected code to replace this line. Use the 'replace_selected_text' tool.`;
+IMPORTANT: After successfully applying the improvements using the 'replace_selected_text' tool, automatically save the file to preserve the changes.`;
 
-                    const chatInput = document.getElementById('chat-input');
-                    const chatMessages = document.getElementById('chat-messages');
-                    const chatSendButton = document.getElementById('chat-send-button');
-                    const chatCancelButton = document.getElementById('chat-cancel-button');
-                    const thinkingIndicator = document.getElementById('thinking-indicator');
-                    
-                    chatInput.value = prompt;
-                    ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, null, appState.clearImagePreview);
+                        ChatService.sendDirectCommand(improvementPromptWithAutoSave, chatMessages).then(() => {
+                            // Auto-save after AI completes the improvement
+                            setTimeout(() => {
+                                saveActiveFile();
+                                console.log('Auto-saved file after AI improvement');
+                            }, 1000); // Small delay to ensure AI operations complete
+                        });
+                        
+                        const selectedLines = smartSelection.endLineNumber - smartSelection.startLineNumber + 1;
+                        const selectionInfo = selectedLines === 1 ?
+                            `line ${smartSelection.startLineNumber}` :
+                            `lines ${smartSelection.startLineNumber}-${smartSelection.endLineNumber}`;
+                        
+                        console.log(`AI Improvement: Analyzing and enhancing ${selectionInfo} with context`);
+                    }
                 }
             });
 

@@ -197,7 +197,7 @@ class TaskManager {
     async _aiDrivenTaskBreakdown(mainTask) {
         // Import ChatService dynamically to avoid circular dependency
         const { ChatService } = await import('./chat_service.js');
-        const chatService = new ChatService();
+        // ChatService is exported as an object, not a class, so use it directly
         
         const prompt = `You are an expert project manager. Break down this task into specific, actionable subtasks.
 
@@ -225,7 +225,7 @@ Return ONLY a JSON array of subtasks in this exact format:
 Do not include any other text or explanation.`;
 
         try {
-            const response = await chatService.sendMessage(prompt, [], false);
+            const response = await ChatService.sendMessage(prompt, [], false);
             
             // Extract JSON from response
             let jsonMatch = response.match(/\[[\s\S]*\]/);
