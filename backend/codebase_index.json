@@ -29935,5 +29935,38 @@
   ],
   "frontend/js/cache_manager.js": [
     "CacheEntry"
+  ],
+  "frontend/test_research.html": [
+    "#query",
+    "#runTestBtn",
+    "#spinner",
+    "#runComparisonBtn",
+    "#statsContainer",
+    "#totalSources",
+    "#uniqueDomains",
+    "#knowledgeGaps",
+    "#searchQueries",
+    "#stage1Sources",
+    "#stage3Sources",
+    "#duration",
+    "#relevanceScore",
+    "#resultsContainer",
+    ".form-group",
+    ".spinner",
+    ".stats",
+    ".stat-card",
+    ".stat-value",
+    ".stat-label",
+    ".results"
+  ],
+  "frontend/run_test.js": [
+    "runTest"
+  ],
+  "frontend/run_test.html": [
+    "#query",
+    "#runTest",
+    "#spinner",
+    "#output",
+    ".spinner"
   ]
 }
