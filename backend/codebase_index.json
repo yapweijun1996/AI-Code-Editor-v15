@@ -29838,5 +29838,30 @@
     "**2. Context Builder** (`context_builder.js`)",
     "**3. Chat Service Integration** (`chat_service.js`)",
     "**Context Format Example**"
+  ],
+  "CLAUDE.md": [
+    "CLAUDE.md",
+    "Project Overview",
+    "Architecture",
+    "Development Commands",
+    "Starting the Application",
+    "Code Formatting",
+    "Testing",
+    "Key Architecture Concepts",
+    "Client-Centric Design",
+    "Multi-Provider LLM Architecture",
+    "Tool System",
+    "State Management with IndexedDB",
+    "Important Implementation Details",
+    "File Operations",
+    "Diffing System",
+    "Error Handling & Stability",
+    "Custom AI Rules",
+    "Code Conventions",
+    "Working with the Codebase",
+    "Adding New Tools",
+    "Adding New LLM Providers",
+    "Modifying File Operations",
+    "Security Considerations"
   ]
 }
