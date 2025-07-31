@@ -387,7 +387,7 @@ async function _streamingEditFile({ filename, edits, fileHandle, file }) {
             const newLines = cleanContent.split(/\r?\n/);
             
             const before = lines.slice(0, start_line - 1);
-            const after = lines.slice(end_line);
+            const after = lines.slice(end_line - 1);
             lines = [...before, ...newLines, ...after];
         }
     }
@@ -1013,8 +1013,9 @@ async function _smartEditFile({ filename, edits }, rootHandle) {
             const newLines = cleanContent.split(/\r?\n/);
             
             // Replace the specified range with new content
+            // end_line is exclusive: start_line=95, end_line=600 replaces lines 95-599
             const before = lines.slice(0, start_line - 1);
-            const after = lines.slice(end_line);
+            const after = lines.slice(end_line - 1);
             lines = [...before, ...newLines, ...after];
         } else if (edit.type === 'insert_lines') {
             const { line_number, new_content } = edit;
