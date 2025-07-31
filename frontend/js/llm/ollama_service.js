@@ -13,9 +13,7 @@ export class OllamaService extends BaseLLMService {
         return !!this.customConfig.baseURL && !!this.model;
     }
 
-    async *sendMessageStream(history, toolDefinition, abortSignal) {
-        const tools = toolDefinition || [];
-        const customRules = '';
+    async *sendMessageStream(history, tools, customRules) {
         if (!(await this.isConfigured())) {
             throw new Error("Ollama base URL and model name are not set.");
         }
@@ -51,11 +49,6 @@ export class OllamaService extends BaseLLMService {
             const chunk = decoder.decode(value);
             try {
                 const json = JSON.parse(chunk);
-                // Check if the request was aborted
-                if (abortSignal && abortSignal.aborted) {
-                    throw new Error('Request was aborted');
-                }
-                
                 if (json.done) {
                     yield {
                         usageMetadata: {

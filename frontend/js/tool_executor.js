@@ -1701,226 +1701,6 @@ async function _setSelectedText({ start_line, start_column, end_line, end_column
     return { message: `Selection set to L${start_line}:C${start_column} to L${end_line}:C${end_column}.` };
 }
 
-async function _selectLines({ start_line, end_line }) {
-    if (typeof start_line !== 'number') throw new Error("The 'start_line' parameter is required and must be a number.");
-    if (end_line === undefined) end_line = start_line; // Default to single line
-    if (typeof end_line !== 'number') throw new Error("The 'end_line' parameter must be a number.");
-    
-    const editor = Editor.getEditorInstance();
-    if (!editor) throw new Error('No editor instance is available.');
-    
-    const model = editor.getModel();
-    if (!model) throw new Error('No model is available in the editor.');
-    
-    // Validate line numbers
-    const totalLines = model.getLineCount();
-    if (start_line < 1 || start_line > totalLines) {
-        throw new Error(`start_line ${start_line} is out of range. File has ${totalLines} lines.`);
-    }
-    if (end_line < 1 || end_line > totalLines) {
-        throw new Error(`end_line ${end_line} is out of range. File has ${totalLines} lines.`);
-    }
-    if (start_line > end_line) {
-        throw new Error(`start_line (${start_line}) cannot be greater than end_line (${end_line}).`);
-    }
-    
-    // Select entire lines (from start of first line to end of last line)
-    const startColumn = 1;
-    const endColumn = model.getLineMaxColumn(end_line);
-    
-    const range = new monaco.Range(start_line, startColumn, end_line, endColumn);
-    editor.setSelection(range);
-    editor.revealRange(range, monaco.editor.ScrollType.Smooth);
-    editor.focus();
-    
-    const selectedText = model.getValueInRange(range);
-    const lineCount = end_line - start_line + 1;
-    
-    return {
-        message: `Selected ${lineCount} line(s) from L${start_line} to L${end_line}.`,
-        details: {
-            start_line,
-            end_line,
-            line_count: lineCount,
-            character_count: selectedText.length,
-            selected_text: selectedText
-        }
-    };
-}
-
-async function _selectFunction({ function_name, file_path }) {
-    if (!function_name) throw new Error("The 'function_name' parameter is required.");
-    
-    const editor = Editor.getEditorInstance();
-    if (!editor) throw new Error('No editor instance is available.');
-    
-    const model = editor.getModel();
-    if (!model) throw new Error('No model is available in the editor.');
-    
-    const content = model.getValue();
-    const lines = content.split('\n');
-    
-    // Smart function detection patterns
-    const functionPatterns = [
-        // JavaScript/TypeScript functions
-        new RegExp(`^\\s*(export\\s+)?(async\\s+)?function\\s+${function_name}\\s*\\(`, 'i'),
-        new RegExp(`^\\s*(export\\s+)?(const|let|var)\\s+${function_name}\\s*=\\s*(async\\s+)?\\(`, 'i'),
-        new RegExp(`^\\s*${function_name}\\s*:\\s*(async\\s+)?function\\s*\\(`, 'i'),
-        new RegExp(`^\\s*${function_name}\\s*:\\s*(async\\s+)?\\(`, 'i'),
-        // Class methods
-        new RegExp(`^\\s*(public|private|protected|static)?\\s*(async\\s+)?${function_name}\\s*\\(`, 'i'),
-        // Python functions
-        new RegExp(`^\\s*def\\s+${function_name}\\s*\\(`, 'i'),
-        // Java methods
-        new RegExp(`^\\s*(public|private|protected|static)?\\s+\\w+\\s+${function_name}\\s*\\(`, 'i')
-    ];
-    
-    let startLine = -1;
-    let endLine = -1;
-    
-    // Find function start
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (functionPatterns.some(pattern => pattern.test(line))) {
-            startLine = i + 1; // Convert to 1-based indexing
-            break;
-        }
-    }
-    
-    if (startLine === -1) {
-        throw new Error(`Function '${function_name}' not found in the current file.`);
-    }
-    
-    // Find function end by tracking braces/indentation
-    let braceCount = 0;
-    let inFunction = false;
-    const startIndent = lines[startLine - 1].match(/^\s*/)[0].length;
-    
-    for (let i = startLine - 1; i < lines.length; i++) {
-        const line = lines[i];
-        
-        // Count braces
-        for (const char of line) {
-            if (char === '{') {
-                braceCount++;
-                inFunction = true;
-            } else if (char === '}') {
-                braceCount--;
-                if (inFunction && braceCount === 0) {
-                    endLine = i + 1;
-                    break;
-                }
-            }
-        }
-        
-        if (endLine !== -1) break;
-        
-        // For Python-like languages, use indentation
-        if (i > startLine - 1 && line.trim() !== '' && !inFunction) {
-            const currentIndent = line.match(/^\s*/)[0].length;
-            if (currentIndent <= startIndent && line.trim() !== '') {
-                endLine = i;
-                break;
-            }
-        }
-    }
-    
-    // If no end found, select to end of file or reasonable default
-    if (endLine === -1) {
-        endLine = Math.min(startLine + 50, lines.length); // Max 50 lines
-    }
-    
-    // Use the selectLines function to do the actual selection
-    return await _selectLines({ start_line: startLine, end_line: endLine });
-}
-
-async function _selectBlock({ start_line, block_type = 'auto' }) {
-    if (typeof start_line !== 'number') throw new Error("The 'start_line' parameter is required and must be a number.");
-    
-    const editor = Editor.getEditorInstance();
-    if (!editor) throw new Error('No editor instance is available.');
-    
-    const model = editor.getModel();
-    if (!model) throw new Error('No model is available in the editor.');
-    
-    const content = model.getValue();
-    const lines = content.split('\n');
-    
-    if (start_line < 1 || start_line > lines.length) {
-        throw new Error(`start_line ${start_line} is out of range. File has ${lines.length} lines.`);
-    }
-    
-    const startLineContent = lines[start_line - 1];
-    let endLine = start_line;
-    
-    if (block_type === 'auto' || block_type === 'braces') {
-        // Auto-detect block type and find matching closing brace/bracket
-        let braceCount = 0;
-        let bracketCount = 0;
-        let parenCount = 0;
-        
-        // Count opening braces/brackets in the start line
-        for (const char of startLineContent) {
-            if (char === '{') braceCount++;
-            else if (char === '}') braceCount--;
-            else if (char === '[') bracketCount++;
-            else if (char === ']') bracketCount--;
-            else if (char === '(') parenCount++;
-            else if (char === ')') parenCount--;
-        }
-        
-        // Find the closing line
-        for (let i = start_line; i < lines.length; i++) {
-            const line = lines[i];
-            for (const char of line) {
-                if (char === '{') braceCount++;
-                else if (char === '}') {
-                    braceCount--;
-                    if (braceCount === 0) {
-                        endLine = i + 1;
-                        break;
-                    }
-                }
-                else if (char === '[') bracketCount++;
-                else if (char === ']') {
-                    bracketCount--;
-                    if (bracketCount === 0 && braceCount === 0) {
-                        endLine = i + 1;
-                        break;
-                    }
-                }
-                else if (char === '(') parenCount++;
-                else if (char === ')') {
-                    parenCount--;
-                    if (parenCount === 0 && braceCount === 0 && bracketCount === 0) {
-                        endLine = i + 1;
-                        break;
-                    }
-                }
-            }
-            if (endLine > start_line) break;
-        }
-    } else if (block_type === 'indentation') {
-        // Select based on indentation level
-        const startIndent = startLineContent.match(/^\s*/)[0].length;
-        
-        for (let i = start_line; i < lines.length; i++) {
-            const line = lines[i];
-            if (line.trim() === '') continue; // Skip empty lines
-            
-            const currentIndent = line.match(/^\s*/)[0].length;
-            if (currentIndent <= startIndent && i > start_line) {
-                endLine = i;
-                break;
-            }
-            endLine = i + 1;
-        }
-    }
-    
-    // Use the selectLines function to do the actual selection
-    return await _selectLines({ start_line: start_line, end_line: endLine });
-}
-
 async function _replaceSelectedText({ new_text }) {
     if (new_text === undefined) throw new Error("The 'new_text' parameter is required.");
     
@@ -1934,41 +1714,8 @@ async function _replaceSelectedText({ new_text }) {
             throw new Error('Error: No text is selected in the editor. Please select the text you want to replace.');
         }
         
-        // Get the current selection details for validation
-        const selectedText = editor.getModel().getValueInRange(selection);
-        const selectionInfo = {
-            startLine: selection.startLineNumber,
-            startColumn: selection.startColumn,
-            endLine: selection.endLineNumber,
-            endColumn: selection.endColumn
-        };
-        
-        // Use a more precise replacement method that ensures only the selected range is affected
-        const model = editor.getModel();
-        const edit = {
-            range: new monaco.Range(
-                selection.startLineNumber,
-                selection.startColumn,
-                selection.endLineNumber,
-                selection.endColumn
-            ),
-            text: cleanText
-        };
-        
-        // Apply the edit using pushEditOperations for better control
-        model.pushEditOperations([], [edit], () => null);
-        
-        // Restore focus to the editor
-        editor.focus();
-        
-        return {
-            message: `Replaced selected text (${selectedText.length} characters) from L${selectionInfo.startLine}:C${selectionInfo.startColumn} to L${selectionInfo.endLine}:C${selectionInfo.endColumn}.`,
-            details: {
-                originalLength: selectedText.length,
-                newLength: cleanText.length,
-                selectionRange: selectionInfo
-            }
-        };
+        editor.executeEdits('ai-agent', [{ range: selection, text: cleanText }]);
+        return { message: 'Replaced the selected text.' };
     } catch (error) {
         throw new Error(`Failed to replace selected text: ${error.message}`);
     }
@@ -2402,9 +2149,6 @@ const toolRegistry = {
     get_selected_text: { handler: _getSelectedText, requiresProject: false, createsCheckpoint: false },
     replace_selected_text: { handler: _replaceSelectedText, requiresProject: false, createsCheckpoint: false },
     set_selected_text: { handler: _setSelectedText, requiresProject: false, createsCheckpoint: false },
-    select_lines: { handler: _selectLines, requiresProject: false, createsCheckpoint: false },
-    select_function: { handler: _selectFunction, requiresProject: false, createsCheckpoint: false },
-    select_block: { handler: _selectBlock, requiresProject: false, createsCheckpoint: false },
     create_diff: { handler: _createDiff, requiresProject: false, createsCheckpoint: false },
     apply_diff: { handler: _applyDiff, requiresProject: true, createsCheckpoint: true },
     undo_last_change: { handler: _undoLastChange, requiresProject: true, createsCheckpoint: false },
@@ -2571,9 +2315,6 @@ export function getToolDefinitions() {
             { name: 'get_open_file_content', description: 'Gets the content of the currently open file in the editor.' },
             { name: 'get_selected_text', description: 'Gets the text currently selected by the user in the editor.' },
             { name: 'replace_selected_text', description: 'Replaces the currently selected text in the editor with new text.', parameters: { type: 'OBJECT', properties: { new_text: { type: 'STRING', description: 'The raw text to replace the selection with. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['new_text'] } },
-            { name: 'select_lines', description: '🎯 SMART SELECTION: Automatically selects specific lines in the editor. Perfect for targeting exact code sections before using replace_selected_text or other tools. Eliminates the need for manual selection.', parameters: { type: 'OBJECT', properties: { start_line: { type: 'NUMBER', description: 'Starting line number (1-based)' }, end_line: { type: 'NUMBER', description: 'Ending line number (1-based). If omitted, selects only the start_line.' } }, required: ['start_line'] } },
-            { name: 'select_function', description: '🎯 SMART SELECTION: Automatically finds and selects an entire function by name. Works with JavaScript, TypeScript, Python, Java, and more. Much more reliable than manual line selection.', parameters: { type: 'OBJECT', properties: { function_name: { type: 'STRING', description: 'Name of the function to select' }, file_path: { type: 'STRING', description: 'Optional: file path for context (uses current file if omitted)' } }, required: ['function_name'] } },
-            { name: 'select_block', description: '🎯 SMART SELECTION: Automatically selects a code block starting from a line. Intelligently detects matching braces, brackets, or indentation-based blocks. Perfect for selecting if statements, loops, objects, arrays, etc.', parameters: { type: 'OBJECT', properties: { start_line: { type: 'NUMBER', description: 'Line number where the block starts (1-based)' }, block_type: { type: 'STRING', description: 'Type of block detection: "auto" (default), "braces" (for {}, [], ()), or "indentation" (for Python-like languages)', enum: ['auto', 'braces', 'indentation'] } }, required: ['start_line'] } },
             { name: 'get_project_structure', description: 'Gets the entire file and folder structure of the project. CRITICAL: Always use this tool before attempting to read or create a file to ensure you have the correct file path.' },
             { name: 'duckduckgo_search', description: 'Performs a search using DuckDuckGo and returns the results.', parameters: { type: 'OBJECT', properties: { query: { type: 'STRING' } }, required: ['query'] } },
             { name: 'perform_research', description: 'Performs an autonomous, multi-step research on a given query. It searches the web, reads the most relevant pages, and can recursively explore links to gather comprehensive information.', parameters: { type: 'OBJECT', properties: { query: { type: 'STRING' }, max_results: { type: 'NUMBER', description: 'Maximum number of search results to read per level. Default is 3.' }, depth: { type: 'NUMBER', description: 'How many levels of links to follow. Default is 1.' } }, required: ['query'] } },

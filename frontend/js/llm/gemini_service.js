@@ -15,9 +15,7 @@ export class GeminiService extends BaseLLMService {
         return !!currentApiKey;
     }
 
-    async *sendMessageStream(history, toolDefinition, abortSignal) {
-        const tools = toolDefinition || [];
-        const customRules = '';
+    async *sendMessageStream(history, tools, customRules = '') {
         await this.apiKeyManager.loadKeys('gemini');
         this.apiKeyManager.resetTriedKeys(); // Reset for new request
 
@@ -52,8 +50,7 @@ export class GeminiService extends BaseLLMService {
                     ],
                 });
 
-                const lastMessage = history[history.length - 1];
-                const lastUserMessage = lastMessage.parts || [{ text: lastMessage.content }];
+                const lastUserMessage = history[history.length - 1].parts;
                 console.log('Gemini last user message:', JSON.stringify(lastUserMessage, null, 2));
                 
                 const timeoutPromise = new Promise((_, reject) =>
@@ -66,11 +63,6 @@ export class GeminiService extends BaseLLMService {
 
                 try {
                     for await (const chunk of result.stream) {
-                        // Check if the request was aborted
-                        if (abortSignal && abortSignal.aborted) {
-                            throw new Error('Request was aborted');
-                        }
-                        
                         yield {
                             text: chunk.text(),
                             functionCalls: chunk.functionCalls(),
@@ -170,12 +162,9 @@ export class GeminiService extends BaseLLMService {
 
         for (const turn of historyToProcess) {
             if (turn.role === 'user') {
-                // Handle both new format (content) and old format (parts)
-                const parts = turn.parts || [{ text: turn.content }];
-                
                 // Split user messages: separate text from function responses
-                const textParts = parts.filter(p => p.text && !p.functionResponse);
-                const functionResponses = parts.filter(p => p.functionResponse);
+                const textParts = turn.parts.filter(p => p.text && !p.functionResponse);
+                const functionResponses = turn.parts.filter(p => p.functionResponse);
 
                 // Add user text message if it exists
                 if (textParts.length > 0) {
@@ -202,14 +191,9 @@ export class GeminiService extends BaseLLMService {
                     }
                 });
             } else if (turn.role === 'model') {
-                // Handle both new format (content) and old format (parts)
+                // Model messages can stay as-is, but validate structure
                 if (turn.parts && Array.isArray(turn.parts)) {
                     messages.push(turn);
-                } else if (turn.content) {
-                    messages.push({
-                        role: 'model',
-                        parts: [{ text: turn.content }]
-                    });
                 } else {
                     console.warn('Invalid model message structure:', turn);
                 }

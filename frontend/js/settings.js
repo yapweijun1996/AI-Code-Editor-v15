@@ -10,18 +10,6 @@ export const Settings = {
         'llm.ollama.model': 'llama3',
         'llm.ollama.baseURL': 'http://localhost:11434',
         'ui.theme': 'dark',
-        // AI Completion settings
-        'completion.enabled': true,
-        'completion.debounceMs': 300,
-        'completion.maxCompletions': 10,
-        'completion.enableStreaming': true,
-        'completion.enableCaching': true,
-        'completion.minTriggerLength': 1,
-        'completion.maxContextLength': 10000,
-        'completion.enablePersonalization': true,
-        'completion.autoTrigger': true,
-        'completion.aggressiveTriggering': false, // Default to less "noisy" completions
-        'completion.triggerCharacters': ['.', '(', '[', '{', ':', ' ', '<'],
         'custom.amend.rules': `You are in "Amend Mode" - optimized for fast, precise debugging and code changes.
 
 🎯 PRIMARY OBJECTIVES:
@@ -73,37 +61,7 @@ export const Settings = {
         }
         console.log('Settings initialized and loaded into cache.');
         
-        // Initialize missing AI completion settings
-        await this.initializeCompletionSettings();
-        
         // ApiKeyManager is now loaded on-demand, no explicit initialization needed.
-    },
-
-    /**
-     * Initialize AI completion settings in the database if they don't exist
-     */
-    async initializeCompletionSettings() {
-        const completionSettingKeys = [
-            'completion.enabled',
-            'completion.debounceMs',
-            'completion.maxCompletions',
-            'completion.enableStreaming',
-            'completion.enableCaching',
-            'completion.minTriggerLength',
-            'completion.maxContextLength',
-            'completion.enablePersonalization',
-            'completion.autoTrigger',
-            'completion.aggressiveTriggering',
-            'completion.triggerCharacters'
-        ];
-
-        for (const key of completionSettingKeys) {
-            if (!this.cache.has(key)) {
-                // Set the default value in the database
-                await this.set(key, this.defaults[key]);
-                console.log(`[Settings] Initialized ${key} with default value:`, this.defaults[key]);
-            }
-        }
     },
 
     /**
@@ -171,45 +129,6 @@ export const Settings = {
                 baseURL: this.get('llm.ollama.baseURL'),
             },
         };
-    },
-
-    /**
-     * Gets AI completion-specific settings.
-     * @returns {Object} AI completion settings
-     */
-    getCompletionSettings() {
-        return {
-            enabled: this.get('completion.enabled'),
-            debounceMs: this.get('completion.debounceMs'),
-            maxCompletions: this.get('completion.maxCompletions'),
-            enableStreaming: this.get('completion.enableStreaming'),
-            enableCaching: this.get('completion.enableCaching'),
-            minTriggerLength: this.get('completion.minTriggerLength'),
-            maxContextLength: this.get('completion.maxContextLength'),
-            enablePersonalization: this.get('completion.enablePersonalization'),
-            autoTrigger: this.get('completion.autoTrigger'),
-            aggressiveTriggering: this.get('completion.aggressiveTriggering'),
-            triggerCharacters: this.get('completion.triggerCharacters')
-        };
-    },
-
-    /**
-     * Updates AI completion settings and notifies components
-     * @param {Object} newSettings - New completion settings
-     */
-    async updateCompletionSettings(newSettings) {
-        const updates = {};
-        for (const [key, value] of Object.entries(newSettings)) {
-            const settingKey = `completion.${key}`;
-            updates[settingKey] = value;
-        }
-        
-        await this.setMultiple(updates);
-        
-        // Dispatch event to notify AI completion components
-        document.dispatchEvent(new CustomEvent('ai-completion-settings-updated', {
-            detail: { settings: this.getCompletionSettings() }
-        }));
     }
 };
 
