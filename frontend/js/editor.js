@@ -115,127 +115,88 @@ export function initializeEditor(editorContainer, tabBarContainer, appState) {
             // Initial render
             renderTabs(tabBarContainer, onTabClick, onTabClose);
 
-            // Register the AI fix action FIRST before the code lens provider references it
-            editor.addAction({
-                id: "editor.action.fixErrorWithAI",
-                label: "Fix Error with AI",
-                contextMenuGroupId: "navigation",
-                contextMenuOrder: 1.5,
-                run: function(ed, marker) {
-                    const model = ed.getModel();
-                    const lineContent = model.getLineContent(marker.startLineNumber);
-                    
-                    // Automatically select the full line of the error
-                    const selection = new monaco.Selection(marker.startLineNumber, 1, marker.startLineNumber, model.getLineMaxColumn(marker.startLineNumber));
-                    ed.setSelection(selection);
+            // --- COMMAND REGISTRATION ---
+            // All commands that will be used by providers MUST be registered before the providers themselves.
 
-                    const prompt = `The following line of code in the file "${getActiveFilePath()}" on line ${marker.startLineNumber} has an error:\n\n` +
-                                   `\`\`\`\n${lineContent}\n\`\`\`\n\n` +
-                                   `The error message is: "${marker.message}".\n\n` +
-                                   `Please fix this error by:\n` +
-                                   `1. First, use the smart selection tools to precisely select the code that needs fixing:\n` +
-                                   `   - Use 'select_lines' to select the exact lines that need modification\n` +
-                                   `   - Use 'select_function' if the error is in a function that needs complete fixing\n` +
-                                   `   - Use 'select_block' if you need to select a complete code block\n` +
-                                   `2. Then provide the corrected code using 'replace_selected_text'\n` +
-                                   `3. Explain what caused the error and how your fix resolves it\n\n` +
-                                   `IMPORTANT: Always use the smart selection tools first to ensure you're working with the exact code scope needed to fix the error completely.`;
+            // 1. Register 'Fix with AI' command
+            editor.addCommand(0, function(ed, marker) {
+                console.log('[Editor] Executing fixErrorWithAI command with marker:', marker);
+                const model = ed.getModel();
+                if (!model) return;
+                const lineContent = model.getLineContent(marker.startLineNumber);
+                
+                const selection = new monaco.Selection(marker.startLineNumber, 1, marker.startLineNumber, model.getLineMaxColumn(marker.startLineNumber));
+                ed.setSelection(selection);
 
-                    const chatInput = document.getElementById('chat-input');
-                    const chatMessages = document.getElementById('chat-messages');
-                    const chatSendButton = document.getElementById('chat-send-button');
-                    const chatCancelButton = document.getElementById('chat-cancel-button');
-                    const thinkingIndicator = document.getElementById('thinking-indicator');
-                    
-                    chatInput.value = prompt;
-                    ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, null, appState.clearImagePreview);
+                const prompt = `The following line of code in the file "${getActiveFilePath()}" on line ${marker.startLineNumber} has an error:\n\n` +
+                               `\`\`\`\n${lineContent}\n\`\`\`\n\n` +
+                               `The error message is: "${marker.message}".\n\n` +
+                               `Please provide a fix for this error.`;
+
+                const chatInput = document.getElementById('chat-input');
+                chatInput.value = prompt;
+                ChatService.sendMessage(chatInput, document.getElementById('chat-messages'), document.getElementById('chat-send-button'), document.getElementById('chat-cancel-button'), null, appState.clearImagePreview);
+            }, 'editor.action.fixErrorWithAI');
+            console.log('[Editor] Command "editor.action.fixErrorWithAI" registered.');
+
+            // 2. Register 'Track Acceptance' command
+            editor.addCommand(0, async function(ed, ...args) {
+                console.log('[Editor] ai-completion.track-acceptance command executed.');
+                const [completion, context, action] = args;
+                try {
+                    const { userAdaptationSystem } = await import('./user_adaptation_system.js');
+                    await userAdaptationSystem.recordCompletionInteraction({
+                        completion,
+                        context,
+                        action,
+                        timingMs: Date.now() - (completion.requestTime || Date.now()),
+                        position: ed.getPosition()
+                    });
+                } catch (error) {
+                    console.error('[AI Completion] Failed to track interaction:', error);
                 }
-            });
+            }, 'ai-completion.track-acceptance');
+            console.log('[Editor] Command "ai-completion.track-acceptance" registered.');
 
-            if (codeLensProvider) {
-                codeLensProvider.dispose();
-            }
-            
+            // --- PROVIDER REGISTRATION ---
+            // Now that commands are registered, we can safely register the providers that use them.
+
+            // 1. Register Code Lens Provider
+            if (codeLensProvider) codeLensProvider.dispose();
             codeLensProvider = monaco.languages.registerCodeLensProvider(['javascript', 'typescript', 'python', 'java', 'html', 'css'], {
                 provideCodeLenses: function(model, token) {
                     const markers = monaco.editor.getModelMarkers({ resource: model.uri });
-                    const lenses = [];
-                    markers.forEach(marker => {
-                        if (marker.severity === monaco.MarkerSeverity.Error) {
-                            lenses.push({
+                    return {
+                        lenses: markers
+                            .filter(marker => marker.severity === monaco.MarkerSeverity.Error)
+                            .map(marker => ({
                                 range: {
                                     startLineNumber: marker.startLineNumber,
                                     startColumn: marker.startColumn,
                                     endLineNumber: marker.endLineNumber,
                                     endColumn: marker.endColumn
                                 },
-                                id: "fixErrorLens",
+                                id: `fixErrorLens_${marker.startLineNumber}`,
                                 command: {
                                     id: "editor.action.fixErrorWithAI",
                                     title: "✨ Fix with AI",
                                     arguments: [marker]
                                 }
-                            });
-                        }
-                    });
-                    return {
-                        lenses: lenses,
+                            })),
                         dispose: () => {}
                     };
-                },
-                resolveCodeLens: function(model, codeLens, token) {
-                    return codeLens;
                 }
             });
+            console.log('[Editor] CodeLens provider registered.');
 
-            // Register AI completion commands FIRST (before registering the provider)
-            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Space, function() {
-                editor.trigger('', 'editor.action.triggerSuggest', {});
-            });
-
-            // Register tracking command for AI completion acceptance
-            // First register as an action
-            editor.addAction({
-                id: 'ai-completion.track-acceptance',
-                label: 'Track AI Completion Acceptance',
-                run: async function(ed, ...args) {
-                    const [completion, context, action, modelUri, position] = args;
-                    
-                    try {
-                        // Import here to avoid circular dependencies
-                        const { userAdaptationSystem } = await import('./user_adaptation_system.js');
-                        
-                        await userAdaptationSystem.recordCompletionInteraction({
-                            completion,
-                            context,
-                            action,
-                            timingMs: Date.now() - (completion.requestTime || Date.now()),
-                            position
-                        });
-                        
-                        console.log(`[AI Completion] Tracked ${action}: ${completion.label}`);
-                    } catch (error) {
-                        console.error('[AI Completion] Failed to track interaction:', error);
-                    }
-                }
-            });
-
-            // Also register as a command so Monaco can execute it via executeCommand
-            editor.addCommand(0, async function(ed, ...args) {
-                // Delegate to the action
-                const action = ed.getAction('ai-completion.track-acceptance');
-                if (action) {
-                    return action.run(ed, ...args);
-                }
-            }, 'ai-completion.track-acceptance');
+            // --- OTHER ACTIONS ---
+            // These do not depend on the critical command-provider chain.
 
             // Register toggle command for AI completions
             editor.addAction({
                 id: 'ai-completion.toggle',
                 label: 'Toggle AI Completions',
                 keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyA],
-                contextMenuGroupId: 'navigation',
-                contextMenuOrder: 2.0,
                 run: function() {
                     const currentState = aiCompletionProvider.isEnabled;
                     aiCompletionProvider.setEnabled(!currentState);
@@ -243,66 +204,41 @@ export function initializeEditor(editorContainer, tabBarContainer, appState) {
                 }
             });
 
-            // Initialize AI completion provider AFTER commands are registered
+            // Register "Ask AI to fix this code" context menu action
+            editor.addAction({
+                id: 'ai-completion.fix-selected-code',
+                label: 'Ask AI to fix this code',
+                contextMenuGroupId: 'navigation',
+                contextMenuOrder: 1.6,
+                precondition: 'editorHasSelection',
+                run: function(ed) {
+                    const selection = ed.getSelection();
+                    const model = ed.getModel();
+                    if (!selection || selection.isEmpty()) return;
+                    
+                    const selectedText = model.getValueInRange(selection);
+                    const prompt = `I need help fixing this code from "${getActiveFilePath()}" (lines ${selection.startLineNumber}-${selection.endLineNumber}):\n\n` +
+                                  `\`\`\`${model.getLanguageId()}\n${selectedText}\n\`\`\`\n\n` +
+                                  `Please analyze this code, identify any issues, and provide a corrected version.`;
+                    
+                    const chatInput = document.getElementById('chat-input');
+                    chatInput.value = prompt;
+                    ChatService.sendMessage(chatInput, document.getElementById('chat-messages'), document.getElementById('chat-send-button'), document.getElementById('chat-cancel-button'), null, appState.clearImagePreview);
+                }
+            });
+
+            // 2. Register AI Completion Provider - THIS MUST BE LAST
+            console.log('[Editor] All commands and actions registered. Now registering AI Completion Provider.');
             try {
                 const registered = await aiCompletionProvider.register();
                 if (registered) {
                     console.log('[Editor] AI completion provider registered successfully');
                 } else {
-                    console.warn('[Editor] AI completion provider registration failed, will retry later');
+                    console.warn('[Editor] AI completion provider registration failed.');
                 }
-
-                // Register "Ask AI to fix this code" context menu action
-                editor.addAction({
-                    id: 'ai-completion.fix-selected-code',
-                    label: 'Ask AI to fix this code',
-                    contextMenuGroupId: 'navigation',
-                    contextMenuOrder: 1.6,
-                    precondition: 'editorHasSelection',
-                    run: function(ed) {
-                        const selection = ed.getSelection();
-                        const model = ed.getModel();
-                        
-                        if (!selection || selection.isEmpty()) {
-                            UI.showError('Please select some code first');
-                            return;
-                        }
-                        
-                        const selectedText = model.getValueInRange(selection);
-                        const filePath = getActiveFilePath();
-                        const startLine = selection.startLineNumber;
-                        const endLine = selection.endLineNumber;
-                        
-                        // Create a detailed prompt for the AI with smart selection instructions
-                        const prompt = `I need help fixing this code from "${filePath}" (lines ${startLine}-${endLine}):\n\n` +
-                                      `\`\`\`${model.getLanguageId()}\n${selectedText}\n\`\`\`\n\n` +
-                                      `Please analyze this code and:\n` +
-                                      `1. First, use the smart selection tools to precisely select the exact code you need to fix:\n` +
-                                      `   - Use 'select_lines' if you need specific lines\n` +
-                                      `   - Use 'select_function' if this is part of a function that needs complete fixing\n` +
-                                      `   - Use 'select_block' if you need to select a complete code block\n` +
-                                      `2. Then identify any issues, bugs, or improvements needed\n` +
-                                      `3. Provide the corrected/improved version using 'replace_selected_text'\n` +
-                                      `4. Explain what was wrong and why your solution is better\n\n` +
-                                      `IMPORTANT: Always use the smart selection tools first to ensure you're working with the exact code scope you intend to modify. This prevents partial fixes and ensures complete, accurate corrections.`;
-                        
-                        // Send to chat
-                        const chatInput = document.getElementById('chat-input');
-                        const chatMessages = document.getElementById('chat-messages');
-                        const chatSendButton = document.getElementById('chat-send-button');
-                        const chatCancelButton = document.getElementById('chat-cancel-button');
-                        
-                        chatInput.value = prompt;
-                        ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, null, appState.clearImagePreview);
-                        
-                        // Show info to user
-                        UI.showInfo(`Asking AI to analyze and fix selected code (${selectedText.split('\n').length} lines) - AI will auto-select precise scope`);
-                    }
-                });
-
             } catch (error) {
                 console.error('[Editor] Failed to initialize AI completion provider:', error);
-                UI.showError('Failed to initialize AI completions. Some features may not work.');
+                UI.showError('Failed to initialize AI completions.');
             }
 
             resolve(editor);

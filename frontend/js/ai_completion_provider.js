@@ -14,19 +14,12 @@ export class AiCompletionProvider {
         this.disposables = [];
         this.activeRequests = new Map();
         this.isEnabled = true;
+        this.aggressiveTriggering = false; // Default to non-aggressive
         this.debounceTimeout = null;
         this.debounceMs = 300;
         
-        // Trigger configuration
-        this.triggerCharacters = ['.', '(', '[', '{', ':', ' ', '<'];
-        this.smartTriggers = {
-            memberAccess: ['.', '->'],
-            functionCall: ['('],
-            importStatement: ['/', '"', "'"],
-            templateLiteral: ['`', '${'],
-            typeAnnotation: [':'],
-            generics: ['<']
-        };
+        // Trigger characters will be set dynamically based on settings
+        this.triggerCharacters = ['.'];
         
         // UI configuration - will be initialized when Monaco is available
         this.completionKinds = null;
@@ -66,8 +59,11 @@ export class AiCompletionProvider {
             // Initialize Monaco-dependent properties
             this._initializeMonacoProperties();
 
-            // Load enabled state from settings
-            await this._loadEnabledState();
+            // Load settings and configure triggers
+            await this._loadAndConfigure();
+
+            // Listen for future settings changes
+            this._setupSettingsListener();
 
             // Register for multiple languages
             const languages = ['javascript', 'typescript', 'python', 'java', 'html', 'css', 'json', 'markdown'];
@@ -235,50 +231,9 @@ export class AiCompletionProvider {
     }
 
     async _provideInlineCompletionItems(model, position, context, token) {
-        if (!this.isEnabled || !context.triggerKind) {
-            return { items: [] };
-        }
-
-        try {
-            // Only provide inline completions for automatic triggers
-            if (context.triggerKind !== monaco.languages.InlineCompletionTriggerKind.Automatic) {
-                return { items: [] };
-            }
-
-            // Get streaming completions
-            const items = [];
-            const requestKey = `inline_${model.uri.toString()}_${position.lineNumber}_${position.column}`;
-            
-            await aiCompletionOrchestrator.requestStreamingCompletions({
-                context: model.getValueInRange({
-                    startLineNumber: Math.max(1, position.lineNumber - 20),
-                    startColumn: 1,
-                    endLineNumber: Math.min(model.getLineCount(), position.lineNumber + 20),
-                    endColumn: 1
-                }),
-                position,
-                trigger: '',
-                language: model.getLanguageId()
-            }, (completions) => {
-                if (completions.length > 0 && !token.isCancellationRequested) {
-                    const bestCompletion = completions[0];
-                    items.push({
-                        insertText: bestCompletion.insertText || bestCompletion.label,
-                        range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
-                        command: {
-                            id: 'ai-completion.accept',
-                            title: 'AI Completion Accepted'
-                        }
-                    });
-                }
-            });
-
-            return { items };
-
-        } catch (error) {
-            console.error('[AI Completion Provider] Inline completion failed:', error);
-            return { items: [] };
-        }
+        // Temporarily disabled to simplify the user experience and stabilize the core features.
+        // This can be re-enabled and improved in the future.
+        return { items: [] };
     }
 
     async _resolveCompletionItem(item, token) {
@@ -304,72 +259,40 @@ export class AiCompletionProvider {
     }
 
     _shouldTriggerCompletion(model, position, context) {
-        const line = model.getLineContent(position.lineNumber);
-        const beforeCursor = line.substring(0, position.column - 1);
-        
-        // Don't trigger in comments (basic check)
-        if (beforeCursor.includes('//') || beforeCursor.includes('/*')) {
-            return false;
-        }
-
-        // Don't trigger in strings (basic check)
-        const inString = this._isInString(beforeCursor);
-        if (inString && context.triggerCharacter !== '"' && context.triggerCharacter !== "'") {
-            return false;
-        }
-
-        // Always trigger on explicit invocation
+        // Always trigger on explicit invocation (e.g., Ctrl+Space)
         if (context.triggerKind === monaco.languages.CompletionTriggerKind.Invoke) {
+            console.log('[AI Completion] Triggered by explicit invocation.');
             return true;
         }
 
-        // Check smart triggers
-        if (context.triggerCharacter) {
-            return this._isSmartTrigger(beforeCursor, context.triggerCharacter);
-        }
+        // Trigger automatically only for specified characters
+        if (context.triggerKind === monaco.languages.CompletionTriggerKind.TriggerCharacter) {
+            const line = model.getLineContent(position.lineNumber);
+            const beforeCursor = line.substring(0, position.column - 1);
 
-        // Check if enough characters typed
-        const wordAtPosition = model.getWordAtPosition(position);
-        if (wordAtPosition && wordAtPosition.word.length >= 2) {
-            return true;
+            // Don't trigger inside comments or strings
+            if (this._isInCommentOrString(beforeCursor)) {
+                return false;
+            }
+            
+            console.log(`[AI Completion] Triggered by character: "${context.triggerCharacter}"`);
+            return true; // Simplified: if it's a trigger character, and not in a comment/string, trigger.
         }
 
         return false;
     }
 
-    _isSmartTrigger(beforeCursor, triggerChar) {
-        switch (triggerChar) {
-            case '.':
-                // Trigger for member access
-                return /\w+\.$/.test(beforeCursor);
-            
-            case '(':
-                // Trigger for function calls
-                return /\w+\($/.test(beforeCursor);
-            
-            case '[':
-                // Trigger for array access
-                return /\w+\[$/.test(beforeCursor);
-            
-            case '{':
-                // Trigger for object literals
-                return true;
-            
-            case ':':
-                // Trigger for object properties or type annotations
-                return /\w+\s*:$/.test(beforeCursor) || /:\s*$/.test(beforeCursor);
-            
-            case '<':
-                // Trigger for generics or JSX
-                return /\w+<$/.test(beforeCursor);
-            
-            case ' ':
-                // Trigger after keywords
-                return /(import|from|extends|implements|new|return|const|let|var)\s+$/.test(beforeCursor);
-            
-            default:
-                return false;
+    _isInCommentOrString(beforeCursor) {
+        // Basic check for comments
+        if (beforeCursor.includes('//') || beforeCursor.includes('/*')) {
+            return true;
         }
+        // Basic check for strings
+        const singleQuotes = (beforeCursor.match(/'/g) || []).length;
+        const doubleQuotes = (beforeCursor.match(/"/g) || []).length;
+        const backticks = (beforeCursor.match(/`/g) || []).length;
+        
+        return (singleQuotes % 2 === 1) || (doubleQuotes % 2 === 1) || (backticks % 2 === 1);
     }
 
     _isInString(beforeCursor) {
@@ -417,25 +340,58 @@ export class AiCompletionProvider {
     }
 
     _getInsertionRange(model, position, completion) {
+        const line = model.getLineContent(position.lineNumber);
+        const beforeCursor = line.substring(0, position.column - 1);
+        
+        // New logic to prevent duplicate brackets
+        const lastChar = beforeCursor.trim().slice(-1);
+        const insertText = completion.insertText || completion.label;
+        if (['{', '(', '['].includes(lastChar) && insertText.startsWith(lastChar)) {
+             // The user typed an opening bracket and the AI is suggesting something that also starts with it.
+             // Replace the user's bracket with the AI's suggestion.
+            return new monaco.Range(
+                position.lineNumber,
+                position.column - 1,
+                position.lineNumber,
+                position.column
+            );
+        }
+
         const wordAtPosition = model.getWordAtPosition(position);
         
-        if (wordAtPosition) {
-            // Replace the current word
+        // If the cursor is inside a word, replace the whole word.
+        if (wordAtPosition && position.column > wordAtPosition.startColumn && position.column <= wordAtPosition.endColumn) {
             return new monaco.Range(
                 position.lineNumber,
                 wordAtPosition.startColumn,
                 position.lineNumber,
                 wordAtPosition.endColumn
             );
-        } else {
-            // Insert at current position
-            return new monaco.Range(
-                position.lineNumber,
-                position.column,
-                position.lineNumber,
-                position.column
-            );
         }
+        
+        // If there's a partial word right before the cursor, replace it.
+        const partialWordMatch = beforeCursor.match(/(\w+)$/);
+        if (partialWordMatch) {
+            const partialWord = partialWordMatch[1];
+            // Ensure the completion starts with the partial word, otherwise, don't replace.
+            if (insertText.toLowerCase().startsWith(partialWord.toLowerCase())) {
+                const startColumn = position.column - partialWord.length;
+                return new monaco.Range(
+                    position.lineNumber,
+                    startColumn,
+                    position.lineNumber,
+                    position.column
+                );
+            }
+        }
+        
+        // Default: insert at the current cursor position.
+        return new monaco.Range(
+            position.lineNumber,
+            position.column,
+            position.lineNumber,
+            position.column
+        );
     }
 
     _cancelConflictingRequests(modelUri, position) {
@@ -477,18 +433,45 @@ export class AiCompletionProvider {
     }
 
     /**
-     * Load enabled state from settings
+     * Load settings and configure the provider accordingly.
      */
-    async _loadEnabledState() {
+    async _loadAndConfigure() {
         try {
             const { Settings } = await import('./settings.js');
-            const completionSettings = Settings.getCompletionSettings();
-            this.isEnabled = completionSettings.enabled;
-            console.log(`[AI Completion Provider] Loaded enabled state: ${this.isEnabled}`);
+            const settings = Settings.getCompletionSettings();
+            
+            this.isEnabled = settings.enabled;
+            this.aggressiveTriggering = settings.aggressiveTriggering;
+            this.debounceMs = settings.debounceMs;
+
+            if (this.aggressiveTriggering) {
+                this.triggerCharacters = ['.', '(', '[', '{', ':', ' ', '<'];
+            } else {
+                this.triggerCharacters = ['.'];
+            }
+
+            console.log(`[AI Completion Provider] Configured with aggressive triggering: ${this.aggressiveTriggering}`);
+
         } catch (error) {
-            console.warn('[AI Completion Provider] Failed to load enabled state, using default:', error);
-            this.isEnabled = true; // Default to enabled
+            console.warn('[AI Completion Provider] Failed to load settings, using defaults:', error);
+            this.isEnabled = true;
+            this.aggressiveTriggering = false;
         }
+    }
+
+    /**
+     * Listen for settings changes and re-register the provider if necessary.
+     */
+    _setupSettingsListener() {
+        document.addEventListener('ai-completion-settings-updated', async (event) => {
+            console.log('[AI Completion Provider] Settings updated, re-configuring...');
+            
+            // Dispose existing providers before re-registering
+            this.dispose();
+            
+            // Re-register with new settings
+            await this.register();
+        });
     }
 }
 

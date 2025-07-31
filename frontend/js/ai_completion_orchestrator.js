@@ -35,8 +35,8 @@ export class AiCompletionOrchestrator {
             maxContextLength: 10000, // 10KB context window
             minTriggerLength: 1,
             maxCompletions: 10,
-            enableStreaming: true,
-            enableCaching: true
+            enableStreaming: false, // Disabled for now to focus on core reliability
+            enableCaching: false // Disabled for now to simplify logic
         };
     }
 
@@ -260,13 +260,11 @@ export class AiCompletionOrchestrator {
         
         // Call LLM service with correct message format
         const history = [{ role: 'user', parts: [{ text: prompt }] }];
-        const completions = [];
-
+        let fullResponse = '';
         try {
             for await (const chunk of this.llmService.sendMessageStream(history, [], abortSignal)) {
                 if (chunk.text) {
-                    const parsedCompletions = this._parseCompletions(chunk.text, request);
-                    completions.push(...parsedCompletions);
+                    fullResponse += chunk.text;
                 }
             }
         } catch (error) {
@@ -277,6 +275,7 @@ export class AiCompletionOrchestrator {
             console.error('[AI Completion] LLM request failed:', error);
         }
 
+        const completions = this._parseCompletions(fullResponse, request);
         return this._rankAndFilterCompletions(completions, request);
     }
 
@@ -287,44 +286,18 @@ export class AiCompletionOrchestrator {
     }
 
     _buildCompletionPrompt(context, position, trigger, language, fullContext) {
-        const hasParseError = fullContext && fullContext.parseError;
-        const basePrompt = `You are a code completion assistant. Provide intelligent code completions for ${language}.
+        // A simpler, more direct prompt to improve predictability and reduce complexity.
+        return `You are a code completion assistant.
+Provide a single, relevant code completion for the following context.
+Return ONLY the raw code. Do not include explanations or formatting.
 
-Context:
-\`\`\`${language}
+Language: ${language}
+File Context:
+---
 ${context}
-\`\`\`
-
-Current cursor position: Line ${position.lineNumber}, Column ${position.column}
-Trigger: "${trigger}"`;
-
-        if (hasParseError) {
-            return basePrompt + `
-
-NOTE: This file has syntax errors, so provide completions based on the visible context and common patterns.
-
-Provide up to ${this.config.maxCompletions} relevant completions. Return only the completion text, one per line, without explanations or markdown.
-
-Focus on:
-- Completing incomplete object properties
-- Common JavaScript/TypeScript patterns
-- Standard property names and values
-- Fixing syntax issues
-
-Completions:`;
-        } else {
-            return basePrompt + `
-
-Provide up to ${this.config.maxCompletions} relevant completions. Return only the completion text, one per line, without explanations or markdown.
-
-Focus on:
-- Variables and functions in scope
-- Available methods and properties
-- Appropriate imports and modules
-- Common patterns for this context
-
-Completions:`;
-        }
+---
+The user's cursor is at line ${position.lineNumber}, column ${position.column}.
+Complete the code.`;
     }
 
     _parseCompletions(text, request) {

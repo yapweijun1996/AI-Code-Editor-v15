@@ -20,6 +20,7 @@ export const Settings = {
         'completion.maxContextLength': 10000,
         'completion.enablePersonalization': true,
         'completion.autoTrigger': true,
+        'completion.aggressiveTriggering': false, // Default to less "noisy" completions
         'completion.triggerCharacters': ['.', '(', '[', '{', ':', ' ', '<'],
         'custom.amend.rules': `You are in "Amend Mode" - optimized for fast, precise debugging and code changes.
 
@@ -92,6 +93,7 @@ export const Settings = {
             'completion.maxContextLength',
             'completion.enablePersonalization',
             'completion.autoTrigger',
+            'completion.aggressiveTriggering',
             'completion.triggerCharacters'
         ];
 
@@ -186,6 +188,7 @@ export const Settings = {
             maxContextLength: this.get('completion.maxContextLength'),
             enablePersonalization: this.get('completion.enablePersonalization'),
             autoTrigger: this.get('completion.autoTrigger'),
+            aggressiveTriggering: this.get('completion.aggressiveTriggering'),
             triggerCharacters: this.get('completion.triggerCharacters')
         };
     },

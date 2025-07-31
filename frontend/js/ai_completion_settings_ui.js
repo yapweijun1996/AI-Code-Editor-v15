@@ -45,6 +45,7 @@ export class AiCompletionSettingsUI {
             streaming: document.getElementById('completion-streaming'),
             personalization: document.getElementById('completion-personalization'),
             autoTrigger: document.getElementById('completion-auto-trigger'),
+            aggressiveTrigger: document.getElementById('completion-aggressive-trigger'),
             
             // Advanced settings
             contextLength: document.getElementById('completion-context-length'),
@@ -115,6 +116,12 @@ export class AiCompletionSettingsUI {
             });
         }
 
+        if (this.elements.aggressiveTrigger) {
+           this.elements.aggressiveTrigger.addEventListener('change', (e) => {
+               this._handleSettingChange('aggressiveTriggering', e.target.checked);
+           });
+       }
+
         // Advanced settings
         if (this.elements.contextLength) {
             this.elements.contextLength.addEventListener('change', (e) => {
@@ -179,6 +186,10 @@ export class AiCompletionSettingsUI {
         if (this.elements.autoTrigger) {
             this.elements.autoTrigger.checked = settings.autoTrigger;
         }
+
+        if (this.elements.aggressiveTrigger) {
+           this.elements.aggressiveTrigger.checked = settings.aggressiveTriggering;
+       }
 
         if (this.elements.contextLength) {
             this.elements.contextLength.value = settings.maxContextLength;

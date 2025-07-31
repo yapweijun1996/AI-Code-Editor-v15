@@ -175,6 +175,7 @@
     "#completion-streaming",
     "#completion-personalization",
     "#completion-auto-trigger",
+    "#completion-aggressive-trigger",
     "#completion-context-length",
     "#completion-caching",
     "#completion-min-trigger",
