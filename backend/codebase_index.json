@@ -29641,9 +29641,6 @@
   "frontend\\js\\llm\\service_factory.js": [
     "LLMServiceFactory"
   ],
-  "frontend/js/monaco_model_manager.js": [
-    "MonacoModelManager"
-  ],
   "ENHANCEMENTS.md": [
     "AI IDE Enhancements",
     "🚀 New Features",
@@ -29830,14 +29827,6 @@
     "**3. Chat Service Integration** (`chat_service.js`)",
     "**Context Format Example**"
   ],
-  "frontend/js/tool_executor.js": [
-    "trackToolPerformance",
-    "getOptimalTool",
-    "analyzeError",
-    "getSuggestedFix",
-    "getCachedResult",
-    "setCachedResult"
-  ],
   "CLAUDE.md": [
     "CLAUDE.md",
     "Project Overview",
@@ -29922,5 +29911,29 @@
     "Implementation Details",
     "Validation Criteria",
     "Notes"
+  ],
+  "frontend/js/file_streaming.js": [
+    "FileInfo"
+  ],
+  "frontend/js/tool_executor.js": [
+    "trackToolPerformance",
+    "getOptimalTool",
+    "analyzeError",
+    "getSuggestedFix",
+    "getCachedResult",
+    "setCachedResult"
+  ],
+  "frontend/js/operation_cache.js": [
+    "CacheEntry"
+  ],
+  "frontend/workers/ast_worker.js": [
+    "initializeLibraries",
+    "parseCode"
+  ],
+  "frontend/workers/symbol_worker.js": [
+    "SymbolTable"
+  ],
+  "frontend/js/cache_manager.js": [
+    "CacheEntry"
   ]
 }

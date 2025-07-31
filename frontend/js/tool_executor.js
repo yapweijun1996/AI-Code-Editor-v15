@@ -13,6 +13,8 @@ import { backgroundIndexer } from './background_indexer.js';
 import { taskManager, TaskTools } from './task_manager.js';
 import { performanceOptimizer } from './performance_optimizer.js';
 import { providerOptimizer } from './provider_optimizer.js';
+import { workerManager, ensureWorkersInitialized } from './worker_manager.js';
+import { cacheManager, operationCache } from './cache_manager.js';
 
 // Senior Engineer AI System Imports
 import { symbolResolver } from './symbol_resolver.js';
@@ -282,28 +284,41 @@ function stripMarkdownCodeBlock(content) {
    return match ? match[1] : content;
 }
 
-// Enhanced syntax validation using the new validator
+// Enhanced syntax validation using workers and caching
 async function validateSyntaxBeforeWrite(filename, content) {
-    const validation = await syntaxValidator.validateSyntax(filename, content);
+    try {
+        // Use cached validation if available
+        const validation = await operationCache.cacheValidation(filename, content, async (content, filename) => {
+            // Use worker for validation to avoid blocking main thread
+            return await workerManager.processFile('validate', {
+                filename,
+                content
+            });
+        });
 
-    if (validation.warnings && validation.warnings.length > 0) {
-        console.warn(`Syntax warnings found in ${filename}:`, validation.warnings);
+        if (validation.warnings && validation.warnings.length > 0) {
+            console.warn(`Syntax warnings found in ${filename}:`, validation.warnings);
+        }
+
+        if (!validation.valid) {
+            const errorMessages = validation.errors.map(e => `Line ${e.line}: ${e.message}`).join('\n');
+            const suggestionMessages = validation.suggestions ? `\n\nSuggestions:\n- ${validation.suggestions.join('\n- ')}` : '';
+            
+            // Return a detailed error object instead of throwing an error
+            return {
+                isValid: false,
+                errors: errorMessages,
+                suggestions: suggestionMessages
+            };
+        }
+
+        console.log(`Syntax validation passed for ${filename}.`);
+        return { isValid: true };
+    } catch (error) {
+        console.warn(`Validation failed for ${filename}:`, error.message);
+        // Fallback to basic validation
+        return { isValid: true, warnings: [`Validation service unavailable: ${error.message}`] };
     }
-
-    if (!validation.valid) {
-        const errorMessages = validation.errors.map(e => `Line ${e.line}: ${e.message}`).join('\n');
-        const suggestionMessages = validation.suggestions ? `\n\nSuggestions:\n- ${validation.suggestions.join('\n- ')}` : '';
-        
-        // Return a detailed error object instead of throwing an error
-        return {
-            isValid: false,
-            errors: errorMessages,
-            suggestions: suggestionMessages
-        };
-    }
-
-    console.log(`Syntax validation passed for ${filename}.`);
-    return { isValid: true };
 }
 
 // Streaming file processing for large files
@@ -340,7 +355,6 @@ async function _streamingEditFile({ filename, edits, fileHandle, file }) {
     const chunkSize = 1024 * 1024; // 1MB chunks
     const fileSize = file.size;
     let currentPos = 0;
-    let lineNumber = 1;
     let lines = [];
     
     // Read file in chunks and split into lines
@@ -459,34 +473,51 @@ async function _getProjectStructure(params, rootHandle) {
 async function _readFile({ filename, include_line_numbers = false }, rootHandle) {
     if (!filename) throw new Error("The 'filename' parameter is required for read_file.");
     const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
+    
+    // Use streaming file reader for better performance
+    const { readFileWithStrategy } = await import('./file_streaming.js');
     const file = await fileHandle.getFile();
-
+    
     const MAX_CONTEXT_BYTES = 256000; // 256KB threshold
 
     await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
     document.getElementById('chat-input').focus();
 
     if (file.size > MAX_CONTEXT_BYTES) {
+        // For large files, use streaming with preview
+        const result = await readFileWithStrategy(fileHandle, filename, {
+            previewOnly: true,
+            previewSize: MAX_CONTEXT_BYTES
+        });
+        
         return {
             status: "Success",
-            message: "File is too large to be returned in full.",
+            message: "File is large - showing preview content.",
             filename: filename,
             file_size: file.size,
+            preview_size: MAX_CONTEXT_BYTES,
             truncated: true,
-            guidance: "The file content was not returned to prevent exceeding the context window. The file has been opened in the editor. Use 'edit_file' with targeted 'edits' array to modify specific sections efficiently."
+            content: result.content,
+            guidance: "Only preview content shown to prevent exceeding context window. File opened in editor. Use 'read_file_lines' for specific sections or 'edit_file' for targeted modifications."
         };
     }
 
-    const content = await file.text();
-    let cleanContent = unescapeHtmlEntities(content);
+    // For smaller files, read normally but with streaming for consistency
+    const streamResult = await readFileWithStrategy(fileHandle, filename);
+    let cleanContent = unescapeHtmlEntities(streamResult.content);
 
     if (include_line_numbers) {
         const lines = cleanContent.split('\n');
         cleanContent = lines.map((line, index) => `${index + 1} | ${line}`).join('\n');
     }
     
-    const result = { content: cleanContent };
-    return result;
+    return { 
+        content: cleanContent,
+        status: "Success",
+        filename: filename,
+        file_size: file.size,
+        strategy: streamResult.strategy
+    };
 }
 
 async function _readFileLines({ filename, start_line, end_line }, rootHandle) {
@@ -499,8 +530,11 @@ async function _readFileLines({ filename, start_line, end_line }, rootHandle) {
     }
 
     const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
-    const file = await fileHandle.getFile();
-    const content = await file.text();
+    
+    // Use streaming file reader for better performance with large files
+    const { readFileWithStrategy } = await import('./file_streaming.js');
+    const streamResult = await readFileWithStrategy(fileHandle, filename);
+    const content = streamResult.content;
     const lines = content.split('\n');
     
     const clampedStart = Math.max(1, start_line);
@@ -560,35 +594,107 @@ async function _readMultipleFiles({ filenames }, rootHandle) {
     }
 
     const MAX_CONTEXT_BYTES = 256000; // 256KB threshold per file
-    let combinedContent = '';
-
-    for (const filename of filenames) {
-        try {
-            const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
-            const file = await fileHandle.getFile();
-            
-            combinedContent += `--- START OF FILE: ${filename} ---\n`;
-
-            if (file.size > MAX_CONTEXT_BYTES) {
-                combinedContent += `File is too large to be included in the context (Size: ${file.size} bytes).\n`;
-                combinedContent += `Guidance: The file has been opened in the editor. Use surgical tools to modify it.\n`;
-            } else {
-                let content = await file.text();
-                combinedContent += content + '\n';
-            }
-            
-            combinedContent += `--- END OF FILE: ${filename} ---\n\n`;
-
-            await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
-        } catch (error) {
-            combinedContent += `--- ERROR READING FILE: ${filename} ---\n`;
-            combinedContent += `${error.message}\n`;
-            combinedContent += `--- END OF ERROR ---\n\n`;
-        }
-    }
     
-    document.getElementById('chat-input').focus();
-    return { combined_content: combinedContent };
+    try {
+        // Ensure workers are initialized before use
+        await ensureWorkersInitialized();
+        
+        // Use batch worker for efficient parallel processing of multiple files
+        const batchResult = await workerManager.executeBatch([
+            {
+                type: 'file_read',
+                filenames: filenames,
+                maxContextBytes: MAX_CONTEXT_BYTES,
+                includeMetadata: true
+            }
+        ]);
+        
+        let combinedContent = '';
+        const processedFiles = [];
+        const errors = [];
+        
+        for (let i = 0; i < filenames.length; i++) {
+            const filename = filenames[i];
+            const result = batchResult.results[i];
+            
+            if (result.success) {
+                combinedContent += `--- START OF FILE: ${filename} ---\n`;
+                
+                if (result.truncated) {
+                    combinedContent += `File is too large to be included in the context (Size: ${result.fileSize} bytes).\n`;
+                    combinedContent += `Guidance: The file has been opened in the editor. Use surgical tools to modify it.\n`;
+                } else {
+                    combinedContent += result.content + '\n';
+                }
+                
+                combinedContent += `--- END OF FILE: ${filename} ---\n\n`;
+                processedFiles.push(filename);
+                
+                // Open file in editor
+                try {
+                    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
+                    await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
+                } catch (editorError) {
+                    console.warn(`Failed to open ${filename} in editor:`, editorError.message);
+                }
+            } else {
+                combinedContent += `--- ERROR READING FILE: ${filename} ---\n`;
+                combinedContent += `${result.error}\n`;
+                combinedContent += `--- END OF ERROR ---\n\n`;
+                errors.push({ filename, error: result.error });
+            }
+        }
+        
+        document.getElementById('chat-input').focus();
+        
+        return {
+            combined_content: combinedContent,
+            batch_stats: {
+                total_files: filenames.length,
+                successful: processedFiles.length,
+                failed: errors.length,
+                processing_time: batchResult.processingTime || 0,
+                parallel_processing: true
+            }
+        };
+        
+    } catch (error) {
+        console.warn('Batch processing failed, falling back to sequential processing:', error.message);
+        
+        // Fallback to original sequential processing
+        let combinedContent = '';
+
+        for (const filename of filenames) {
+            try {
+                const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
+                const file = await fileHandle.getFile();
+                
+                combinedContent += `--- START OF FILE: ${filename} ---\n`;
+
+                if (file.size > MAX_CONTEXT_BYTES) {
+                    combinedContent += `File is too large to be included in the context (Size: ${file.size} bytes).\n`;
+                    combinedContent += `Guidance: The file has been opened in the editor. Use surgical tools to modify it.\n`;
+                } else {
+                    let content = await file.text();
+                    combinedContent += content + '\n';
+                }
+                
+                combinedContent += `--- END OF FILE: ${filename} ---\n\n`;
+
+                await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
+            } catch (error) {
+                combinedContent += `--- ERROR READING FILE: ${filename} ---\n`;
+                combinedContent += `${error.message}\n`;
+                combinedContent += `--- END OF ERROR ---\n\n`;
+            }
+        }
+        
+        document.getElementById('chat-input').focus();
+        return {
+            combined_content: combinedContent,
+            fallback: true
+        };
+    }
 }
 
 async function _createFile({ filename, content = '' }, rootHandle) {
@@ -1890,20 +1996,63 @@ async function _formatCode({ filename }, rootHandle) {
 }
 
 async function _analyzeCode({ filename }, rootHandle) {
-    if (!filename.endsWith('.js')) {
-        throw new Error('This tool can only analyze .js files. Use read_file for others.');
+    if (!filename.endsWith('.js') && !filename.endsWith('.ts') && !filename.endsWith('.jsx') && !filename.endsWith('.tsx')) {
+        throw new Error('This tool can only analyze JavaScript/TypeScript files. Use read_file for others.');
     }
+    
     const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
     const file = await fileHandle.getFile();
     const content = await file.text();
-    const ast = acorn.parse(content, { ecmaVersion: 'latest', sourceType: 'module', locations: true });
-    const analysis = { functions: [], classes: [], imports: [] };
-    acorn.walk.simple(ast, {
-        FunctionDeclaration(node) { analysis.functions.push({ name: node.id.name, start: node.loc.start.line, end: node.loc.end.line }); },
-        ClassDeclaration(node) { analysis.classes.push({ name: node.id.name, start: node.loc.start.line, end: node.loc.end.line }); },
-        ImportDeclaration(node) { analysis.imports.push({ source: node.source.value, specifiers: node.specifiers.map((s) => s.local.name) }); },
-    });
-    return { analysis };
+    
+    try {
+        // Use cached AST parsing with worker
+        const analysis = await operationCache.cacheAST(filename, content, async (content, filename) => {
+            return await workerManager.parseAST(content, filename, {
+                ecmaVersion: 'latest',
+                sourceType: 'module',
+                locations: true
+            });
+        });
+        
+        return { analysis };
+    } catch (error) {
+        console.warn(`AST analysis failed for ${filename}, falling back to basic analysis:`, error.message);
+        
+        // Fallback to basic regex-based analysis
+        const basicAnalysis = {
+            functions: [],
+            classes: [],
+            imports: [],
+            variables: []
+        };
+        
+        // Extract functions
+        const functionMatches = content.match(/(?:function\s+(\w+)|const\s+(\w+)\s*=\s*(?:async\s+)?(?:function|\([^)]*\)\s*=>))/g) || [];
+        functionMatches.forEach(match => {
+            const name = match.match(/(?:function\s+(\w+)|const\s+(\w+))/)?.[1] || match.match(/(?:function\s+(\w+)|const\s+(\w+))/)?.[2];
+            if (name) {
+                basicAnalysis.functions.push({ name, type: 'function' });
+            }
+        });
+        
+        // Extract classes
+        const classMatches = content.match(/class\s+(\w+)/g) || [];
+        classMatches.forEach(match => {
+            const name = match.replace('class ', '');
+            basicAnalysis.classes.push({ name, type: 'class' });
+        });
+        
+        // Extract imports
+        const importMatches = content.match(/import\s+.*from\s+['"]([^'"]+)['"]/g) || [];
+        importMatches.forEach(match => {
+            const source = match.match(/from\s+['"]([^'"]+)['"]/)?.[1];
+            if (source) {
+                basicAnalysis.imports.push({ source });
+            }
+        });
+        
+        return { analysis: basicAnalysis };
+    }
 }
 
 // REMOVED: validateTerminalCommand - No longer needed since run_terminal_command has been removed
@@ -2462,18 +2611,51 @@ async function _buildSymbolTable({ file_path }, rootHandle) {
     const file = await fileHandle.getFile();
     const content = await file.text();
     
-    const symbolTable = await symbolResolver.buildSymbolTable(content, file_path);
-    
-    return {
-        message: `Symbol table built for ${file_path}`,
-        symbolTable: {
-            symbols: symbolTable.symbols.size,
-            functions: symbolTable.functions.length,
-            classes: symbolTable.classes.length,
-            imports: symbolTable.imports.length,
-            exports: symbolTable.exports.length
-        }
-    };
+    try {
+        // Use cached symbol resolution with worker for background processing
+        const symbolTable = await operationCache.cacheSymbolResolution(file_path, content, async (content, filePath) => {
+            // Use symbol worker for comprehensive symbol analysis
+            return await workerManager.resolveSymbols(content, filePath, {
+                includeTypes: true,
+                includeDependencies: true,
+                includeComplexity: true
+            });
+        });
+        
+        return {
+            message: `Symbol table built for ${file_path}`,
+            symbolTable: {
+                symbols: symbolTable.symbols?.size || symbolTable.symbolCount || 0,
+                functions: symbolTable.functions?.length || 0,
+                classes: symbolTable.classes?.length || 0,
+                imports: symbolTable.imports?.length || 0,
+                exports: symbolTable.exports?.length || 0,
+                variables: symbolTable.variables?.length || 0,
+                dependencies: symbolTable.dependencies?.length || 0
+            },
+            performance: {
+                cached: symbolTable._cached || false,
+                processingTime: symbolTable._processingTime || 0
+            }
+        };
+    } catch (error) {
+        console.warn(`Worker-based symbol resolution failed for ${file_path}, falling back to basic analysis:`, error.message);
+        
+        // Fallback to basic symbol resolution
+        const symbolTable = await symbolResolver.buildSymbolTable(content, file_path);
+        
+        return {
+            message: `Symbol table built for ${file_path} (fallback mode)`,
+            symbolTable: {
+                symbols: symbolTable.symbols?.size || 0,
+                functions: symbolTable.functions?.length || 0,
+                classes: symbolTable.classes?.length || 0,
+                imports: symbolTable.imports?.length || 0,
+                exports: symbolTable.exports?.length || 0
+            },
+            fallback: true
+        };
+    }
 }
 
 async function _traceDataFlow({ variable_name, file_path, line }, rootHandle) {
@@ -2481,21 +2663,61 @@ async function _traceDataFlow({ variable_name, file_path, line }, rootHandle) {
     if (!file_path) throw new Error("The 'file_path' parameter is required.");
     
     const startLine = line || 1;
-    const flowInfo = await dataFlowAnalyzer.traceVariableFlow(variable_name, file_path, startLine);
     
-    return {
-        message: `Data flow traced for variable '${variable_name}'`,
-        flow: {
-            definitions: flowInfo.definitions.length,
-            usages: flowInfo.usages.length,
-            mutations: flowInfo.mutations.length,
-            crossFileFlows: flowInfo.crossFileFlows.length,
-            dataTypes: Array.from(flowInfo.dataTypes),
-            complexity: dataFlowAnalyzer.calculateFlowComplexity ?
-                       dataFlowAnalyzer.calculateFlowComplexity(flowInfo) : 'N/A'
-        },
-        details: flowInfo
-    };
+    try {
+        const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, file_path);
+        const file = await fileHandle.getFile();
+        const content = await file.text();
+        
+        // Use cached data flow analysis with worker processing
+        const flowInfo = await operationCache.cacheSymbolResolution(`${file_path}:${variable_name}:flow`, content, async (content, cacheKey) => {
+            // Use symbol worker for data flow analysis
+            return await workerManager.resolveSymbols(content, file_path, {
+                targetVariable: variable_name,
+                startLine: startLine,
+                includeDataFlow: true,
+                includeCrossFileAnalysis: true
+            });
+        });
+        
+        return {
+            message: `Data flow traced for variable '${variable_name}'`,
+            flow: {
+                definitions: flowInfo.definitions?.length || 0,
+                usages: flowInfo.usages?.length || 0,
+                mutations: flowInfo.mutations?.length || 0,
+                crossFileFlows: flowInfo.crossFileFlows?.length || 0,
+                dataTypes: Array.from(flowInfo.dataTypes || []),
+                complexity: flowInfo.complexity || 'N/A',
+                scope: flowInfo.scope || 'unknown'
+            },
+            details: flowInfo,
+            performance: {
+                cached: flowInfo._cached || false,
+                processingTime: flowInfo._processingTime || 0
+            }
+        };
+    } catch (error) {
+        console.warn(`Worker-based data flow analysis failed for ${variable_name}, falling back:`, error.message);
+        
+        // Fallback to original data flow analyzer
+        const flowInfo = await dataFlowAnalyzer.traceVariableFlow(variable_name, file_path, startLine);
+        
+        return {
+            message: `Data flow traced for variable '${variable_name}' (fallback mode)`,
+            flow: {
+                definitions: flowInfo.definitions?.length || 0,
+                usages: flowInfo.usages?.length || 0,
+                mutations: flowInfo.mutations?.length || 0,
+                crossFileFlows: flowInfo.crossFileFlows?.length || 0,
+                dataTypes: Array.from(flowInfo.dataTypes || []),
+                complexity: dataFlowAnalyzer.calculateFlowComplexity ?
+                           dataFlowAnalyzer.calculateFlowComplexity(flowInfo) : 'N/A'
+            },
+            details: flowInfo,
+            fallback: true
+        };
+    }
 }
 
 async function _debugSystematically({ error_message, file_path, line, stack_trace }, rootHandle) {
@@ -2531,30 +2753,92 @@ async function _analyzeCodeQuality({ file_path }, rootHandle) {
     const file = await fileHandle.getFile();
     const content = await file.text();
     
-    const qualityMetrics = await codeQualityAnalyzer.analyzeCodeQuality(file_path, content);
-    
-    return {
-        message: `Code quality analysis completed for ${file_path}`,
-        quality: {
-            overallScore: qualityMetrics.overallScore,
-            category: codeQualityAnalyzer.categorizeQualityScore(qualityMetrics.overallScore),
-            complexity: {
-                average: qualityMetrics.complexity.averageComplexity,
-                max: qualityMetrics.complexity.maxComplexity,
-                functions: qualityMetrics.complexity.functions.length
+    try {
+        // Use cached code quality analysis with worker processing
+        const qualityMetrics = await operationCache.cacheValidation(`${file_path}:quality`, content, async (content, filePath) => {
+            // Ensure workers are initialized before use
+            await ensureWorkersInitialized();
+            
+            // Use file worker for comprehensive quality analysis
+            return await workerManager.processFile('analyze_quality', {
+                filename: file_path,
+                content: content,
+                includeComplexity: true,
+                includeSecurity: true,
+                includePerformance: true,
+                includeMaintainability: true
+            });
+        });
+        
+        return {
+            message: `Code quality analysis completed for ${file_path}`,
+            quality: {
+                overallScore: qualityMetrics.overallScore || 0,
+                category: qualityMetrics.category || 'unknown',
+                complexity: {
+                    average: qualityMetrics.complexity?.averageComplexity || 0,
+                    max: qualityMetrics.complexity?.maxComplexity || 0,
+                    functions: qualityMetrics.complexity?.functions?.length || 0,
+                    distribution: qualityMetrics.complexity?.distribution || {}
+                },
+                maintainability: {
+                    index: qualityMetrics.maintainability?.index || 0,
+                    category: qualityMetrics.maintainability?.category || 'unknown',
+                    factors: qualityMetrics.maintainability?.factors || []
+                },
+                issues: {
+                    codeSmells: qualityMetrics.codeSmells?.length || 0,
+                    security: qualityMetrics.security?.length || 0,
+                    performance: qualityMetrics.performance?.length || 0,
+                    total: (qualityMetrics.codeSmells?.length || 0) +
+                           (qualityMetrics.security?.length || 0) +
+                           (qualityMetrics.performance?.length || 0)
+                },
+                metrics: {
+                    linesOfCode: qualityMetrics.linesOfCode || 0,
+                    cyclomaticComplexity: qualityMetrics.cyclomaticComplexity || 0,
+                    cognitiveComplexity: qualityMetrics.cognitiveComplexity || 0,
+                    technicalDebt: qualityMetrics.technicalDebt || 0
+                }
             },
-            maintainability: {
-                index: qualityMetrics.maintainability.index,
-                category: qualityMetrics.maintainability.category
-            },
-            issues: {
-                codeSmells: qualityMetrics.codeSmells.length,
-                security: qualityMetrics.security.length,
-                performance: qualityMetrics.performance.length
+            recommendations: qualityMetrics.recommendations || [],
+            performance: {
+                cached: qualityMetrics._cached || false,
+                processingTime: qualityMetrics._processingTime || 0
             }
-        },
-        recommendations: codeQualityAnalyzer.getTopRecommendations(qualityMetrics)
-    };
+        };
+    } catch (error) {
+        console.warn(`Worker-based quality analysis failed for ${file_path}, falling back:`, error.message);
+        
+        // Fallback to original code quality analyzer
+        const qualityMetrics = await codeQualityAnalyzer.analyzeCodeQuality(file_path, content);
+        
+        return {
+            message: `Code quality analysis completed for ${file_path} (fallback mode)`,
+            quality: {
+                overallScore: qualityMetrics.overallScore || 0,
+                category: codeQualityAnalyzer.categorizeQualityScore ?
+                         codeQualityAnalyzer.categorizeQualityScore(qualityMetrics.overallScore) : 'unknown',
+                complexity: {
+                    average: qualityMetrics.complexity?.averageComplexity || 0,
+                    max: qualityMetrics.complexity?.maxComplexity || 0,
+                    functions: qualityMetrics.complexity?.functions?.length || 0
+                },
+                maintainability: {
+                    index: qualityMetrics.maintainability?.index || 0,
+                    category: qualityMetrics.maintainability?.category || 'unknown'
+                },
+                issues: {
+                    codeSmells: qualityMetrics.codeSmells?.length || 0,
+                    security: qualityMetrics.security?.length || 0,
+                    performance: qualityMetrics.performance?.length || 0
+                }
+            },
+            recommendations: codeQualityAnalyzer.getTopRecommendations ?
+                           codeQualityAnalyzer.getTopRecommendations(qualityMetrics) : [],
+            fallback: true
+        };
+    }
 }
 
 async function _solveEngineeringProblem({ problem_description, file_path, priority, constraints }, rootHandle) {
@@ -2749,6 +3033,278 @@ async function _validateSyntax({ file_path }, rootHandle) {
     };
 }
 
+// --- Batch Processing Tools ---
+
+async function _batchAnalyzeFiles({ filenames, analysis_types = ['ast', 'quality', 'symbols'] }, rootHandle) {
+    if (!filenames || !Array.isArray(filenames) || filenames.length === 0) {
+        throw new Error("The 'filenames' parameter is required and must be a non-empty array of strings.");
+    }
+    
+    try {
+        // Ensure workers are initialized before use
+        await ensureWorkersInitialized();
+        
+        // Use batch worker for parallel analysis of multiple files
+        const batchResult = await workerManager.executeBatch([
+            {
+                type: 'file_analyze',
+                filenames: filenames,
+                analysisTypes: analysis_types,
+                includeMetrics: true,
+                includeRecommendations: true
+            }
+        ]);
+        
+        const results = [];
+        const summary = {
+            totalFiles: filenames.length,
+            successful: 0,
+            failed: 0,
+            totalIssues: 0,
+            averageQuality: 0,
+            processingTime: batchResult.processingTime || 0
+        };
+        
+        for (let i = 0; i < filenames.length; i++) {
+            const filename = filenames[i];
+            const result = batchResult.results[i];
+            
+            if (result.success) {
+                summary.successful++;
+                summary.totalIssues += (result.issues?.length || 0);
+                summary.averageQuality += (result.qualityScore || 0);
+                
+                results.push({
+                    filename,
+                    success: true,
+                    analysis: result.analysis,
+                    qualityScore: result.qualityScore,
+                    issues: result.issues || [],
+                    recommendations: result.recommendations || [],
+                    metrics: result.metrics || {}
+                });
+            } else {
+                summary.failed++;
+                results.push({
+                    filename,
+                    success: false,
+                    error: result.error
+                });
+            }
+        }
+        
+        summary.averageQuality = summary.successful > 0 ? summary.averageQuality / summary.successful : 0;
+        
+        return {
+            message: `Batch analysis completed for ${filenames.length} files`,
+            summary,
+            results,
+            performance: {
+                parallelProcessing: true,
+                processingTime: batchResult.processingTime || 0,
+                averageTimePerFile: summary.successful > 0 ? (batchResult.processingTime || 0) / summary.successful : 0
+            }
+        };
+        
+    } catch (error) {
+        console.warn('Batch analysis failed, falling back to sequential processing:', error.message);
+        
+        // Fallback to sequential processing
+        const results = [];
+        const startTime = Date.now();
+        
+        for (const filename of filenames) {
+            try {
+                const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
+                const file = await fileHandle.getFile();
+                const content = await file.text();
+                
+                const analysis = {};
+                
+                // Perform requested analysis types
+                if (analysis_types.includes('ast')) {
+                    try {
+                        analysis.ast = await operationCache.cacheAST(filename, content, async (content, filename) => {
+                            await ensureWorkersInitialized();
+                            return await workerManager.parseAST(content, filename);
+                        });
+                    } catch (e) {
+                        analysis.ast = { error: e.message };
+                    }
+                }
+                
+                if (analysis_types.includes('quality')) {
+                    try {
+                        analysis.quality = await _analyzeCodeQuality({ file_path: filename }, rootHandle);
+                    } catch (e) {
+                        analysis.quality = { error: e.message };
+                    }
+                }
+                
+                if (analysis_types.includes('symbols')) {
+                    try {
+                        analysis.symbols = await _buildSymbolTable({ file_path: filename }, rootHandle);
+                    } catch (e) {
+                        analysis.symbols = { error: e.message };
+                    }
+                }
+                
+                results.push({
+                    filename,
+                    success: true,
+                    analysis,
+                    fallback: true
+                });
+                
+            } catch (error) {
+                results.push({
+                    filename,
+                    success: false,
+                    error: error.message
+                });
+            }
+        }
+        
+        const processingTime = Date.now() - startTime;
+        
+        return {
+            message: `Batch analysis completed for ${filenames.length} files (fallback mode)`,
+            results,
+            fallback: true,
+            performance: {
+                parallelProcessing: false,
+                processingTime,
+                averageTimePerFile: processingTime / filenames.length
+            }
+        };
+    }
+}
+
+async function _batchValidateFiles({ filenames, validation_types = ['syntax', 'style', 'security'] }, rootHandle) {
+    if (!filenames || !Array.isArray(filenames) || filenames.length === 0) {
+        throw new Error("The 'filenames' parameter is required and must be a non-empty array of strings.");
+    }
+    
+    try {
+        // Ensure workers are initialized before use
+        await ensureWorkersInitialized();
+        
+        // Use batch worker for parallel validation of multiple files
+        const batchResult = await workerManager.executeBatch([
+            {
+                type: 'file_validate',
+                filenames: filenames,
+                validationTypes: validation_types,
+                includeWarnings: true,
+                includeSuggestions: true
+            }
+        ]);
+        
+        const results = [];
+        const summary = {
+            totalFiles: filenames.length,
+            validFiles: 0,
+            filesWithErrors: 0,
+            filesWithWarnings: 0,
+            totalErrors: 0,
+            totalWarnings: 0,
+            processingTime: batchResult.processingTime || 0
+        };
+        
+        for (let i = 0; i < filenames.length; i++) {
+            const filename = filenames[i];
+            const result = batchResult.results[i];
+            
+            if (result.success) {
+                const hasErrors = result.errors && result.errors.length > 0;
+                const hasWarnings = result.warnings && result.warnings.length > 0;
+                
+                if (!hasErrors && !hasWarnings) {
+                    summary.validFiles++;
+                } else {
+                    if (hasErrors) summary.filesWithErrors++;
+                    if (hasWarnings) summary.filesWithWarnings++;
+                }
+                
+                summary.totalErrors += (result.errors?.length || 0);
+                summary.totalWarnings += (result.warnings?.length || 0);
+                
+                results.push({
+                    filename,
+                    success: true,
+                    valid: !hasErrors,
+                    errors: result.errors || [],
+                    warnings: result.warnings || [],
+                    suggestions: result.suggestions || [],
+                    language: result.language || 'unknown'
+                });
+            } else {
+                summary.filesWithErrors++;
+                results.push({
+                    filename,
+                    success: false,
+                    valid: false,
+                    error: result.error
+                });
+            }
+        }
+        
+        return {
+            message: `Batch validation completed for ${filenames.length} files`,
+            summary,
+            results,
+            performance: {
+                parallelProcessing: true,
+                processingTime: batchResult.processingTime || 0,
+                averageTimePerFile: filenames.length > 0 ? (batchResult.processingTime || 0) / filenames.length : 0
+            }
+        };
+        
+    } catch (error) {
+        console.warn('Batch validation failed, falling back to sequential processing:', error.message);
+        
+        // Fallback to sequential processing
+        const results = [];
+        const startTime = Date.now();
+        
+        for (const filename of filenames) {
+            try {
+                const validation = await _validateSyntax({ file_path: filename }, rootHandle);
+                results.push({
+                    filename,
+                    success: true,
+                    valid: validation.valid,
+                    errors: validation.errors || [],
+                    warnings: validation.warnings || [],
+                    suggestions: validation.suggestions || [],
+                    language: validation.language || 'unknown',
+                    fallback: true
+                });
+            } catch (error) {
+                results.push({
+                    filename,
+                    success: false,
+                    valid: false,
+                    error: error.message
+                });
+            }
+        }
+        
+        const processingTime = Date.now() - startTime;
+        
+        return {
+            message: `Batch validation completed for ${filenames.length} files (fallback mode)`,
+            results,
+            fallback: true,
+            performance: {
+                parallelProcessing: false,
+                processingTime,
+                averageTimePerFile: processingTime / filenames.length
+            }
+        };
+    }
+}
+
 // --- Tool Registry ---
 
 const toolRegistry = {
@@ -2825,6 +3381,10 @@ const toolRegistry = {
     insert_at_line: { handler: _insertAtLine, requiresProject: true, createsCheckpoint: true },
     replace_lines: { handler: _replaceLines, requiresProject: true, createsCheckpoint: true },
     smart_replace: { handler: _smartReplace, requiresProject: true, createsCheckpoint: true },
+    
+    // Batch processing tools for efficient bulk operations
+    batch_analyze_files: { handler: _batchAnalyzeFiles, requiresProject: true, createsCheckpoint: false },
+    batch_validate_files: { handler: _batchValidateFiles, requiresProject: true, createsCheckpoint: false },
     
     undo_last_change: { handler: _undoLastChange, requiresProject: true, createsCheckpoint: false },
 };

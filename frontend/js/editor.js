@@ -3,6 +3,7 @@ import { ChatService } from './chat_service.js';
 import * as UI from './ui.js';
 import { monacoModelManager } from './monaco_model_manager.js';
 import { appState } from './main.js';
+import { readFileWithStrategy, FileInfo, ProgressTracker } from './file_streaming.js';
 
 const MONACO_CDN_PATH = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs';
 
@@ -499,26 +500,166 @@ export async function openFile(fileHandle, filePath, tabBarContainer, focusEdito
 
     try {
         const file = await fileHandle.getFile();
-        const content = await file.text();
+        const fileInfo = new FileInfo(file, fileHandle);
+        
+        // Show loading indicator for large files
+        let loadingToast = null;
+        if (fileInfo.isLarge) {
+            loadingToast = UI.showToast(`Loading ${file.name}...`, 'info', 0); // 0 duration = persistent
+        }
 
-        // Use managed model creation
-        const model = monacoModelManager.getModel(
-            filePath,
-            content,
-            getLanguageFromExtension(file.name.split('.').pop())
-        );
+        try {
+            // Use streaming file reader with progress tracking
+            const options = {
+                onProgress: (progress, loaded, total) => {
+                    if (loadingToast && fileInfo.isLarge) {
+                        const progressTracker = new ProgressTracker(total);
+                        progressTracker.update(loaded);
+                        const progressPercent = progress.toFixed(1);
+                        const currentFormatted = progressTracker.formatBytes(loaded);
+                        const totalFormatted = progressTracker.formatBytes(total);
+                        
+                        // Update toast message with progress
+                        updateToastMessage(loadingToast, 
+                            `Loading ${file.name}... ${progressPercent}% (${currentFormatted}/${totalFormatted})`);
+                    }
+                }
+            };
 
-        openFiles.set(filePath, {
-            handle: fileHandle,
-            name: file.name,
-            model: model,
-            viewState: null,
-        });
+            // For very large files, offer preview option
+            if (fileInfo.size > 50 * 1024 * 1024) { // 50MB
+                const fileSize = new ProgressTracker(0).formatBytes(fileInfo.size);
+                const userChoice = confirm(
+                    `This file is ${fileSize}. Loading the entire file may slow down the editor.\n\n` +
+                    'Click OK to load a preview (1MB), or Cancel to load the full file.'
+                );
+                
+                if (userChoice) {
+                    options.previewOnly = true;
+                    options.previewSize = 1024 * 1024; // 1MB preview
+                }
+            }
 
-        await switchTab(filePath, tabBarContainer, focusEditor);
+            const result = await readFileWithStrategy(fileHandle, filePath, options);
+            
+            if (!result.content && result.strategy === 'binary') {
+                UI.showError(`Cannot open binary file: ${file.name}`);
+                return;
+            }
+
+            // Use managed model creation with streaming strategy
+            const language = getLanguageFromExtension(file.name.split('.').pop());
+            const modelOptions = {
+                strategy: result.strategy,
+                truncated: result.truncated
+            };
+            
+            const model = monacoModelManager.getModel(
+                filePath,
+                result.content,
+                language,
+                modelOptions
+            );
+
+            // Add truncation warning if applicable
+            if (result.truncated) {
+                addTruncationWarning(model, result);
+            }
+
+            openFiles.set(filePath, {
+                handle: fileHandle,
+                name: file.name,
+                model: model,
+                viewState: null,
+                fileInfo: fileInfo,
+                loadStrategy: result.strategy,
+                truncated: result.truncated
+            });
+
+            await switchTab(filePath, tabBarContainer, focusEditor);
+            
+            // Show success message for large files
+            if (fileInfo.isLarge) {
+                const fileSize = new ProgressTracker(0).formatBytes(fileInfo.size);
+                const message = result.truncated 
+                    ? `Preview loaded: ${file.name} (${new ProgressTracker(0).formatBytes(result.previewSize || 1024*1024)} shown of ${fileSize})`
+                    : `Large file loaded: ${file.name} (${fileSize})`;
+                UI.showToast(message, 'success', 5000);
+            }
+
+        } finally {
+            if (loadingToast) {
+                hideToast(loadingToast);
+            }
+        }
+
     } catch (error) {
         console.error(`Failed to open file ${filePath}:`, error);
         UI.showError(`Failed to open file: ${error.message}`);
+    }
+}
+
+/**
+ * Add truncation warning to Monaco model
+ */
+function addTruncationWarning(model, result) {
+    if (!monaco?.editor) return;
+    
+    try {
+        // Add a marker to indicate truncation
+        const warningMessage = `⚠️ File truncated: Showing ${result.previewSize || 'partial'} content of ${result.size} total bytes`;
+        
+        // Add decoration to the first line
+        const decorations = [{
+            range: new monaco.Range(1, 1, 1, 1),
+            options: {
+                isWholeLine: true,
+                className: 'truncation-warning-line',
+                glyphMarginClassName: 'truncation-warning-glyph',
+                hoverMessage: { value: warningMessage }
+            }
+        }];
+        
+        model.deltaDecorations([], decorations);
+        
+        // Add CSS for the warning if not already added
+        if (!document.getElementById('truncation-warning-styles')) {
+            const style = document.createElement('style');
+            style.id = 'truncation-warning-styles';
+            style.textContent = `
+                .truncation-warning-line {
+                    background-color: rgba(255, 193, 7, 0.1) !important;
+                }
+                .truncation-warning-glyph:before {
+                    content: "⚠️";
+                    color: #ffc107;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+    } catch (error) {
+        console.warn('Failed to add truncation warning:', error);
+    }
+}
+
+/**
+ * Update toast message content
+ */
+function updateToastMessage(toast, message) {
+    if (toast && toast.querySelector) {
+        const messageElement = toast.querySelector('.toast-message');
+        if (messageElement) {
+            messageElement.textContent = message;
+        }
+    }
+}
+
+/**
+ * Hide a specific toast
+ */
+function hideToast(toast) {
+    if (toast && toast.remove) {
+        toast.remove();
     }
 }
 
