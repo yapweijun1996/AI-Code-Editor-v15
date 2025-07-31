@@ -120,8 +120,9 @@ export function updateDirectoryButtons(isConnected, needsReconnect = false) {
     const openDirBtn = document.getElementById('open-directory-button');
     const forgetBtn = document.getElementById('forget-folder-button');
     const reconnectBtn = document.getElementById('reconnect-button');
+    const refreshBtn = document.getElementById('refresh-folder-button');
 
-    if (!openDirBtn || !forgetBtn || !reconnectBtn) {
+    if (!openDirBtn || !forgetBtn || !reconnectBtn || !refreshBtn) {
         console.warn('Directory control buttons not found in the DOM.');
         return;
     }
@@ -130,14 +131,17 @@ export function updateDirectoryButtons(isConnected, needsReconnect = false) {
         openDirBtn.style.display = 'none';
         forgetBtn.style.display = 'block';
         reconnectBtn.style.display = 'none';
+        refreshBtn.style.display = 'block';
     } else if (needsReconnect) {
         openDirBtn.style.display = 'none';
         forgetBtn.style.display = 'block';
         reconnectBtn.style.display = 'block';
+        refreshBtn.style.display = 'none';
     } else {
         openDirBtn.style.display = 'block';
         forgetBtn.style.display = 'none';
         reconnectBtn.style.display = 'none';
+        refreshBtn.style.display = 'none';
     }
 }
 

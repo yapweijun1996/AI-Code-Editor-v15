@@ -28,6 +28,7 @@ export function initializeEventListeners(appState) {
     const openDirectoryButton = document.getElementById('open-directory-button');
     const forgetFolderButton = document.getElementById('forget-folder-button');
     const reconnectButton = document.getElementById('reconnect-button');
+    const refreshFolderButton = document.getElementById('refresh-folder-button');
     const chatMessages = document.getElementById('chat-messages');
     const chatInput = document.getElementById('chat-input');
     const chatSendButton = document.getElementById('chat-send-button');
@@ -134,8 +135,14 @@ export function initializeEventListeners(appState) {
             }
         }
     });
-
-    chatSendButton.addEventListener('click', () => ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, appState.uploadedImage, clearImagePreview));
+    
+    refreshFolderButton.addEventListener('click', async () => {
+        if (appState.rootDirectoryHandle) {
+            await UI.refreshFileTree(appState.rootDirectoryHandle, onFileSelect, appState);
+        }
+    });
+ 
+     chatSendButton.addEventListener('click', () => ChatService.sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, appState.uploadedImage, clearImagePreview));
     chatCancelButton.addEventListener('click', () => ChatService.cancelMessage());
 
     chatInput.addEventListener('keydown', (e) => {

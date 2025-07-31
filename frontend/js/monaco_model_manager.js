@@ -47,7 +47,7 @@ export class MonacoModelManager {
         const strategy = options.strategy || (isLarge ? 'large' : 'standard');
 
         // Create new model with special handling for large files
-        const model = this.createModelWithStrategy(content, language, strategy, options);
+        const model = this.createModelWithStrategy(content, language, strategy, options, filename);
         
         // Store model info
         this.models.set(filename, {
@@ -72,13 +72,14 @@ export class MonacoModelManager {
     /**
      * Create a Monaco model with the appropriate strategy
      */
-    createModelWithStrategy(content, language, strategy, options) {
+    createModelWithStrategy(content, language, strategy, options, filename) {
         let model;
-        
+        const uri = filename ? monaco.Uri.parse(`file://${filename}`) : undefined;
+
         switch (strategy) {
             case 'large':
                 // For large files, we might want to disable certain features
-                model = monaco.editor.createModel(content, language);
+                model = monaco.editor.createModel(content, language, uri);
                 
                 // Disable expensive features for large files
                 if (content.length > this.largeFileThreshold) {
@@ -89,12 +90,12 @@ export class MonacoModelManager {
                 
             case 'truncated':
                 // Model with truncated content
-                model = monaco.editor.createModel(content, language);
+                model = monaco.editor.createModel(content, language, uri);
                 // Add a marker or warning about truncation
                 break;
                 
             default:
-                model = monaco.editor.createModel(content, language);
+                model = monaco.editor.createModel(content, language, uri);
         }
         
         return model;

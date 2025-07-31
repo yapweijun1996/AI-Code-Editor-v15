@@ -1392,6 +1392,16 @@ async function _smartEditFile({ filename, edits }, rootHandle) {
     if (!filename) throw new Error("The 'filename' parameter is required.");
     if (!edits || !Array.isArray(edits)) throw new Error("The 'edits' parameter is required and must be an array.");
     
+    // Validate that each edit has a valid type property early
+    for (const edit of edits) {
+        if (!edit.type) {
+            throw new Error("Each edit must have a 'type' property. Valid types are: 'replace_lines', 'insert_lines'");
+        }
+        if (!['replace_lines', 'insert_lines'].includes(edit.type)) {
+            throw new Error(`Invalid edit type: '${edit.type}'. Valid types are: 'replace_lines', 'insert_lines'`);
+        }
+    }
+    
     const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
     
     // Enhanced permission handling - try to proceed even if permission check fails
@@ -1448,8 +1458,10 @@ async function _smartEditFile({ filename, edits }, rootHandle) {
             if (typeof line_number !== 'number' || line_number < 0 || line_number > originalLineCount) {
                 throw new Error(`Invalid line number for insert: ${line_number} (file has ${originalLineCount} lines)`);
             }
+        } else if (!edit.type) {
+            throw new Error(`Missing edit type: Each edit must have a 'type' property of either 'replace_lines' or 'insert_lines'`);
         } else {
-            throw new Error(`Unsupported edit type: ${edit.type}`);
+            throw new Error(`Unsupported edit type: ${edit.type}. Must be one of: 'replace_lines', 'insert_lines'`);
         }
     }
     
@@ -1560,6 +1572,16 @@ async function _editFile({ filename, content, edits }, rootHandle) {
     
     // If edits provided, use smart editing (for large files)
     if (edits !== undefined) {
+        // Basic validation before passing to _smartEditFile
+        if (!Array.isArray(edits)) {
+            throw new Error("The 'edits' parameter must be an array of edit objects.");
+        }
+        
+        // Validate that at least one edit exists
+        if (edits.length === 0) {
+            throw new Error("The 'edits' array must contain at least one edit object.");
+        }
+        
         return await _smartEditFile({ filename, edits }, rootHandle);
     }
     
@@ -1772,6 +1794,25 @@ async function _taskGetStatus({ taskId }) {
         }
     } catch (error) {
         throw new Error(`Failed to get task status: ${error.message}`);
+    }
+}
+async function _startTaskSession({ taskId, description = '', duration = null }) {
+    if (!taskId) throw new Error("The 'taskId' parameter is required.");
+    if (typeof taskId !== 'string') throw new Error("The 'taskId' parameter must be a string.");
+    
+    try {
+        const task = TaskTools.getById(taskId);
+        if (!task) {
+            throw new Error(`Task with ID ${taskId} not found.`);
+        }
+        
+        const session = await TaskTools.startSession(taskId, { description, duration });
+        return {
+            message: `Task session started for "${task.title}" (ID: ${taskId})`,
+            details: session
+        };
+    } catch (error) {
+        throw new Error(`Failed to start task session: ${error.message}`);
     }
 }
 
@@ -2129,15 +2170,62 @@ async function _duckduckgoSearch({ query }) {
  * by first prioritizing breadth of coverage, then identifying gaps, and finally
  * filling those gaps with focused research.
  *
+ * Tasks are properly linked and managed through the task management system,
+ * ensuring all subtasks are completed in sequence and no tasks are left incomplete.
+ *
  * @param {Object} params - Research parameters
  * @param {string} params.query - The research query or topic to investigate
  * @param {number} [params.max_results=3] - Maximum URLs to read per search (default: 3)
  * @param {number} [params.depth=2] - Maximum recursion depth (default: 2)
  * @param {number} [params.relevance_threshold=0.7] - Minimum relevance score to read URLs (0.3-1.0)
+ * @param {string} [params.task_id] - Optional ID of a parent task to link with
  * @returns {Object} Research results containing summary, full content, and metadata
  */
-async function _performResearch({ query, max_results = 3, depth = 2, relevance_threshold = 0.7 }) {
+async function _performResearch({ query, max_results = 3, depth = 2, relevance_threshold = 0.7, task_id = null }) {
     if (!query) throw new Error("The 'query' parameter is required for perform_research.");
+    
+    // Get task manager if a task_id is provided
+    let taskTools = null;
+    let stageTasks = {
+        stage1: null,
+        stage2: null,
+        stage3: null,
+        parent: task_id
+    };
+    
+    // If task_id is provided, try to get task info and subtasks
+    if (task_id) {
+        try {
+            // Import TaskTools dynamically to avoid circular dependencies
+            const { TaskTools } = await import('./task_manager.js');
+            taskTools = TaskTools;
+            
+            // Get the parent task
+            const parentTask = taskTools.getById(task_id);
+            if (parentTask) {
+                console.log(`[Research] Linked to parent task: ${parentTask.title} (ID: ${task_id})`);
+                
+                // Get subtasks for each stage if they exist
+                const subtasks = parentTask.subtasks
+                    .map(id => taskTools.getById(id))
+                    .filter(task => task !== undefined);
+                
+                // Find stage tasks by tags or title
+                for (const task of subtasks) {
+                    if (task.tags?.includes('stage-1') || task.title?.includes('Stage 1')) {
+                        stageTasks.stage1 = task.id;
+                    } else if (task.tags?.includes('stage-2') || task.title?.includes('Stage 2')) {
+                        stageTasks.stage2 = task.id;
+                    } else if (task.tags?.includes('stage-3') || task.title?.includes('Stage 3')) {
+                        stageTasks.stage3 = task.id;
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn(`[Research] Failed to get task information: ${error.message}`);
+            // Continue without task linking if there's an error
+        }
+    }
 
     // Research state tracking with enhanced multi-stage capabilities
     const researchState = {
@@ -2161,7 +2249,10 @@ async function _performResearch({ query, max_results = 3, depth = 2, relevance_t
         parallelSearches: 3,        // Number of parallel searches in first stage
         stageOneComplete: false,
         stageTwoComplete: false,
-        stageThreeComplete: false
+        stageThreeComplete: false,
+        taskId: task_id,
+        stageTasks: stageTasks,
+        taskTools: taskTools
     };
 
     /**
@@ -2671,6 +2762,28 @@ async function _performResearch({ query, max_results = 3, depth = 2, relevance_t
             researchState.stageOneComplete = true;
             console.log(`[Research] Stage 1 complete. Processed ${researchState.allContent.length} content items.`);
             
+            // Update Stage 1 task status if it exists
+            if (researchState.taskTools && researchState.stageTasks.stage1) {
+                await researchState.taskTools.update(researchState.stageTasks.stage1, {
+                    status: 'completed',
+                    completedTime: Date.now(),
+                    notes: [{
+                        id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        content: `Completed Stage 1: Processed ${researchState.allContent.length} content items from ${researchState.searchQueries.length} queries.`,
+                        type: 'system',
+                        timestamp: Date.now()
+                    }]
+                });
+                
+                // If Stage 2 task exists, mark it as in_progress
+                if (researchState.stageTasks.stage2) {
+                    await researchState.taskTools.update(researchState.stageTasks.stage2, {
+                        status: 'in_progress',
+                        startTime: Date.now()
+                    });
+                }
+            }
+            
             // Stage 2: Content analysis and knowledge gap identification
             UI.appendMessage(document.getElementById('chat-messages'),
                 `🔬 Stage 2: Analyzing content and identifying knowledge gaps...`, 'ai');
@@ -2679,6 +2792,28 @@ async function _performResearch({ query, max_results = 3, depth = 2, relevance_t
             
             researchState.stageTwoComplete = true;
             console.log(`[Research] Stage 2 complete. Identified ${gapQueries.length} knowledge gaps.`);
+            
+            // Update Stage 2 task status if it exists
+            if (researchState.taskTools && researchState.stageTasks.stage2) {
+                await researchState.taskTools.update(researchState.stageTasks.stage2, {
+                    status: 'completed',
+                    completedTime: Date.now(),
+                    notes: [{
+                        id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        content: `Completed Stage 2: Identified ${gapQueries.length} knowledge gaps: ${researchState.knowledgeGaps.map(g => g.keyword).join(', ')}`,
+                        type: 'system',
+                        timestamp: Date.now()
+                    }]
+                });
+                
+                // If Stage 3 task exists, mark it as in_progress
+                if (researchState.stageTasks.stage3) {
+                    await researchState.taskTools.update(researchState.stageTasks.stage3, {
+                        status: 'in_progress',
+                        startTime: Date.now()
+                    });
+                }
+            }
             
             // Stage 3: Focused reading based on knowledge gaps
             UI.appendMessage(document.getElementById('chat-messages'),
@@ -2689,15 +2824,108 @@ async function _performResearch({ query, max_results = 3, depth = 2, relevance_t
             researchState.stageThreeComplete = true;
             console.log(`[Research] Stage 3 complete. Final content count: ${researchState.allContent.length}.`);
             
+            // Update Stage 3 task status if it exists
+            if (researchState.taskTools && researchState.stageTasks.stage3) {
+                await researchState.taskTools.update(researchState.stageTasks.stage3, {
+                    status: 'completed',
+                    completedTime: Date.now(),
+                    notes: [{
+                        id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        content: `Completed Stage 3: Added ${researchState.stage3Sources || 0} focused sources. Total sources: ${researchState.allContent.length}.`,
+                        type: 'system',
+                        timestamp: Date.now()
+                    }]
+                });
+            }
+            
             // Final result compilation
             UI.appendMessage(document.getElementById('chat-messages'),
                 `✅ Research completed! Processed ${researchState.allContent.length} sources across 3 stages.`, 'ai');
                 
+            // Update parent task if it exists
+            if (researchState.taskTools && researchState.taskId) {
+                try {
+                    const parentTask = researchState.taskTools.getById(researchState.taskId);
+                    if (parentTask) {
+                        await researchState.taskTools.update(researchState.taskId, {
+                            status: 'completed',
+                            completedTime: Date.now(),
+                            notes: [{
+                                id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                                content: `Research complete! Processed ${researchState.allContent.length} sources across 3 stages.`,
+                                type: 'system',
+                                timestamp: Date.now()
+                            }],
+                            context: {
+                                ...parentTask.context,
+                                researchCompleted: true,
+                                totalSources: researchState.allContent.length,
+                                uniqueDomains: new Set(researchState.references.map(url => {
+                                    try { return new URL(url).hostname; } catch (e) { return 'unknown'; }
+                                })).size,
+                                knowledgeGaps: researchState.knowledgeGaps.length
+                            }
+                        });
+                    }
+                } catch (taskError) {
+                    console.warn(`[Research] Failed to update parent task: ${taskError.message}`);
+                }
+            }
+            
             // Return results
             return compileResults();
             
         } catch (error) {
             console.error('[Research] Research process failed:', error);
+            
+            // Mark all incomplete tasks as failed if they exist
+            if (researchState.taskTools) {
+                // Helper function to mark a task as failed if it exists and is not completed
+                const markTaskFailed = async (taskId, errorMessage) => {
+                    if (!taskId) return;
+                    
+                    const task = researchState.taskTools.getById(taskId);
+                    if (task && task.status !== 'completed') {
+                        await researchState.taskTools.update(taskId, {
+                            status: 'failed',
+                            completedTime: Date.now(),
+                            notes: [{
+                                id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                                content: `Failed: ${errorMessage}`,
+                                type: 'system',
+                                timestamp: Date.now()
+                            }]
+                        });
+                    }
+                };
+                
+                try {
+                    // Mark all stage tasks as failed if they aren't completed
+                    await markTaskFailed(researchState.stageTasks.stage1, error.message);
+                    await markTaskFailed(researchState.stageTasks.stage2, error.message);
+                    await markTaskFailed(researchState.stageTasks.stage3, error.message);
+                    
+                    // Mark parent task as failed if it exists and isn't completed
+                    if (researchState.taskId) {
+                        const parentTask = researchState.taskTools.getById(researchState.taskId);
+                        if (parentTask && parentTask.status !== 'completed') {
+                            await researchState.taskTools.update(researchState.taskId, {
+                                status: 'failed',
+                                completedTime: Date.now(),
+                                notes: [{
+                                    id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                                    content: `Research failed: ${error.message}`,
+                                    type: 'system',
+                                    timestamp: Date.now()
+                                }]
+                            });
+                        }
+                    }
+                } catch (taskError) {
+                    console.warn(`[Research] Failed to update task statuses: ${taskError.message}`);
+                }
+            }
+            
             throw new Error(`Research failed: ${error.message}`);
         }
     }
@@ -3649,6 +3877,7 @@ const toolRegistry = {
     task_breakdown: { handler: _taskBreakdown, requiresProject: false, createsCheckpoint: true },
     task_get_next: { handler: _taskGetNext, requiresProject: false, createsCheckpoint: false },
     task_get_status: { handler: _taskGetStatus, requiresProject: false, createsCheckpoint: false },
+    start_task_session: { handler: _startTaskSession, requiresProject: false, createsCheckpoint: true },
 
     // Non-project / Editor tools
     read_url: { handler: _readUrl, requiresProject: false, createsCheckpoint: false },
@@ -3866,6 +4095,7 @@ export function getToolDefinitions() {
             { name: 'task_breakdown', description: "🎯 CRITICAL: Analyzes a high-level task and breaks it down into SPECIFIC, ACTIONABLE subtasks. DO NOT create generic tasks like 'Analyze requirements' or 'Plan approach'. Instead, create concrete tasks like 'Locate CSS files containing dashboard styles', 'Identify color variables in style.css', 'Update background-color properties to blue theme'. Each subtask should be a specific action that can be executed immediately.", parameters: { type: 'OBJECT', properties: { taskId: { type: 'STRING' } }, required: ['taskId'] } },
             { name: 'task_get_next', description: "Fetches the next logical task for the AI to work on, based on priority and dependencies." },
             { name: 'task_get_status', description: "Gets status information about tasks. Can check a specific task by ID or get overall task statistics.", parameters: { type: 'OBJECT', properties: { taskId: { type: 'STRING', description: 'Optional specific task ID to check. If omitted, returns overview of all tasks.' } } } },
+            { name: 'start_task_session', description: "Starts a new work session for a specific task, tracking time spent and progress. Useful for focused work periods on complex tasks.", parameters: { type: 'OBJECT', properties: { taskId: { type: 'STRING', description: 'The ID of the task to start a session for' }, description: { type: 'STRING', description: 'Optional description of this work session' }, duration: { type: 'NUMBER', description: 'Optional planned duration in minutes' } }, required: ['taskId'] } },
             
             // Enhanced code comprehension tools
             { name: 'analyze_symbol', description: 'Analyzes a symbol (variable, function, class) across the entire codebase to understand its usage, definition, and relationships.', parameters: { type: 'OBJECT', properties: { symbol_name: { type: 'STRING', description: 'The name of the symbol to analyze' }, file_path: { type: 'STRING', description: 'The file path where the symbol is used or defined' } }, required: ['symbol_name', 'file_path'] } },

@@ -14,6 +14,13 @@ class TaskManager {
         this.activeTask = null; // The task the AI is currently focused on
         this.listeners = [];
         this.isInitialized = false;
+        this.cleanupConfig = {
+            enabled: true,
+            inactivityThreshold: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
+            checkInterval: 60 * 60 * 1000, // 1 hour in milliseconds
+            action: 'complete' // 'complete', 'fail', or 'delete'
+        };
+        this.cleanupTimerId = null;
     }
 
     /**
@@ -35,6 +42,127 @@ class TaskManager {
 
         this.isInitialized = true;
         console.log('[TaskManager] System initialized');
+        
+        // Start the automated cleanup if enabled
+        if (this.cleanupConfig.enabled) {
+            this.startAutomatedCleanup();
+        }
+    }
+    
+    /**
+     * Starts the automated cleanup process based on the cleanup configuration
+     */
+    startAutomatedCleanup() {
+        // Clear any existing timer
+        if (this.cleanupTimerId) {
+            clearInterval(this.cleanupTimerId);
+        }
+        
+        // Set up a new interval for cleanup
+        this.cleanupTimerId = setInterval(() => {
+            this.cleanupStaleTasks();
+        }, this.cleanupConfig.checkInterval);
+        
+        console.log(`[TaskManager] Automated cleanup started. Will check every ${this.cleanupConfig.checkInterval / (60 * 1000)} minutes.`);
+    }
+    
+    /**
+     * Stops the automated cleanup process
+     */
+    stopAutomatedCleanup() {
+        if (this.cleanupTimerId) {
+            clearInterval(this.cleanupTimerId);
+            this.cleanupTimerId = null;
+            console.log('[TaskManager] Automated cleanup stopped.');
+        }
+    }
+    
+    /**
+     * Updates the cleanup configuration
+     * @param {Object} config - New configuration values
+     */
+    updateCleanupConfig(config = {}) {
+        // Update only the provided configuration values
+        this.cleanupConfig = {
+            ...this.cleanupConfig,
+            ...config
+        };
+        
+        // Restart the cleanup process if it's enabled
+        if (this.cleanupConfig.enabled) {
+            this.startAutomatedCleanup();
+        } else {
+            this.stopAutomatedCleanup();
+        }
+        
+        console.log('[TaskManager] Cleanup configuration updated:', this.cleanupConfig);
+    }
+    
+    /**
+     * Identifies and cleans up stale tasks based on inactivity
+     */
+    async cleanupStaleTasks() {
+        console.log('[TaskManager] Running scheduled cleanup of stale tasks...');
+        const now = Date.now();
+        const staleThreshold = now - this.cleanupConfig.inactivityThreshold;
+        let cleanupCount = 0;
+        
+        // Find tasks that haven't been updated for longer than the threshold
+        // and are not in a terminal state (completed or failed)
+        const staleTasks = Array.from(this.tasks.values())
+            .filter(task => {
+                return (task.status === 'pending' || task.status === 'in_progress') &&
+                       task.updatedTime < staleThreshold;
+            });
+            
+        if (staleTasks.length === 0) {
+            console.log('[TaskManager] No stale tasks found.');
+            return;
+        }
+        
+        console.log(`[TaskManager] Found ${staleTasks.length} stale tasks. Cleanup action: ${this.cleanupConfig.action}`);
+        
+        // Process each stale task according to the configured action
+        for (const task of staleTasks) {
+            const inactiveDays = ((now - task.updatedTime) / (1000 * 60 * 60 * 24)).toFixed(1);
+            console.log(`[TaskManager] Cleaning up task "${task.title}" (inactive for ${inactiveDays} days)`);
+            
+            try {
+                if (this.cleanupConfig.action === 'delete') {
+                    await this.deleteTask(task.id);
+                } else {
+                    // Add a note about the automated action
+                    const actionType = this.cleanupConfig.action === 'complete' ? 'completed' : 'failed';
+                    const note = {
+                        id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                        content: `Task automatically marked as ${actionType} due to inactivity (${inactiveDays} days).`,
+                        type: 'system',
+                        timestamp: Date.now()
+                    };
+                    
+                    if (!task.notes) task.notes = [];
+                    task.notes.push(note);
+                    
+                    // Update the task status
+                    await this.updateTask(task.id, {
+                        status: this.cleanupConfig.action === 'complete' ? 'completed' : 'failed',
+                        completedTime: now,
+                        context: {
+                            ...task.context,
+                            cleanedUp: true,
+                            cleanupReason: 'inactivity',
+                            inactiveDays: parseFloat(inactiveDays)
+                        }
+                    });
+                }
+                
+                cleanupCount++;
+            } catch (error) {
+                console.error(`[TaskManager] Error cleaning up task ${task.id}:`, error);
+            }
+        }
+        
+        console.log(`[TaskManager] Cleanup completed. Processed ${cleanupCount} tasks.`);
     }
 
     /**
@@ -1158,5 +1286,53 @@ export const TaskTools = {
             await taskManager.createTask(taskData);
         }
         return `Replanned and added ${newTasks.length} new tasks.`;
+    },
+    cleanupStale: () => taskManager.cleanupStaleTasks(),
+    updateCleanupConfig: (config) => taskManager.updateCleanupConfig(config),
+    startSession: async (taskId, options = {}) => {
+        const task = taskManager.tasks.get(taskId);
+        if (!task) {
+            throw new Error(`Task not found: ${taskId}`);
+        }
+        
+        const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        const session = {
+            id: sessionId,
+            taskId: taskId,
+            description: options.description || '',
+            startTime: Date.now(),
+            endTime: null,
+            duration: options.duration || null,
+            active: true
+        };
+        
+        // Store session in task context
+        if (!task.context.sessions) {
+            task.context.sessions = [];
+        }
+        task.context.sessions.push(session);
+        
+        // Update task status if not already in progress
+        if (task.status !== 'in_progress') {
+            await taskManager.updateTask(taskId, {
+                status: 'in_progress',
+                startTime: Date.now()
+            });
+        }
+        
+        // Add session note to task
+        await taskManager.addNote(
+            taskId,
+            `Started work session${options.description ? `: ${options.description}` : ''}${options.duration ? ` (planned duration: ${options.duration} minutes)` : ''}`,
+            'system'
+        );
+        
+        console.log(`[TaskManager] Started session for task "${task.title}"`);
+        
+        await taskManager.saveToStorage();
+        taskManager.notifyListeners('session_started', { taskId, session });
+        
+        return session;
     }
 };
