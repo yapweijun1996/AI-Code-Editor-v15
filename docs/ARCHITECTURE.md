@@ -222,40 +222,40 @@ This approach, powered by the `diff-match-patch` library, avoids a direct, chara
 The workflow is as follows:
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "File Content"
         A[Original File Content]
         B[New File Content]
     end
 
     subgraph "Line-to-Char Mapping"
-        C[dmp.diff_linesToChars_()]
+        C[dmp.diff_linesToChars_]
     end
 
     subgraph "Core Diffing"
-        D[dmp.diff_main()]
+        D[dmp.diff_main]
     end
 
     subgraph "Char-to-Line Restoration"
-        E[dmp.diff_charsToLines_()]
+        E[dmp.diff_charsToLines_]
     end
 
     subgraph "Patch Generation & Application"
-        F[dmp.patch_make()]
-        G[dmp.patch_apply()]
+        F[dmp.patch_make]
+        G[dmp.patch_apply]
     end
     
     H[Patched File Content]
 
-    A -- feeds --> C
-    B -- feeds --> C
-    C -- provides line arrays & char representations --> D
-    D -- generates diffs --> E
-    E -- restores line data to diffs --> F
-    F -- creates patches --> G
-    A -- provides original content for patching --> F
-    A -- provides original content for applying patch --> G
-    G -- outputs --> H
+    A --> C
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    A --> F
+    A --> G
+    G --> H
 
     style C fill:#d4edda,stroke:#155724,stroke-width:2px
     style D fill:#cce5ff,stroke:#004085,stroke-width:2px
