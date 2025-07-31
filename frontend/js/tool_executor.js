@@ -860,33 +860,92 @@ async function _applyDiff({ filename, diff }, rootHandle) {
             throw new Error(`Invalid start_line ${startLine}. File has ${originalLineCount} lines.`);
         }
         
-        // Find the exact match for the search content
+        // Find the best match for the search content using multiple strategies
         const searchLines = searchContent.split(/\r?\n/);
-        const searchStartIndex = startLine - 1;
-        
-        // Verify the search content matches exactly
-        let matches = true;
+        let actualStartIndex = startLine - 1;
+        let matches = false;
         let mismatchDetails = '';
         
-        for (let i = 0; i < searchLines.length; i++) {
-            const lineIndex = searchStartIndex + i;
-            if (lineIndex >= modifiedLines.length) {
-                matches = false;
-                mismatchDetails = `Search content extends beyond file end (line ${lineIndex + 1})`;
-                break;
+        // Strategy 1: Try exact match at specified line
+        if (actualStartIndex >= 0 && actualStartIndex < modifiedLines.length) {
+            matches = true;
+            for (let i = 0; i < searchLines.length; i++) {
+                const lineIndex = actualStartIndex + i;
+                if (lineIndex >= modifiedLines.length || modifiedLines[lineIndex] !== searchLines[i]) {
+                    matches = false;
+                    break;
+                }
             }
+        }
+        
+        // Strategy 2: If exact match fails, try fuzzy search nearby (±10 lines)
+        if (!matches) {
+            const searchRange = 10;
+            const minIndex = Math.max(0, actualStartIndex - searchRange);
+            const maxIndex = Math.min(modifiedLines.length - searchLines.length, actualStartIndex + searchRange);
             
-            if (modifiedLines[lineIndex] !== searchLines[i]) {
-                matches = false;
-                mismatchDetails = `Line ${lineIndex + 1} mismatch:\nExpected: "${searchLines[i]}"\nActual:   "${modifiedLines[lineIndex]}"`;
-                break;
+            for (let searchIndex = minIndex; searchIndex <= maxIndex; searchIndex++) {
+                let fuzzyMatches = true;
+                for (let i = 0; i < searchLines.length; i++) {
+                    const lineIndex = searchIndex + i;
+                    if (lineIndex >= modifiedLines.length || 
+                        modifiedLines[lineIndex].trim() !== searchLines[i].trim()) {
+                        fuzzyMatches = false;
+                        break;
+                    }
+                }
+                
+                if (fuzzyMatches) {
+                    matches = true;
+                    actualStartIndex = searchIndex;
+                    console.log(`[ApplyDiff] Found fuzzy match at line ${actualStartIndex + 1} instead of ${startLine}`);
+                    break;
+                }
+            }
+        }
+        
+        // Strategy 3: Try partial content match (match first and last lines)
+        if (!matches && searchLines.length > 2) {
+            const firstLine = searchLines[0].trim();
+            const lastLine = searchLines[searchLines.length - 1].trim();
+            
+            for (let searchIndex = Math.max(0, actualStartIndex - 5); 
+                 searchIndex <= Math.min(modifiedLines.length - searchLines.length, actualStartIndex + 5); 
+                 searchIndex++) {
+                
+                if (searchIndex < modifiedLines.length && 
+                    searchIndex + searchLines.length - 1 < modifiedLines.length &&
+                    modifiedLines[searchIndex].trim() === firstLine &&
+                    modifiedLines[searchIndex + searchLines.length - 1].trim() === lastLine) {
+                    
+                    matches = true;
+                    actualStartIndex = searchIndex;
+                    console.log(`[ApplyDiff] Found partial match (first/last lines) at line ${actualStartIndex + 1}`);
+                    break;
+                }
             }
         }
         
         if (!matches) {
-            const actualContent = modifiedLines.slice(searchStartIndex, searchStartIndex + searchLines.length).join('\n');
-            throw new Error(`Search content does not match at line ${startLine}.\n\n${mismatchDetails}\n\nExpected content:\n${searchContent}\n\nActual content:\n${actualContent}`);
+            // Provide detailed context for debugging
+            const contextStart = Math.max(0, actualStartIndex - 3);
+            const contextEnd = Math.min(modifiedLines.length, actualStartIndex + searchLines.length + 3);
+            const contextLines = modifiedLines.slice(contextStart, contextEnd);
+            
+            mismatchDetails = `Could not find search content around line ${startLine}.\n`;
+            mismatchDetails += `Context (lines ${contextStart + 1}-${contextEnd}):\n`;
+            contextLines.forEach((line, idx) => {
+                const lineNum = contextStart + idx + 1;
+                const marker = (lineNum === startLine) ? '>>>' : '   ';
+                mismatchDetails += `${marker} ${lineNum}: ${line}\n`;
+            });
+            
+            const actualContent = modifiedLines.slice(actualStartIndex, actualStartIndex + searchLines.length).join('\n');
+            throw new Error(`Search content does not match at line ${startLine}.\n\n${mismatchDetails}\nExpected content:\n${searchContent}\n\nActual content:\n${actualContent}`);
         }
+        
+        // Update the search start index to the found position
+        const searchStartIndex = actualStartIndex;
         
         // Apply the replacement
         const replaceLines = replaceContent.split(/\r?\n/);
@@ -951,6 +1010,269 @@ async function _createDiff({ original_content, new_content }) {
         return { patch_content: patchText };
     } catch (error) {
         throw new Error(`Failed to create diff: ${error.message}`);
+    }
+}
+
+// Alternative diff tools for better reliability
+
+/**
+ * Find and replace text in a file - more reliable than apply_diff for simple changes
+ */
+async function _findAndReplace({ filename, find_text, replace_text, all_occurrences = false }, rootHandle) {
+    if (!filename) throw new Error("The 'filename' parameter is required.");
+    if (!find_text) throw new Error("The 'find_text' parameter is required.");
+    if (replace_text === undefined) throw new Error("The 'replace_text' parameter is required.");
+    
+    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
+    
+    try {
+        const hasPermission = await FileSystem.verifyAndRequestPermission(fileHandle, true);
+        if (!hasPermission) {
+            throw new Error('Permission to write to the file was denied.');
+        }
+        
+        const file = await fileHandle.getFile();
+        const originalContent = await file.text();
+        
+        let newContent;
+        let replacementCount = 0;
+        
+        if (all_occurrences) {
+            // Replace all occurrences
+            const regex = new RegExp(find_text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+            replacementCount = (originalContent.match(regex) || []).length;
+            newContent = originalContent.replace(regex, replace_text);
+        } else {
+            // Replace only first occurrence
+            if (originalContent.includes(find_text)) {
+                replacementCount = 1;
+                newContent = originalContent.replace(find_text, replace_text);
+            } else {
+                newContent = originalContent;
+            }
+        }
+        
+        if (replacementCount === 0) {
+            throw new Error(`Text not found: "${find_text}"`);
+        }
+        
+        await FileSystem.writeFile(fileHandle, newContent);
+        
+        return {
+            message: `Successfully replaced ${replacementCount} occurrence(s) of "${find_text}" with "${replace_text}" in ${filename}`,
+            details: {
+                filename,
+                replacements: replacementCount,
+                find_text,
+                replace_text
+            }
+        };
+        
+    } catch (error) {
+        throw new Error(`Failed to find and replace in ${filename}: ${error.message}`);
+    }
+}
+
+/**
+ * Insert text at a specific line number - useful when you know exactly where to add content
+ */
+async function _insertAtLine({ filename, line_number, content, insert_mode = 'after' }, rootHandle) {
+    if (!filename) throw new Error("The 'filename' parameter is required.");
+    if (!line_number) throw new Error("The 'line_number' parameter is required.");
+    if (!content) throw new Error("The 'content' parameter is required.");
+    
+    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
+    
+    try {
+        const hasPermission = await FileSystem.verifyAndRequestPermission(fileHandle, true);
+        if (!hasPermission) {
+            throw new Error('Permission to write to the file was denied.');
+        }
+        
+        const file = await fileHandle.getFile();
+        const originalContent = await file.text();
+        const lines = originalContent.split(/\r?\n/);
+        
+        const targetIndex = line_number - 1; // Convert to 0-based index
+        
+        if (targetIndex < 0 || targetIndex >= lines.length) {
+            throw new Error(`Invalid line number ${line_number}. File has ${lines.length} lines.`);
+        }
+        
+        const contentLines = content.split(/\r?\n/);
+        
+        if (insert_mode === 'before') {
+            lines.splice(targetIndex, 0, ...contentLines);
+        } else if (insert_mode === 'after') {
+            lines.splice(targetIndex + 1, 0, ...contentLines);
+        } else if (insert_mode === 'replace') {
+            lines.splice(targetIndex, 1, ...contentLines);
+        } else {
+            throw new Error("insert_mode must be 'before', 'after', or 'replace'");
+        }
+        
+        const lineEnding = originalContent.includes('\r\n') ? '\r\n' : '\n';
+        const newContent = lines.join(lineEnding);
+        
+        await FileSystem.writeFile(fileHandle, newContent);
+        
+        return {
+            message: `Successfully inserted content ${insert_mode} line ${line_number} in ${filename}`,
+            details: {
+                filename,
+                line_number,
+                insert_mode,
+                lines_added: contentLines.length
+            }
+        };
+        
+    } catch (error) {
+        throw new Error(`Failed to insert at line in ${filename}: ${error.message}`);
+    }
+}
+
+/**
+ * Replace content between two line numbers - useful for replacing entire sections
+ */
+async function _replaceLines({ filename, start_line, end_line, new_content }, rootHandle) {
+    if (!filename) throw new Error("The 'filename' parameter is required.");
+    if (!start_line) throw new Error("The 'start_line' parameter is required.");
+    if (!end_line) throw new Error("The 'end_line' parameter is required.");
+    if (new_content === undefined) throw new Error("The 'new_content' parameter is required.");
+    
+    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
+    
+    try {
+        const hasPermission = await FileSystem.verifyAndRequestPermission(fileHandle, true);
+        if (!hasPermission) {
+            throw new Error('Permission to write to the file was denied.');
+        }
+        
+        const file = await fileHandle.getFile();
+        const originalContent = await file.text();
+        const lines = originalContent.split(/\r?\n/);
+        
+        const startIndex = start_line - 1; // Convert to 0-based index
+        const endIndex = end_line - 1;
+        
+        if (startIndex < 0 || startIndex >= lines.length) {
+            throw new Error(`Invalid start_line ${start_line}. File has ${lines.length} lines.`);
+        }
+        
+        if (endIndex < 0 || endIndex >= lines.length) {
+            throw new Error(`Invalid end_line ${end_line}. File has ${lines.length} lines.`);
+        }
+        
+        if (startIndex > endIndex) {
+            throw new Error(`start_line (${start_line}) must be less than or equal to end_line (${end_line})`);
+        }
+        
+        const newContentLines = new_content.split(/\r?\n/);
+        const originalLinesCount = endIndex - startIndex + 1;
+        
+        // Replace the range with new content
+        lines.splice(startIndex, originalLinesCount, ...newContentLines);
+        
+        const lineEnding = originalContent.includes('\r\n') ? '\r\n' : '\n';
+        const newFileContent = lines.join(lineEnding);
+        
+        const writable = await fileHandle.createWritable();
+        await writable.write(newFileContent);
+        await writable.close();
+        
+        return {
+            message: `Successfully replaced lines ${start_line}-${end_line} in ${filename}`,
+            details: {
+                filename,
+                start_line,
+                end_line,
+                original_lines: originalLinesCount,
+                new_lines: newContentLines.length
+            }
+        };
+        
+    } catch (error) {
+        throw new Error(`Failed to replace lines in ${filename}: ${error.message}`);
+    }
+}
+
+/**
+ * Smart content replacement using fuzzy matching - finds similar content even if not exact
+ */
+async function _smartReplace({ filename, old_content, new_content, similarity_threshold = 0.8 }, rootHandle) {
+    if (!filename) throw new Error("The 'filename' parameter is required.");
+    if (!old_content) throw new Error("The 'old_content' parameter is required.");
+    if (new_content === undefined) throw new Error("The 'new_content' parameter is required.");
+    
+    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
+    
+    try {
+        const hasPermission = await FileSystem.verifyAndRequestPermission(fileHandle, true);
+        if (!hasPermission) {
+            throw new Error('Permission to write to the file was denied.');
+        }
+        
+        const file = await fileHandle.getFile();
+        const originalContent = await file.text();
+        const lines = originalContent.split(/\r?\n/);
+        const searchLines = old_content.split(/\r?\n/);
+        
+        // Simple similarity function (can be enhanced)
+        function calculateSimilarity(text1, text2) {
+            const longer = text1.length > text2.length ? text1 : text2;
+            const shorter = text1.length > text2.length ? text2 : text1;
+            
+            if (longer.length === 0) return 1.0;
+            
+            let matches = 0;
+            for (let i = 0; i < shorter.length; i++) {
+                if (longer[i] === shorter[i]) matches++;
+            }
+            
+            return matches / longer.length;
+        }
+        
+        // Find the best matching section
+        let bestMatch = { index: -1, score: 0 };
+        
+        for (let i = 0; i <= lines.length - searchLines.length; i++) {
+            const section = lines.slice(i, i + searchLines.length);
+            const sectionText = section.join('\n').trim();
+            const searchText = old_content.trim();
+            
+            const similarity = calculateSimilarity(sectionText, searchText);
+            
+            if (similarity > bestMatch.score && similarity >= similarity_threshold) {
+                bestMatch = { index: i, score: similarity };
+            }
+        }
+        
+        if (bestMatch.index === -1) {
+            throw new Error(`No similar content found. Highest similarity: ${bestMatch.score.toFixed(2)}, threshold: ${similarity_threshold}`);
+        }
+        
+        // Replace the best matching section
+        const newContentLines = new_content.split(/\r?\n/);
+        lines.splice(bestMatch.index, searchLines.length, ...newContentLines);
+        
+        const lineEnding = originalContent.includes('\r\n') ? '\r\n' : '\n';
+        const newFileContent = lines.join(lineEnding);
+        
+        await FileSystem.writeFile(fileHandle, newFileContent);
+        
+        return {
+            message: `Successfully replaced content with ${(bestMatch.score * 100).toFixed(1)}% similarity match in ${filename}`,
+            details: {
+                filename,
+                similarity_score: bestMatch.score,
+                match_line: bestMatch.index + 1,
+                lines_replaced: searchLines.length,
+                new_lines: newContentLines.length
+            }
+        };
+        
+    } catch (error) {
+        throw new Error(`Failed to smart replace in ${filename}: ${error.message}`);
     }
 }
 
@@ -1628,62 +1950,386 @@ async function _duckduckgoSearch({ query }) {
     }
 }
 
-async function _performResearch({ query, max_results = 3, depth = 1 }) {
+async function _performResearch({ query, max_results = 3, depth = 2, relevance_threshold = 0.7 }) {
     if (!query) throw new Error("The 'query' parameter is required for perform_research.");
 
-    let visitedUrls = new Set();
-    let allLinks = [];
-    let allContent = [];
-    let references = [];
+    // Research state tracking
+    const researchState = {
+        originalQuery: query,
+        visitedUrls: new Set(),
+        allContent: [],
+        references: [],
+        searchHistory: [],
+        urlAnalysisCache: new Map(),
+        currentDepth: 0,
+        maxDepth: Math.min(depth, 4), // Cap at 4 levels for safety
+        maxResults: Math.min(max_results, 5), // Cap at 5 results per search
+        totalUrlsRead: 0,
+        maxTotalUrls: 15, // Prevent infinite expansion
+        relevanceThreshold: Math.max(0.3, Math.min(relevance_threshold, 1.0)) // Clamp between 0.3-1.0
+    };
 
-    async function searchAndRead(currentQuery, currentDepth) {
-        if (currentDepth > depth) return;
-
-        UI.appendMessage(document.getElementById('chat-messages'), `Performing search for: "${currentQuery}" (Depth: ${currentDepth})`, 'ai');
-        const searchResults = await _duckduckgoSearch({ query: currentQuery });
+    // AI Decision Functions (Placeholder implementations with heuristics)
+    
+    /**
+     * Decides whether a URL should be read based on relevance to the research goal
+     */
+    function shouldReadUrl(url, title, snippet, searchQuery, currentDepth) {
+        // Heuristic scoring based on multiple factors
+        let relevanceScore = 0;
         
-        if (!searchResults.results || searchResults.results.length === 0) {
+        // Domain reputation scoring
+        const trustedDomains = [
+            'wikipedia.org', 'github.com', 'stackoverflow.com', 'docs.', 'developer.',
+            'mozilla.org', 'w3.org', 'ieee.org', 'acm.org', '.edu', '.gov'
+        ];
+        const spamDomains = ['ads.', 'tracker.', 'affiliate.', 'popup.'];
+        
+        if (trustedDomains.some(domain => url.includes(domain))) {
+            relevanceScore += 0.3;
+        }
+        if (spamDomains.some(domain => url.includes(domain))) {
+            relevanceScore -= 0.5;
+        }
+
+        // Content relevance based on title and snippet
+        const queryTerms = searchQuery.toLowerCase().split(/\s+/);
+        const contentText = `${title} ${snippet}`.toLowerCase();
+        
+        const termMatches = queryTerms.filter(term => contentText.includes(term)).length;
+        relevanceScore += (termMatches / queryTerms.length) * 0.4;
+
+        // Depth penalty (prefer earlier results)
+        relevanceScore -= (currentDepth - 1) * 0.1;
+
+        // URL structure scoring
+        if (url.includes('/docs/') || url.includes('/tutorial/') || url.includes('/guide/')) {
+            relevanceScore += 0.2;
+        }
+        if (url.match(/\.(pdf|doc|ppt)$/i)) {
+            relevanceScore += 0.1;
+        }
+
+        console.log(`[Research] URL: ${url} | Relevance Score: ${relevanceScore.toFixed(2)} | Threshold: ${researchState.relevanceThreshold}`);
+        
+        return relevanceScore >= researchState.relevanceThreshold;
+    }
+
+    /**
+     * Decides whether to perform additional searches based on content analysis
+     */
+    function shouldPerformAdditionalSearch(content, originalQuery, currentDepth) {
+        if (currentDepth >= researchState.maxDepth) return null;
+        if (researchState.totalUrlsRead >= researchState.maxTotalUrls) return null;
+
+        // Extract potential search terms from content
+        const contentWords = content.toLowerCase()
+            .replace(/[^\w\s]/g, ' ')
+            .split(/\s+/)
+            .filter(word => word.length > 3);
+
+        const originalTerms = originalQuery.toLowerCase().split(/\s+/);
+        
+        // Find frequently mentioned terms not in original query
+        const wordFreq = {};
+        contentWords.forEach(word => {
+            if (!originalTerms.includes(word)) {
+                wordFreq[word] = (wordFreq[word] || 0) + 1;
+            }
+        });
+
+        // Get most frequent terms
+        const frequentTerms = Object.entries(wordFreq)
+            .filter(([word, freq]) => freq >= 3)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 3)
+            .map(([word]) => word);
+
+        if (frequentTerms.length > 0) {
+            // Create a more specific search query
+            const newQuery = `${originalQuery} ${frequentTerms.slice(0, 2).join(' ')}`;
+            console.log(`[Research] Suggesting additional search: "${newQuery}"`);
+            return newQuery;
+        }
+
+        return null;
+    }
+
+    /**
+     * Decides whether to read discovered URLs within content
+     */
+    function shouldReadDiscoveredUrl(url, parentUrl, content, originalQuery) {
+        if (researchState.visitedUrls.has(url)) return false;
+        if (researchState.totalUrlsRead >= researchState.maxTotalUrls) return false;
+
+        // Basic URL filtering
+        if (!url.startsWith('http')) return false;
+        if (url.includes('#') || url.includes('?utm_') || url.includes('javascript:')) return false;
+
+        // Check if URL appears in relevant context within the content
+        const urlContext = extractUrlContext(content, url);
+        if (!urlContext) return false;
+
+        // Simple relevance check based on context
+        const queryTerms = originalQuery.toLowerCase().split(/\s+/);
+        const contextText = urlContext.toLowerCase();
+        const relevantTerms = queryTerms.filter(term => contextText.includes(term));
+        
+        const contextRelevance = relevantTerms.length / queryTerms.length;
+        console.log(`[Research] Discovered URL: ${url} | Context Relevance: ${contextRelevance.toFixed(2)}`);
+        
+        return contextRelevance >= 0.3; // Lower threshold for discovered URLs
+    }
+
+    /**
+     * Extracts context around a URL mention in content
+     */
+    function extractUrlContext(content, url) {
+        const urlIndex = content.indexOf(url);
+        if (urlIndex === -1) return null;
+
+        const contextStart = Math.max(0, urlIndex - 100);
+        const contextEnd = Math.min(content.length, urlIndex + url.length + 100);
+        
+        return content.slice(contextStart, contextEnd).trim();
+    }
+
+    /**
+     * Determines if research goal has been sufficiently met
+     */
+    function isResearchGoalMet(collectedContent, originalQuery, currentDepth) {
+        if (collectedContent.length === 0) return false;
+        if (currentDepth === 1 && collectedContent.length < 2) return false; // Need at least 2 sources
+        
+        // Simple heuristic: check if we have diverse content sources
+        const uniqueDomains = new Set();
+        researchState.references.forEach(url => {
+            try {
+                const domain = new URL(url).hostname;
+                uniqueDomains.add(domain);
+            } catch (e) {
+                // Ignore invalid URLs
+            }
+        });
+
+        // Consider research sufficient if we have content from multiple sources
+        return uniqueDomains.size >= 2 && collectedContent.length >= 3;
+    }
+
+    // Enhanced recursive search and read function
+    async function recursiveSearchAndRead(searchQuery, currentDepth) {
+        if (currentDepth > researchState.maxDepth) {
+            console.log(`[Research] Max depth (${researchState.maxDepth}) reached`);
             return;
         }
 
-        const linksToRead = searchResults.results
-            .map(r => r.link)
-            .filter(link => link && !visitedUrls.has(link))
-            .slice(0, max_results);
+        if (researchState.totalUrlsRead >= researchState.maxTotalUrls) {
+            console.log(`[Research] Max URL limit (${researchState.maxTotalUrls}) reached`);
+            return;
+        }
 
-        for (const link of linksToRead) {
-            if (visitedUrls.has(link)) continue;
-            visitedUrls.add(link);
-            references.push(link);
+        UI.appendMessage(document.getElementById('chat-messages'), 
+            `🔍 Searching: "${searchQuery}" (Depth: ${currentDepth}/${researchState.maxDepth})`, 'ai');
 
-            try {
-                UI.appendMessage(document.getElementById('chat-messages'), `Reading URL: ${link}`, 'ai');
-                const urlContent = await _readUrl({ url: link });
-                
-                if (urlContent.content) {
-                    allContent.push(`--- START OF CONTENT FROM ${link} ---\n${urlContent.content}\n--- END OF CONTENT FROM ${link} ---\n`);
-                }
-                
-                if (urlContent.links && urlContent.links.length > 0) {
-                    allLinks.push(...urlContent.links);
-                }
-            } catch (error) {
-                console.warn(`Failed to read URL ${link}:`, error.message);
-                allContent.push(`--- FAILED TO READ CONTENT FROM ${link} ---\nError: ${error.message}\n--- END OF FAILED CONTENT ---`);
+        try {
+            // Perform the search
+            const searchResults = await _duckduckgoSearch({ query: searchQuery });
+            
+            if (!searchResults.results || searchResults.results.length === 0) {
+                console.log(`[Research] No search results for: ${searchQuery}`);
+                return;
             }
+
+            researchState.searchHistory.push({
+                query: searchQuery,
+                depth: currentDepth,
+                resultCount: searchResults.results.length,
+                timestamp: new Date().toISOString()
+            });
+
+            // Filter URLs using AI decision logic
+            const urlsToRead = [];
+            for (const result of searchResults.results.slice(0, researchState.maxResults)) {
+                if (researchState.totalUrlsRead >= researchState.maxTotalUrls) break;
+                
+                if (shouldReadUrl(result.link, result.title, result.snippet, searchQuery, currentDepth)) {
+                    if (!researchState.visitedUrls.has(result.link)) {
+                        urlsToRead.push({
+                            url: result.link,
+                            title: result.title,
+                            snippet: result.snippet,
+                            relevance: 'high'
+                        });
+                    }
+                }
+            }
+
+            console.log(`[Research] Selected ${urlsToRead.length} URLs from ${searchResults.results.length} search results`);
+
+            // Read selected URLs and process content
+            for (const urlInfo of urlsToRead) {
+                if (researchState.totalUrlsRead >= researchState.maxTotalUrls) break;
+                
+                const { url, title } = urlInfo;
+                researchState.visitedUrls.add(url);
+                researchState.references.push(url);
+                researchState.totalUrlsRead++;
+
+                try {
+                    UI.appendMessage(document.getElementById('chat-messages'), 
+                        `📖 Reading: ${title || url}`, 'ai');
+                    
+                    const urlContent = await _readUrl({ url });
+                    
+                    if (urlContent.content && urlContent.content.trim()) {
+                        const contentEntry = {
+                            url: url,
+                            title: title,
+                            content: urlContent.content,
+                            links: urlContent.links || [],
+                            depth: currentDepth,
+                            timestamp: new Date().toISOString()
+                        };
+                        
+                        researchState.allContent.push(contentEntry);
+                        
+                        // Analyze content for potential additional searches
+                        if (currentDepth < researchState.maxDepth) {
+                            const additionalQuery = shouldPerformAdditionalSearch(
+                                urlContent.content, 
+                                researchState.originalQuery, 
+                                currentDepth
+                            );
+                            
+                            if (additionalQuery && !researchState.searchHistory.some(h => h.query === additionalQuery)) {
+                                console.log(`[Research] Scheduling additional search: ${additionalQuery}`);
+                                // Recursively search with the new query
+                                await recursiveSearchAndRead(additionalQuery, currentDepth + 1);
+                            }
+                        }
+
+                        // Process discovered URLs within content
+                        if (urlContent.links && urlContent.links.length > 0 && currentDepth < researchState.maxDepth) {
+                            const discoveredUrls = urlContent.links
+                                .filter(link => shouldReadDiscoveredUrl(link, url, urlContent.content, researchState.originalQuery))
+                                .slice(0, 2); // Limit discovered URLs per page
+
+                            for (const discoveredUrl of discoveredUrls) {
+                                if (researchState.totalUrlsRead >= researchState.maxTotalUrls) break;
+                                
+                                researchState.visitedUrls.add(discoveredUrl);
+                                researchState.references.push(discoveredUrl);
+                                researchState.totalUrlsRead++;
+
+                                try {
+                                    UI.appendMessage(document.getElementById('chat-messages'), 
+                                        `🔗 Following link: ${discoveredUrl}`, 'ai');
+                                    
+                                    const discoveredContent = await _readUrl({ url: discoveredUrl });
+                                    
+                                    if (discoveredContent.content && discoveredContent.content.trim()) {
+                                        researchState.allContent.push({
+                                            url: discoveredUrl,
+                                            title: `Discovered from ${url}`,
+                                            content: discoveredContent.content,
+                                            links: discoveredContent.links || [],
+                                            depth: currentDepth + 0.5, // Mark as discovered content
+                                            timestamp: new Date().toISOString()
+                                        });
+                                    }
+                                } catch (error) {
+                                    console.warn(`[Research] Failed to read discovered URL ${discoveredUrl}:`, error.message);
+                                }
+                            }
+                        }
+                    } else {
+                        console.warn(`[Research] No content found for URL: ${url}`);
+                    }
+                } catch (error) {
+                    console.warn(`[Research] Failed to read URL ${url}:`, error.message);
+                    researchState.allContent.push({
+                        url: url,
+                        title: title,
+                        content: `Error reading content: ${error.message}`,
+                        links: [],
+                        depth: currentDepth,
+                        error: true,
+                        timestamp: new Date().toISOString()
+                    });
+                }
+
+                // Check if research goal is met
+                if (isResearchGoalMet(researchState.allContent, researchState.originalQuery, currentDepth)) {
+                    console.log(`[Research] Research goal appears to be met at depth ${currentDepth}`);
+                    return;
+                }
+            }
+
+        } catch (error) {
+            console.error(`[Research] Search failed for query "${searchQuery}":`, error.message);
+            throw error;
         }
     }
 
-    await searchAndRead(query, 1);
+    // Start the recursive research process
+    try {
+        UI.appendMessage(document.getElementById('chat-messages'), 
+            `🚀 Starting research for: "${query}"`, 'ai');
+        
+        await recursiveSearchAndRead(query, 1);
 
-    // Here, you could add logic for the AI to decide to go deeper
-    // For now, it just does one level of search and read.
+        // Compile final results
+        const successfulContent = researchState.allContent.filter(item => !item.error);
+        const failedUrls = researchState.allContent.filter(item => item.error);
+        
+        const summary = `Research for "${query}" completed successfully.
+        
+📊 Research Statistics:
+- Total URLs visited: ${researchState.totalUrlsRead}
+- Successful content retrievals: ${successfulContent.length}
+- Failed retrievals: ${failedUrls.length}
+- Maximum depth reached: ${Math.max(...researchState.allContent.map(c => Math.floor(c.depth)))}
+- Unique domains explored: ${new Set(researchState.references.map(url => {
+            try { return new URL(url).hostname; } catch (e) { return 'unknown'; }
+        })).size}
+- Search queries performed: ${researchState.searchHistory.length}
 
-    return {
-        summary: `Research for "${query}" complete. The following content was gathered.`,
-        full_content: allContent.join('\n\n'),
-        references: references,
-    };
+The research covered multiple sources and followed relevant links to gather comprehensive information.`;
+
+        const fullContent = successfulContent.map(item => 
+            `--- START OF CONTENT FROM ${item.url} (Depth: ${item.depth}) ---
+Title: ${item.title}
+URL: ${item.url}
+Retrieved: ${item.timestamp}
+
+${item.content}
+
+--- END OF CONTENT ---`
+        ).join('\n\n');
+
+        UI.appendMessage(document.getElementById('chat-messages'), 
+            `✅ Research completed! Processed ${successfulContent.length} sources.`, 'ai');
+
+        return {
+            summary: summary,
+            full_content: fullContent,
+            references: researchState.references,
+            metadata: {
+                totalUrls: researchState.totalUrlsRead,
+                successfulRetrievals: successfulContent.length,
+                failedRetrievals: failedUrls.length,
+                maxDepth: Math.max(...researchState.allContent.map(c => Math.floor(c.depth)), 0),
+                searchHistory: researchState.searchHistory,
+                uniqueDomains: new Set(researchState.references.map(url => {
+                    try { return new URL(url).hostname; } catch (e) { return 'unknown'; }
+                })).size
+            }
+        };
+
+    } catch (error) {
+        console.error('[Research] Research process failed:', error);
+        throw new Error(`Research failed: ${error.message}`);
+    }
 }
 
 async function _getOpenFileContent() {
@@ -2173,6 +2819,13 @@ const toolRegistry = {
     set_selected_text: { handler: _setSelectedText, requiresProject: false, createsCheckpoint: false },
     create_diff: { handler: _createDiff, requiresProject: false, createsCheckpoint: false },
     apply_diff: { handler: _applyDiff, requiresProject: true, createsCheckpoint: true },
+    
+    // Alternative file editing tools - more reliable than apply_diff in many cases
+    find_and_replace: { handler: _findAndReplace, requiresProject: true, createsCheckpoint: true },
+    insert_at_line: { handler: _insertAtLine, requiresProject: true, createsCheckpoint: true },
+    replace_lines: { handler: _replaceLines, requiresProject: true, createsCheckpoint: true },
+    smart_replace: { handler: _smartReplace, requiresProject: true, createsCheckpoint: true },
+    
     undo_last_change: { handler: _undoLastChange, requiresProject: true, createsCheckpoint: false },
 };
 
@@ -2339,7 +2992,7 @@ export function getToolDefinitions() {
             { name: 'replace_selected_text', description: 'Replaces the currently selected text in the editor with new text.', parameters: { type: 'OBJECT', properties: { new_text: { type: 'STRING', description: 'The raw text to replace the selection with. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['new_text'] } },
             { name: 'get_project_structure', description: 'Gets the entire file and folder structure of the project. CRITICAL: Always use this tool before attempting to read or create a file to ensure you have the correct file path.' },
             { name: 'duckduckgo_search', description: 'Performs a search using DuckDuckGo and returns the results.', parameters: { type: 'OBJECT', properties: { query: { type: 'STRING' } }, required: ['query'] } },
-            { name: 'perform_research', description: 'Performs an autonomous, multi-step research on a given query. It searches the web, reads the most relevant pages, and can recursively explore links to gather comprehensive information.', parameters: { type: 'OBJECT', properties: { query: { type: 'STRING' }, max_results: { type: 'NUMBER', description: 'Maximum number of search results to read per level. Default is 3.' }, depth: { type: 'NUMBER', description: 'How many levels of links to follow. Default is 1.' } }, required: ['query'] } },
+            { name: 'perform_research', description: '🔬 ENHANCED: Performs intelligent, recursive web research with AI-driven decision making. Automatically searches, analyzes content relevance, follows promising links, and expands searches based on discovered information. Much more comprehensive than simple search.', parameters: { type: 'OBJECT', properties: { query: { type: 'STRING', description: 'The research query or topic to investigate' }, max_results: { type: 'NUMBER', description: 'Maximum URLs to read per search (1-5, default: 3)' }, depth: { type: 'NUMBER', description: 'Maximum recursion depth for following links (1-4, default: 2)' }, relevance_threshold: { type: 'NUMBER', description: 'Minimum relevance score to read URLs (0.3-1.0, default: 0.7). Lower = more URLs read' } }, required: ['query'] } },
             { name: 'search_code', description: 'Searches for a specific string in all files in the project (like grep).', parameters: { type: 'OBJECT', properties: { search_term: { type: 'STRING' } }, required: ['search_term'] } },
             // REMOVED: run_terminal_command - Tool eliminated to maintain browser-first architecture
             { name: 'build_or_update_codebase_index', description: 'Scans the entire codebase to build a searchable index. Slow, run once per session.' },
@@ -2353,6 +3006,12 @@ export function getToolDefinitions() {
             { name: 'get_file_info', description: "Get file metadata (size, last modified, type) without reading content. Use before editing large files.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
             { name: 'rewrite_file', description: "DEPRECATED. Use 'edit_file' instead. This tool rewrites an entire file.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'The new, raw text content of the file. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'content'] } },
             { name: 'apply_diff', description: "🔧 RECOMMENDED: Apply precise, surgical changes to files using diff blocks. This is the safest and most reliable way to edit files. Use this instead of edit_file when you need to make targeted changes. CRITICAL: The diff parameter must contain properly formatted diff blocks with EXACT format:\n\n<<<<<<< SEARCH\n:start_line:10\n-------\nold code here\n=======\nnew code here\n>>>>>>> REPLACE\n\nMANDATORY REQUIREMENTS:\n1. Must include ':start_line:N' where N is the line number\n2. Must include '-------' separator line after start_line\n3. Must include '=======' separator between old and new content\n4. Each line must be exact, including whitespace and indentation\n5. Use read_file with include_line_numbers=true first to get accurate content", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING', description: 'Path to the file to modify' }, diff: { type: 'STRING', description: 'One or more diff blocks in the EXACT format: <<<<<<< SEARCH\\n:start_line:N\\n-------\\nold content\\n=======\\nnew content\\n>>>>>>> REPLACE. The -------  separator line is MANDATORY.' } }, required: ['filename', 'diff'] } },
+            
+            // Alternative file editing tools - more reliable than apply_diff in many cases
+            { name: 'find_and_replace', description: "🔍 Simple and reliable text replacement. Perfect when you know the exact text to replace. Safer than apply_diff for simple changes.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, find_text: { type: 'STRING', description: 'Exact text to find and replace' }, replace_text: { type: 'STRING', description: 'New text to replace with' }, all_occurrences: { type: 'BOOLEAN', description: 'Replace all occurrences (default: false - only first occurrence)' } }, required: ['filename', 'find_text', 'replace_text'] } },
+            { name: 'insert_at_line', description: "📝 Insert content at a specific line number. Very reliable when you know exactly where to add content.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, line_number: { type: 'NUMBER', description: 'Line number where to insert (1-based)' }, content: { type: 'STRING', description: 'Content to insert' }, insert_mode: { type: 'STRING', enum: ['before', 'after', 'replace'], description: 'Insert before, after, or replace the line (default: after)' } }, required: ['filename', 'line_number', 'content'] } },
+            { name: 'replace_lines', description: "📄 Replace a range of lines with new content. Ideal for replacing entire sections or functions.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, start_line: { type: 'NUMBER', description: 'First line to replace (1-based)' }, end_line: { type: 'NUMBER', description: 'Last line to replace (1-based)' }, new_content: { type: 'STRING', description: 'New content to replace the line range with' } }, required: ['filename', 'start_line', 'end_line', 'new_content'] } },
+            { name: 'smart_replace', description: "🧠 Fuzzy matching replacement. Finds and replaces similar content even if not exactly matching. Use when content might have changed slightly.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, old_content: { type: 'STRING', description: 'Content to find (allows some differences)' }, new_content: { type: 'STRING', description: 'New content to replace with' }, similarity_threshold: { type: 'NUMBER', description: 'Minimum similarity required (0.0-1.0, default: 0.8)' } }, required: ['filename', 'old_content', 'new_content'] } },
             
             // --- Unified Task Management System ---
             { name: 'task_create', description: "Creates a new task. This is the starting point for any new goal.", parameters: { type: 'OBJECT', properties: { title: { type: 'STRING' }, description: { type: 'STRING' }, priority: { type: 'STRING', enum: ['low', 'medium', 'high', 'urgent'] }, parentId: { type: 'STRING' }, listId: { type: 'STRING' } }, required: ['title'] } },

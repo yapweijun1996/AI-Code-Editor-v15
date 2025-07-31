@@ -29847,13 +29847,20 @@
     "Frontend",
     "Root Level",
     "Application Management",
+    "Testing",
     "Key Components",
     "Tool Execution System",
     "LLM Services",
     "Core Modules",
+    "Backend Services",
     "Senior Engineer AI Features",
-    "Development Notes",
-    "File Structure"
+    "Development Workflow",
+    "Local Development",
+    "Code Formatting",
+    "Performance Monitoring",
+    "Architecture Notes",
+    "File Structure",
+    "Important Implementation Details"
   ],
   "docs/adr/README.md": [
     "Architectural Decision Records (ADRs)",

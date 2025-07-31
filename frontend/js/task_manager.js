@@ -212,7 +212,7 @@ REQUIREMENTS:
 5. Estimate time in minutes for each subtask
 6. Set appropriate priority (low, medium, high, urgent)
 
-Return ONLY a JSON array of subtasks in this exact format:
+Return ONLY a valid JSON array of subtasks in this exact format - no markdown, no code blocks, no explanations:
 [
   {
     "title": "Specific actionable task title",
@@ -222,41 +222,126 @@ Return ONLY a JSON array of subtasks in this exact format:
   }
 ]
 
-Do not include any other text or explanation.`;
+CRITICAL: Your response must start with [ and end with ]. Do not include any text before or after the JSON array.`;
 
         try {
-            const response = await ChatService.sendPrompt(prompt);
+            // Send prompt without tools to avoid confusion
+            const response = await ChatService.sendPrompt(prompt, { 
+                tools: [], // No tools needed for JSON response
+                history: [] // Fresh conversation context
+            });
             
-            // Extract JSON from response
-            let jsonMatch = response.match(/\[[\s\S]*\]/);
-            if (!jsonMatch) {
-                throw new Error('No JSON array found in AI response');
+            // Extract JSON from response with more robust parsing
+            let jsonArray = null;
+            
+            // Try multiple approaches to extract JSON
+            // 1. Look for JSON array in response
+            let jsonMatch = response.match(/\[[\s\S]*?\]/);
+            if (jsonMatch) {
+                try {
+                    jsonArray = JSON.parse(jsonMatch[0]);
+                } catch (e) {
+                    console.warn('[TaskManager] Failed to parse first JSON match:', e.message);
+                }
             }
             
-            const aiSubtasks = JSON.parse(jsonMatch[0]);
+            // 2. If first approach fails, try to find JSON between code blocks
+            if (!jsonArray) {
+                const codeBlockMatch = response.match(/```(?:json)?\n?([\s\S]*?)\n?```/);
+                if (codeBlockMatch) {
+                    try {
+                        jsonArray = JSON.parse(codeBlockMatch[1]);
+                    } catch (e) {
+                        console.warn('[TaskManager] Failed to parse code block JSON:', e.message);
+                    }
+                }
+            }
+            
+            // 3. If still no JSON, try to extract from the full response
+            if (!jsonArray) {
+                try {
+                    // Look for lines that start with [ and end with ]
+                    const lines = response.split('\n');
+                    const jsonLines = [];
+                    let inArray = false;
+                    let braceCount = 0;
+                    
+                    for (const line of lines) {
+                        if (line.trim().startsWith('[')) {
+                            inArray = true;
+                            braceCount = 0;
+                        }
+                        
+                        if (inArray) {
+                            jsonLines.push(line);
+                            braceCount += (line.match(/\[/g) || []).length;
+                            braceCount -= (line.match(/\]/g) || []).length;
+                            
+                            if (braceCount === 0 && line.trim().endsWith(']')) {
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (jsonLines.length > 0) {
+                        jsonArray = JSON.parse(jsonLines.join('\n'));
+                    }
+                } catch (e) {
+                    console.warn('[TaskManager] Failed to parse line-by-line JSON:', e.message);
+                }
+            }
+            
+            if (!jsonArray) {
+                console.error('[TaskManager] AI response:', response);
+                throw new Error('No valid JSON array found in AI response');
+            }
+            
+            const aiSubtasks = jsonArray;
             
             // Validate and create actual subtasks
             const subtasks = [];
             let prevTaskId = null;
             
-            for (const aiSubtask of aiSubtasks) {
-                const subtask = await this.createTask({
-                    title: aiSubtask.title,
-                    description: aiSubtask.description || '',
-                    priority: aiSubtask.priority || 'medium',
-                    parentId: mainTask.id,
-                    listId: mainTask.listId,
-                    dependencies: prevTaskId ? [prevTaskId] : [],
-                    estimatedTime: aiSubtask.estimatedTime || 30,
-                    tags: ['ai-generated', 'subtask', 'ai-driven'],
-                    context: {
-                        ...mainTask.context,
-                        method: 'ai-driven',
-                        aiGenerated: true
-                    }
-                });
-                subtasks.push(subtask);
-                prevTaskId = subtask.id;
+            // Ensure aiSubtasks is actually an array
+            if (!Array.isArray(aiSubtasks)) {
+                console.error('[TaskManager] AI response is not an array:', aiSubtasks);
+                throw new Error('AI response must be a JSON array of tasks');
+            }
+            
+            if (aiSubtasks.length === 0) {
+                console.warn('[TaskManager] AI returned empty task array');
+                throw new Error('AI returned no subtasks');
+            }
+            
+            for (const [index, aiSubtask] of aiSubtasks.entries()) {
+                // Validate required fields
+                if (!aiSubtask.title) {
+                    console.error(`[TaskManager] Subtask ${index} missing title:`, aiSubtask);
+                    continue; // Skip invalid tasks
+                }
+                
+                try {
+                    const subtask = await this.createTask({
+                        title: aiSubtask.title,
+                        description: aiSubtask.description || '',
+                        priority: aiSubtask.priority || 'medium',
+                        parentId: mainTask.id,
+                        listId: mainTask.listId,
+                        dependencies: prevTaskId ? [prevTaskId] : [],
+                        estimatedTime: aiSubtask.estimatedTime || 30,
+                        tags: ['ai-generated', 'subtask', 'ai-driven'],
+                        context: {
+                            ...mainTask.context,
+                            method: 'ai-driven',
+                            aiGenerated: true
+                        }
+                    });
+                    subtasks.push(subtask);
+                    prevTaskId = subtask.id;
+                } catch (taskError) {
+                    console.error(`[TaskManager] Failed to create subtask ${index}:`, taskError);
+                    // Continue with other tasks even if one fails
+                }
             }
             
             return subtasks;
