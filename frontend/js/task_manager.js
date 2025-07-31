@@ -225,7 +225,7 @@ Return ONLY a JSON array of subtasks in this exact format:
 Do not include any other text or explanation.`;
 
         try {
-            const response = await ChatService.sendMessage(prompt, [], false);
+            const response = await ChatService.sendPrompt(prompt);
             
             // Extract JSON from response
             let jsonMatch = response.match(/\[[\s\S]*\]/);

@@ -29595,9 +29595,6 @@
     ".storage-usage-info",
     ".tool-logs-filter-input"
   ],
-  "frontend/js/llm/base_llm_service.js": [
-    "BaseLLMService"
-  ],
   "frontend/js/llm/service_factory.js": [
     "LLMServiceFactory"
   ],
@@ -29857,5 +29854,66 @@
     "Senior Engineer AI Features",
     "Development Notes",
     "File Structure"
+  ],
+  "docs/adr/README.md": [
+    "Architectural Decision Records (ADRs)",
+    "Format",
+    "Index",
+    "Creating New ADRs"
+  ],
+  "docs/adr/template.md": [
+    "ADR-XXX: [Title]",
+    "Status",
+    "Context",
+    "Decision",
+    "Consequences",
+    "Notes"
+  ],
+  "docs/adr/001-refactoring-strategy.md": [
+    "ADR-001: Major Refactoring Strategy",
+    "Status",
+    "Context",
+    "Decision",
+    "Consequences",
+    "Notes"
+  ],
+  "docs/adr/002-dependency-injection-system.md": [
+    "ADR-002: Dependency Injection System Design",
+    "Status",
+    "Context",
+    "Decision",
+    "Usage Examples",
+    "Consequences",
+    "Notes"
+  ],
+  "docs/adr/003-error-handling-strategy.md": [
+    "ADR-003: Global Error Handling Strategy",
+    "Status",
+    "Context",
+    "Decision",
+    "Features",
+    "Usage Examples",
+    "User Message Examples",
+    "Consequences",
+    "Migration Strategy",
+    "Notes"
+  ],
+  "frontend/js/main.js": [
+    "initializeCoreServices"
+  ],
+  "docs/adr/004-performance-monitoring.md": [
+    "ADR-004: Performance Monitoring and Profiling",
+    "Status",
+    "Context",
+    "Decision",
+    "Features",
+    "Usage Examples",
+    "Baseline Metrics (Target Improvements)",
+    "Alert Thresholds",
+    "Integration Strategy",
+    "Consequences",
+    "Implementation Details",
+    "Validation Criteria",
+    "Notes"
   ]
 }

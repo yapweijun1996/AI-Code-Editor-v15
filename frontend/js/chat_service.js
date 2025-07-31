@@ -96,7 +96,15 @@ export const ChatService = {
     },
 
     _prepareAndRenderUserMessage(chatInput, chatMessages, uploadedImage, clearImagePreview) {
-        const userPrompt = chatInput.value.trim();
+        // Handle both DOM elements and string inputs
+        let userPrompt;
+        if (typeof chatInput === 'string') {
+            userPrompt = chatInput.trim();
+        } else if (chatInput && chatInput.value) {
+            userPrompt = chatInput.value.trim();
+        } else {
+            userPrompt = '';
+        }
         let displayMessage = userPrompt;
         const initialParts = [];
 
@@ -122,9 +130,20 @@ export const ChatService = {
             });
         }
 
-        UI.appendMessage(chatMessages, displayMessage.trim(), 'user');
-        chatInput.value = '';
-        clearImagePreview();
+        // Only update UI if we have DOM elements
+        if (chatMessages) {
+            UI.appendMessage(chatMessages, displayMessage.trim(), 'user');
+        }
+        
+        // Only clear input if it's a DOM element
+        if (chatInput && typeof chatInput !== 'string' && chatInput.value !== undefined) {
+            chatInput.value = '';
+        }
+        
+        // Only clear image preview if callback provided
+        if (clearImagePreview && typeof clearImagePreview === 'function') {
+            clearImagePreview();
+        }
         console.log(`[User Query] ${userPrompt}`);
 
         return initialParts;
@@ -428,13 +447,63 @@ Return ONLY "true" or "false" (no quotes, no explanation).`;
         }
     },
 
+    /**
+     * Simplified method for programmatic API calls (used by TaskManager, etc.)
+     */
+    async sendPrompt(prompt, options = {}) {
+        try {
+            await this._initializeLLMService();
+            
+            if (!(await this.llmService.isConfigured())) {
+                throw new Error("LLM service not configured");
+            }
+
+            const history = options.history || [];
+            const tools = options.tools || ToolExecutor.getToolDefinitions();
+            const customRules = options.customRules || '';
+
+            // Create a simple message history
+            const messageHistory = [...history, {
+                role: 'user',
+                parts: [{ text: prompt }]
+            }];
+
+            let fullResponse = '';
+            const streamGenerator = this.llmService.sendMessageStream(messageHistory, tools, customRules);
+            
+            for await (const chunk of streamGenerator) {
+                if (chunk.text) {
+                    fullResponse += chunk.text;
+                }
+            }
+
+            return fullResponse.trim();
+        } catch (error) {
+            console.error('[ChatService] sendPrompt failed:', error);
+            throw error;
+        }
+    },
+
     async sendMessage(chatInput, chatMessages, chatSendButton, chatCancelButton, uploadedImage, clearImagePreview) {
-        const userPrompt = chatInput.value.trim();
+        // Handle both DOM elements and string inputs
+        let userPrompt;
+        if (typeof chatInput === 'string') {
+            userPrompt = chatInput.trim();
+        } else if (chatInput && chatInput.value) {
+            userPrompt = chatInput.value.trim();
+        } else {
+            userPrompt = '';
+        }
+        
         if ((!userPrompt && !uploadedImage) || this.isSending) return;
 
         this.isSending = true;
         this.isCancelled = false;
-        this._updateUiState(true);
+        
+        // Only update UI if we have DOM elements
+        if (chatSendButton && chatCancelButton) {
+            this._updateUiState(true);
+        }
         this.resetErrorTracker();
 
         try {
@@ -442,7 +511,9 @@ Return ONLY "true" or "false" (no quotes, no explanation).`;
             const messageParts = this._prepareAndRenderUserMessage(chatInput, chatMessages, uploadedImage, clearImagePreview);
             
             // 2. Create a main task for the user's prompt
-            UI.appendMessage(chatMessages, `Task created: "${userPrompt}"`, 'ai');
+            if (chatMessages) {
+                UI.appendMessage(chatMessages, `Task created: "${userPrompt}"`, 'ai');
+            }
             const mainTask = await taskManager.createTask({ title: userPrompt, priority: 'high' });
 
             // 3. Prepare for autonomous execution with enhanced context

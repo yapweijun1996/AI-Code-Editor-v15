@@ -1,5 +1,10 @@
-console.log("This is a test.");
-console.log("This is a test.");
+// Core systems
+import { performanceProfiler } from './core/performance_profiler.js';
+import { container } from './core/di_container.js';
+import { errorHandler, ErrorSeverity } from './core/error_handler.js';
+import { appStateManager, migrateFromOldAppState } from './core/state_manager.js';
+
+// Existing modules
 import { Settings, dispatchLLMSettingsUpdated } from './settings.js';
 import { ChatService } from './chat_service.js';
 import * as Editor from './editor.js';
@@ -10,6 +15,7 @@ import { DbManager } from './db.js';
 import { taskManager } from './task_manager.js';
 import { todoListUI } from './todo_list_ui.js';
 
+// Legacy appState for backward compatibility during migration
 export const appState = {
     rootDirectoryHandle: null,
     uploadedImage: null,
@@ -26,9 +32,52 @@ export const appState = {
     handleDeleteEntry: null,
 };
 
-document.addEventListener('DOMContentLoaded', async () => {
+// Initialize core systems
+async function initializeCoreServices() {
+    const startTime = performance.now();
+    
+    try {
+        // Register core services with DI container
+        container
+            .registerInstance('PerformanceProfiler', performanceProfiler)
+            .registerInstance('ErrorHandler', errorHandler)
+            .registerInstance('StateManager', appStateManager)
+            .registerSingleton('Settings', Settings)
+            .registerSingleton('DbManager', DbManager)
+            .registerSingleton('ChatService', ChatService)
+            .registerSingleton('TaskManager', taskManager);
 
-    // --- DOM Elements ---
+        // Initialize performance profiling
+        performanceProfiler.recordMetric('app', 'coreServicesInit', performance.now() - startTime);
+        
+        // Migrate legacy state
+        migrateFromOldAppState(appState);
+        
+        console.log('[Main] Core services initialized successfully');
+        return true;
+    } catch (error) {
+        errorHandler.handleError(error, {
+            context: 'coreServicesInit',
+            severity: ErrorSeverity.HIGH
+        });
+        return false;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    const appInitTimer = performanceProfiler.startTimer('app.initialization');
+    
+    try {
+        // Initialize core services first
+        const coreInitialized = await initializeCoreServices();
+        if (!coreInitialized) {
+            throw new Error('Failed to initialize core services');
+        }
+
+        // Update app state to indicate loading
+        appStateManager.updateApp({ loading: true });
+
+        // --- DOM Elements ---
     const editorContainer = document.getElementById('editor');
     const tabBarContainer = document.getElementById('tab-bar');
     const chatMessages = document.getElementById('chat-messages');
@@ -226,6 +275,37 @@ Analyze the code and provide the necessary changes to resolve these issues.
 
     initializeEventListeners(appState);
 
+    // Mark app as initialized
+    appStateManager.updateApp({ 
+        initialized: true, 
+        loading: false 
+    });
+
     // Relayout panels after a short delay to fix initialization issue
     setTimeout(() => UI.relayout(appState.editor), 100);
+    
+    // Complete initialization timing
+    performanceProfiler.endTimer(appInitTimer);
+    
+    console.log('[Main] Application initialization completed successfully');
+    
+    } catch (error) {
+        // Handle initialization errors
+        errorHandler.handleError(error, {
+            context: 'appInitialization',
+            severity: ErrorSeverity.HIGH
+        });
+        
+        appStateManager.updateApp({ 
+            loading: false, 
+            error: error.message 
+        });
+        
+        // Still try to end the timer for metrics
+        try {
+            performanceProfiler.endTimer(appInitTimer);
+        } catch (timerError) {
+            console.warn('[Main] Failed to end initialization timer:', timerError);
+        }
+    }
 });
