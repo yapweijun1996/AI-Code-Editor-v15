@@ -29970,5 +29970,27 @@
   ],
   "frontend\\js\\file_streaming.js": [
     "FileInfo"
+  ],
+  "frontend\\simplified_todo_demo.html": [
+    "#logs",
+    ".demo-container",
+    ".demo-header",
+    ".demo-title",
+    ".demo-subtitle",
+    ".demo-section",
+    ".demo-buttons",
+    ".btn-modern",
+    ".fas",
+    ".fa-tasks",
+    ".btn-secondary",
+    ".fa-check-square",
+    ".fa-exchange-alt",
+    ".fa-vial",
+    ".logs",
+    ".feature-comparison",
+    ".system-column",
+    ".feature-list",
+    ".fa-check",
+    ".shortcut-table"
   ]
 }
