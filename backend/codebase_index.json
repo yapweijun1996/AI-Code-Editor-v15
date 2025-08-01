@@ -30008,5 +30008,25 @@
     "#test-controls",
     "#runTests",
     "#output"
+  ],
+  "Testing\\debug_query_analysis.html": [
+    "#runTests",
+    "#runTargetTest",
+    "#runCustomTest",
+    "#customTestContainer",
+    "#customQuery",
+    "#analyzeCustomQuery",
+    "#customResult",
+    "#testResults",
+    ".button-row",
+    ".query-input",
+    ".result"
+  ],
+  "Testing\\debug_todo.html": [
+    "#runTest",
+    "#output"
+  ],
+  "Testing\\debug_todo_server.js": [
+    "runTests"
   ]
 }
