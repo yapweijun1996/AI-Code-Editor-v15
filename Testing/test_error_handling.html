@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error Handling System Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .test-container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin-bottom: 30px;
+            border-left: 4px solid #007bff;
+            padding-left: 15px;
+        }
+        .test-case {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .test-result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success { background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
+        .error { background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+        .warning { background-color: #fff3cd; border: 1px solid #ffeaa7; color: #856404; }
+        .info { background-color: #d1ecf1; border: 1px solid #bee5eb; color: #0c5460; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        .log-output {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #007bff;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 Error Handling System Test Suite</h1>
+    <p>This test suite validates the enhanced error handling and recovery mechanisms implemented in Phase 3.1.</p>
+
+    <div class="test-container">
+        <h2>Test Controls</h2>
+        <button onclick="runAllTests()">Run All Tests</button>
+        <button onclick="clearResults()">Clear Results</button>
+        <button onclick="exportResults()">Export Results</button>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progress-bar" style="width: 0%"></div>
+        </div>
+        <div id="test-status">Ready to run tests</div>
+    </div>
+
+    <div class="stats" id="test-stats">
+        <div class="stat-card">
+            <div class="stat-number" id="total-tests">0</div>
+            <div>Total Tests</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="passed-tests">0</div>
+            <div>Passed</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="failed-tests">0</div>
+            <div>Failed</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-number" id="success-rate">0%</div>
+            <div>Success Rate</div>
+        </div>
+    </div>
+
+    <div class="test-container">
+        <div class="test-section">
+            <h3>1. Error Analysis Function Tests</h3>
+            <div class="test-case">
+                <h4>Test: Network Error Analysis</h4>
+                <button onclick="testNetworkErrorAnalysis()">Run Test</button>
+                <div id="network-error-result" class="test-result"></div>
+            </div>
+            <div class="test-case">
+                <h4>Test: File System Error Analysis</h4>
+                <button onclick="testFileSystemErrorAnalysis()">Run Test</button>
+                <div id="filesystem-error-result" class="test-result"></div>
+            </div>
+            <div class="test-case">
+                <h4>Test: Syntax Error Analysis</h4>
+                <button onclick="testSyntaxErrorAnalysis()">Run Test</button>
+                <div id="syntax-error-result" class="test-result"></div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>2. Retry Logic Tests</h3>
+            <div class="test-case">
+                <h4>Test: Exponential Backoff Retry</h4>
+                <button onclick="testExponentialBackoffRetry()">Run Test</button>
+                <div id="exponential-retry-result" class="test-result"></div>
+            </div>
+            <div class="test-case">
+                <h4>Test: Conditional Retry Logic</h4>
+                <button onclick="testConditionalRetry()">Run Test</button>
+                <div id="conditional-retry-result" class="test-result"></div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>3. Progressive Timeout Tests</h3>
+            <div class="test-case">
+                <h4>Test: Timeout with Progress Feedback</h4>
+                <button onclick="testProgressiveTimeout()">Run Test</button>
+                <div id="progressive-timeout-result" class="test-result"></div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>4. Error Recovery Suggestions Tests</h3>
+            <div class="test-case">
+                <h4>Test: Context-Specific Recovery Suggestions</h4>
+                <button onclick="testRecoverySuggestions()">Run Test</button>
+                <div id="recovery-suggestions-result" class="test-result"></div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>5. Integration Tests</h3>
+            <div class="test-case">
+                <h4>Test: Enhanced Error Response Creation</h4>
+                <button onclick="testEnhancedErrorResponse()">Run Test</button>
+                <div id="enhanced-response-result" class="test-result"></div>
+            </div>
+            <div class="test-case">
+                <h4>Test: Operation Tracking Integration</h4>
+                <button onclick="testOperationTracking()">Run Test</button>
+                <div id="operation-tracking-result" class="test-result"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="test-container">
+        <h3>Test Execution Log</h3>
+        <div id="test-log" class="log-output">Test log will appear here...\n</div>
+    </div>
+
+    <script type="module">
+        // Import the error handling utilities
+        import { analyzeError, withRetry, withProgressiveTimeout, buildErrorContext } from '../frontend/js/tools/utils/shared_utils.js';
+        import { createEnhancedErrorResponse } from '../frontend/js/tools/core/tool_interfaces.js';
+
+        // Test state
+        let testResults = {
+            total: 0,
+            passed: 0,
+            failed: 0,
+            results: []
+        };
+
+        // Utility functions
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logElement = document.getElementById('test-log');
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : type === 'warning' ? '⚠️' : 'ℹ️';
+            logElement.textContent += `[${timestamp}] ${prefix} ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function updateStats() {
+            document.getElementById('total-tests').textContent = testResults.total;
+            document.getElementById('passed-tests').textContent = testResults.passed;
+            document.getElementById('failed-tests').textContent = testResults.failed;
+            const successRate = testResults.total > 0 ? Math.round((testResults.passed / testResults.total) * 100) : 0;
+            document.getElementById('success-rate').textContent = successRate + '%';
+        }
+
+        function showResult(elementId, success, message, details = null) {
+            const element = document.getElementById(elementId);
+            element.className = `test-result ${success ? 'success' : 'error'}`;
+            element.innerHTML = `
+                <strong>${success ? '✅ PASSED' : '❌ FAILED'}</strong>: ${message}
+                ${details ? `<br><small>${details}</small>` : ''}
+            `;
+            
+            testResults.total++;
+            if (success) testResults.passed++;
+            else testResults.failed++;
+            updateStats();
+        }
+
+        // Test functions
+        window.testNetworkErrorAnalysis = async function() {
+            log('Testing network error analysis...', 'info');
+            try {
+                const networkError = new Error('Failed to fetch');
+                const analysis = analyzeError(networkError, 'test_network', 'test_tool');
+                
+                const success = analysis.category === 'network' && 
+                               analysis.retryable === true &&
+                               analysis.recoverySuggestions.length > 0;
+                
+                showResult('network-error-result', success, 
+                    'Network error correctly categorized and analyzed',
+                    `Category: ${analysis.category}, Retryable: ${analysis.retryable}, Suggestions: ${analysis.recoverySuggestions.length}`);
+                
+                log(`Network error analysis: ${success ? 'PASSED' : 'FAILED'}`, success ? 'success' : 'error');
+            } catch (error) {
+                showResult('network-error-result', false, 'Test execution failed', error.message);
+                log(`Network error analysis test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.testFileSystemErrorAnalysis = async function() {
+            log('Testing filesystem error analysis...', 'info');
+            try {
+                const fsError = new Error('Permission denied');
+                const analysis = analyzeError(fsError, 'test_filesystem', 'test_tool');
+                
+                const success = analysis.category === 'filesystem' && 
+                               analysis.requiresUserAction === true &&
+                               analysis.recoverySuggestions.some(s => s.includes('permission'));
+                
+                showResult('filesystem-error-result', success, 
+                    'Filesystem error correctly categorized and analyzed',
+                    `Category: ${analysis.category}, Requires User Action: ${analysis.requiresUserAction}`);
+                
+                log(`Filesystem error analysis: ${success ? 'PASSED' : 'FAILED'}`, success ? 'success' : 'error');
+            } catch (error) {
+                showResult('filesystem-error-result', false, 'Test execution failed', error.message);
+                log(`Filesystem error analysis test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.testSyntaxErrorAnalysis = async function() {
+            log('Testing syntax error analysis...', 'info');
+            try {
+                const syntaxError = new SyntaxError('Unexpected token');
+                const analysis = analyzeError(syntaxError, 'test_syntax', 'test_tool');
+                
+                const success = analysis.category === 'syntax' && 
+                               analysis.retryable === false &&
+                               analysis.requiresCodeFix === true;
+                
+                showResult('syntax-error-result', success, 
+                    'Syntax error correctly categorized and analyzed',
+                    `Category: ${analysis.category}, Retryable: ${analysis.retryable}, Requires Code Fix: ${analysis.requiresCodeFix}`);
+                
+                log(`Syntax error analysis: ${success ? 'PASSED' : 'FAILED'}`, success ? 'success' : 'error');
+            } catch (error) {
+                showResult('syntax-error-result', false, 'Test execution failed', error.message);
+                log(`Syntax error analysis test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.testExponentialBackoffRetry = async function() {
+            log('Testing exponential backoff retry...', 'info');
+            try {
+                let attempts = 0;
+                const startTime = Date.now();
+                
+                try {
+                    await withRetry(
+                        async () => {
+                            attempts++;
+                            if (attempts < 3) {
+                                throw new Error('Simulated transient failure');
+                            }
+                            return 'success';
+                        },
+                        {
+                            maxRetries: 3,
+                            backoffStrategy: 'exponential',
+                            baseDelay: 100,
+                            context: 'test_retry',
+                            toolName: 'test_tool'
+                        }
+                    );
+                } catch (error) {
+                    // Expected to succeed on 3rd attempt
+                }
+                
+                const duration = Date.now() - startTime;
+                const success = attempts === 3 && duration >= 300; // Should take at least 100 + 200 = 300ms
+                
+                showResult('exponential-retry-result', success, 
+                    'Exponential backoff retry working correctly',
+                    `Attempts: ${attempts}, Duration: ${duration}ms`);
+                
+                log(`Exponential backoff retry: ${success ? 'PASSED' : 'FAILED'}`, success ? 'success' : 'error');
+            } catch (error) {
+                showResult('exponential-retry-result', false, 'Test execution failed', error.message);
+                log(`Exponential backoff retry test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.testConditionalRetry = async function() {
+            log('Testing conditional retry logic...', 'info');
+            try {
+                let networkAttempts = 0;
+                let syntaxAttempts = 0;
+                
+                // Test network error (should retry)
+                try {
+                    await withRetry(
+                        async () => {
+                            networkAttempts++;
+                            throw new Error('Network timeout');
+                        },
+                        {
+                            maxRetries: 2,
+                            retryCondition: (error, attempt, errorAnalysis) => {
+                                return errorAnalysis.category === 'network';
+                            },
+                            context: 'test_conditional',
+                            toolName: 'test_tool'
+                        }
+                    );
+                } catch (error) {
+                    // Expected to fail after retries
+                }
+                
+                // Test syntax error (should not retry)
+                try {
+                    await withRetry(
+                        async () => {
+                            syntaxAttempts++;
+                            throw new SyntaxError('Invalid syntax');
+                        },
+                        {
+                            maxRetries: 2,
+                            retryCondition: (error, attempt, errorAnalysis) => {
+                                return errorAnalysis.category === 'network';
+                            },
+                            context: 'test_conditional',
+                            toolName: 'test_tool'
+                        }
+                    );
+                } catch (error) {
+                    // Expected to fail immediately
+                }
+                
+                const success = networkAttempts === 3 && syntaxAttempts === 1;
+                
+                showResult('conditional-retry-result', success, 
+                    'Conditional retry logic working correctly',
+                    `Network attempts: ${networkAttempts}, Syntax attempts: ${syntaxAttempts}`);
+                
+                log(`Conditional retry: ${success ? 'PASSED' : 'FAILED'}`, success ? 'success' : 'error');
+            } catch (error) {
+                showResult('conditional-retry-result', false, 'Test execution failed', error.message);
+                log(`Conditional retry test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.testProgressiveTimeout = async function() {
+            log('Testing progressive timeout with feedback...', 'info');
+            try {
+                let progressCallbacks = 0;
+                let warningReceived = false;
+                
+                try {
+                    await withProgressiveTimeout(
+                        new Promise((resolve) => {
+                            setTimeout(resolve, 2000); // 2 second operation
+                        }),
+                        {
+                            initialTimeout: 3000,
+                            warningThresholds: [0.5, 0.75],
+                            progressCallback: (info) => {
+                                progressCallbacks++;
+                                if (info.type === 'warning') {
+                                    warningReceived = true;
+                                }
+                            },
+                            context: 'test_timeout',
+                            toolName: 'test_tool'
+                        }
+                    );
+                } catch (error) {
+                    // Should not timeout
+                }
+                
+                const success = progressCallbacks > 0 && warningReceived;
+                
+                showResult('progressive-timeout-result', success, 
+                    'Progressive timeout with feedback working correctly',
+                    `Progress callbacks: ${progressCallbacks}, Warning received: ${warningReceived}`);
+                
+                log(`Progressive timeout: ${success ? 'PASSED' : 'FAILED'}`, success ? 'success' : 'error');
+            } catch (error) {
+                showResult('progressive-timeout-result', false, 'Test execution failed', error.message);
+                log(`Progressive timeout test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.testRecoverySuggestions = async function() {
+            log('Testing context-specific recovery suggestions...', 'info');
+            try {
+                const permissionError = new Error('Permission denied');
+                const analysis = analyzeError(permissionError, 'file_operation_create_file', 'create_file');
+                
+                const hasFilePermissionSuggestions = analysis.recoverySuggestions.some(s => 
+                    s.includes('permission') || s.includes('click') || s.includes('editor'));
+                
+                const networkError = new Error('Failed to fetch');
+                const networkAnalysis = analyzeError(networkError, 'research_operation', 'read_url');
+                
+                const hasNetworkSuggestions = networkAnalysis.recoverySuggestions.some(s => 
+                    s.includes('connection') || s.includes('internet') || s.includes('retry'));
+                
+                const success = hasFilePermissionSuggestions && hasNetworkSuggestions;
+                
+                showResult('recovery-suggestions-result', success, 
+                    'Context-specific recovery suggestions working correctly',
+                    `File suggestions: ${hasFilePermissionSuggestions}, Network suggestions: ${hasNetworkSuggestions}`);
+                
+                log(`Recovery suggestions: ${success ? 'PASSED' : 'FAILED'}`, success ? 'success' : 'error');
+            } catch (error) {
+                showResult('recovery-suggestions-result', false, 'Test execution failed', error.message);
+                log(`Recovery suggestions test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.testEnhancedErrorResponse = async function() {
+            log('Testing enhanced error response creation...', 'info');
+            try {
+                const testError = new Error('Test error message');
+                const response = await createEnhancedErrorResponse(
+                    'Test operation failed',
+                    testError,
+                    {
+                        context: 'test_operation',
+                        toolName: 'test_tool',
+                        additionalData: { testParam: 'testValue' }
+                    }
+                );
+                
+                const success = response.success === false &&
+                               response.errorAnalysis &&
+                               response.errorAnalysis.recoverySuggestions &&
+                               response.context &&
+                               response.testParam === 'testValue';
+                
+                showResult('enhanced-response-result', success, 
+                    'Enhanced error response creation working correctly',
+                    `Has analysis: ${!!response.errorAnalysis}, Has context: ${!!response.context}`);
+                
+                log(`Enhanced error response: ${success ? 'PASSED' : 'FAILED'}`, success ? 'success' : 'error');
+            } catch (error) {
+                showResult('enhanced-response-result', false, 'Test execution failed', error.message);
+                log(`Enhanced error response test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.testOperationTracking = async function() {
+            log('Testing operation tracking integration...', 'info');
+            try {
+                const context = buildErrorContext('test_operation', 'test_tool', { param1: 'value1' }, { context: 'test' });
+                
+                const success = context.includes('test_tool') && 
+                               context.includes('test_operation') && 
+                               context.includes('param1');
+                
+                showResult('operation-tracking-result', success, 
+                    'Operation tracking integration working correctly',
+                    `Context: ${context.substring(0, 100)}...`);
+                
+                log(`Operation tracking: ${success ? 'PASSED' : 'FAILED'}`, success ? 'success' : 'error');
+            } catch (error) {
+                showResult('operation-tracking-result', false, 'Test execution failed', error.message);
+                log(`Operation tracking test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.runAllTests = async function() {
+            log('Starting comprehensive error handling test suite...', 'info');
+            document.getElementById('test-status').textContent = 'Running tests...';
+            
+            // Reset results
+            testResults = { total: 0, passed: 0, failed: 0, results: [] };
+            updateStats();
+            
+            const tests = [
+                testNetworkErrorAnalysis,
+                testFileSystemErrorAnalysis,
+                testSyntaxErrorAnalysis,
+                testExponentialBackoffRetry,
+                testConditionalRetry,
+                testProgressiveTimeout,
+                testRecoverySuggestions,
+                testEnhancedErrorResponse,
+                testOperationTracking
+            ];
+            
+            for (let i = 0; i < tests.length; i++) {
+                const progress = ((i + 1) / tests.length) * 100;
+                document.getElementById('progress-bar').style.width = progress + '%';
+                
+                await tests[i]();
+                await new Promise(resolve => setTimeout(resolve, 500)); // Brief pause between tests
+            }
+            
+            document.getElementById('test-status').textContent = 
+                `Tests completed: ${testResults.passed}/${testResults.total} passed`;
+            
+            log(`Test suite completed: ${testResults.passed}/${testResults.total} tests passed`, 
+                testResults.passed === testResults.total ? 'success' : 'warning');
+        };
+
+        window.clearResults = function() {
+            document.getElementById('test-log').textContent = 'Test log cleared...\n';
+            testResults = { total: 0, passed: 0, failed: 0, results: [] };
+            updateStats();
+            document.getElementById('progress-bar').style.width = '0%';
+            document.getElementById('test-status').textContent = 'Ready to run tests';
+            
+            // Clear all result divs
+            const resultDivs = document.querySelectorAll('.test-result');
+            resultDivs.forEach(div => {
+                div.className = 'test-result';
+                div.innerHTML = '';
+            });
+        };
+
+        window.exportResults = function() {
+            const results = {
+                timestamp: new Date().toISOString(),
+                summary: testResults,
+                log: document.getElementById('test-log').textContent
+            };
+            
+            const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `error-handling-test-results-${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            log('Test results exported successfully', 'success');
+        };
+
+        // Initialize
+        log('Error Handling Test Suite initialized', 'info');
+        log('Click "Run All Tests" to start comprehensive testing', 'info');
+    </script>
+</body>
+</html>

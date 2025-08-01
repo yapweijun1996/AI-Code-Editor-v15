@@ -298,21 +298,11 @@ export class GeminiService extends BaseLLMService {
 - **Comprehensive Answers:** Do not give short or superficial answers. Combine information from multiple sources (\`read_file\`, \`read_url\`, etc.) into a detailed, well-structured response.
 - **Analysis:** Explain what the information means. Identify key facts, draw connections, and provide a comprehensive overview. If asked for a "breakdown" or "detailed analysis," you are expected to generate a substantial, long-form response (e.g., 500-1000 words) if the gathered data supports it.
 
-**8. TASK MANAGEMENT & PRODUCTIVITY TOOLS - MANDATORY USAGE:**
-- **IMMEDIATE ACTION REQUIRED:** Before starting ANY multi-step task, you MUST call \`start_task_session\` first. This is NOT optional.
-- **AI Task Management System - USE FIRST:**
-  - ANY request involving analysis, optimization, review, or improvement = Call \`start_task_session\` immediately
-  - Example: User says "analyze the code" → FIRST tool call must be \`start_task_session\` with goal "analyze codebase structure and quality"
-  - After \`start_task_session\`, use \`start_next_task\` to begin systematic work
-  - Use \`complete_current_task\` when finishing each subtask
-  - Use \`display_task_progress\` regularly to keep user informed
-- **Personal Todo System:** Help users manage their tasks:
-  - Use \`todo_create\` to capture user requirements as actionable todos
-  - Use \`todo_list\` to show existing todos
-  - Use \`todo_sync_with_ai\` to convert AI tasks to persistent todos
-  - Tell users they can access todo list anytime with Ctrl+T
-
-**MANDATORY RULE: If a user request involves more than reading a single file, you MUST start with \`start_task_session\`. NO EXCEPTIONS!**
+**8. SYSTEMATIC APPROACH:**
+- Break down complex tasks into logical steps
+- Provide clear explanations of your reasoning process
+- Use appropriate tools for each specific task
+- Validate results and handle errors appropriately
 
 Current context:
 - Time: ${timeString}

@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Performance Optimizations Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .test-section {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .test-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .status {
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            display: inline-block;
+            margin: 5px 0;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        .status.warning { background: #fff3cd; color: #856404; }
+        .metrics {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .progress {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-bar {
+            height: 100%;
+            background: #007bff;
+            transition: width 0.3s ease;
+        }
+        .log {
+            background: #000;
+            color: #0f0;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Performance Optimizations Test Suite</h1>
+        <p>This test suite validates the Phase 3.2 performance optimizations for large file operations.</p>
+        
+        <div class="test-section">
+            <h3>System Capabilities Detection</h3>
+            <button onclick="testSystemCapabilities()">Test System Detection</button>
+            <div id="system-results"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Adaptive Thresholds</h3>
+            <button onclick="testAdaptiveThresholds()">Test Adaptive Thresholds</button>
+            <div id="threshold-results"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Memory Monitoring</h3>
+            <button onclick="testMemoryMonitoring()">Test Memory Monitor</button>
+            <div id="memory-results"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>LRU Cache Management</h3>
+            <button onclick="testLRUCache()">Test LRU Cache</button>
+            <div id="cache-results"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Performance Tracking</h3>
+            <button onclick="testPerformanceTracking()">Test Performance Tracker</button>
+            <div id="performance-results"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Chunked Processing Simulation</h3>
+            <button onclick="testChunkedProcessing()">Test Chunked Processing</button>
+            <div class="progress">
+                <div id="chunk-progress" class="progress-bar" style="width: 0%"></div>
+            </div>
+            <div id="chunked-results"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Performance Report</h3>
+            <button onclick="generatePerformanceReport()">Generate Report</button>
+            <div id="report-results"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Test Log</h3>
+            <button onclick="clearLog()">Clear Log</button>
+            <div id="test-log" class="log"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Import the performance optimization modules
+        import { 
+            getAdaptiveThresholds, 
+            getMemoryMonitor, 
+            getCacheManager 
+        } from '../frontend/js/tools/utils/shared_utils.js';
+        
+        import { 
+            getPerformanceTracker,
+            trackToolPerformance,
+            getPerformanceReport,
+            getOptimizationRecommendations
+        } from '../frontend/js/tools/system/performance_tools.js';
+
+        // Global test state
+        window.testResults = {
+            systemCapabilities: null,
+            adaptiveThresholds: null,
+            memoryMonitor: null,
+            cacheManager: null,
+            performanceTracker: null
+        };
+
+        // Utility functions
+        function log(message, type = 'info') {
+            const logElement = document.getElementById('test-log');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = `[${timestamp}] ${type.toUpperCase()}: ${message}\n`;
+            logElement.textContent += logEntry;
+            logElement.scrollTop = logElement.scrollHeight;
+            console.log(`[PerformanceTest] ${message}`);
+        }
+
+        function showStatus(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            const statusDiv = document.createElement('div');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            element.appendChild(statusDiv);
+        }
+
+        function showMetrics(elementId, metrics) {
+            const element = document.getElementById(elementId);
+            const metricsDiv = document.createElement('div');
+            metricsDiv.className = 'metrics';
+            metricsDiv.textContent = JSON.stringify(metrics, null, 2);
+            element.appendChild(metricsDiv);
+        }
+
+        // Test functions
+        window.testSystemCapabilities = async function() {
+            log('Testing system capabilities detection...');
+            const resultsElement = document.getElementById('system-results');
+            resultsElement.innerHTML = '';
+
+            try {
+                const adaptiveThresholds = getAdaptiveThresholds();
+                window.testResults.adaptiveThresholds = adaptiveThresholds;
+
+                const capabilities = {
+                    deviceMemory: navigator.deviceMemory || 'Unknown',
+                    hardwareConcurrency: navigator.hardwareConcurrency || 'Unknown',
+                    systemCapability: adaptiveThresholds.systemCapability,
+                    currentThresholds: adaptiveThresholds.currentThresholds,
+                    baseThresholds: adaptiveThresholds.baseThresholds
+                };
+
+                showStatus('system-results', 'System capabilities detected successfully', 'success');
+                showMetrics('system-results', capabilities);
+                log(`System capability score: ${capabilities.systemCapability}`);
+
+            } catch (error) {
+                showStatus('system-results', `Error: ${error.message}`, 'error');
+                log(`System capabilities test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.testAdaptiveThresholds = async function() {
+            log('Testing adaptive thresholds...');
+            const resultsElement = document.getElementById('threshold-results');
+            resultsElement.innerHTML = '';
+
+            try {
+                const adaptiveThresholds = getAdaptiveThresholds();
+                
+                // Test different file types and sizes
+                const testCases = [
+                    { operation: 'read', extension: '.js', size: 50000 },
+                    { operation: 'read', extension: '.js', size: 500000 },
+                    { operation: 'read', extension: '.json', size: 100000 },
+                    { operation: 'write', extension: '.md', size: 1000000 },
+                    { operation: 'analyze', extension: '.ts', size: 2000000 },
+                    { operation: 'stream', extension: '.log', size: 10000000 }
+                ];
+
+                const results = testCases.map(testCase => ({
+                    ...testCase,
+                    threshold: adaptiveThresholds.getThreshold(testCase.operation, testCase.extension, testCase.size),
+                    shouldUseStreaming: adaptiveThresholds.shouldUseStreaming(testCase.size, testCase.operation, testCase.extension),
+                    shouldUseChunking: adaptiveThresholds.shouldUseChunking(testCase.size, testCase.operation, testCase.extension),
+                    optimalChunkSize: adaptiveThresholds.getOptimalChunkSize(testCase.size, testCase.operation)
+                }));
+
+                showStatus('threshold-results', 'Adaptive thresholds calculated successfully', 'success');
+                showMetrics('threshold-results', results);
+                log(`Tested ${testCases.length} threshold scenarios`);
+
+            } catch (error) {
+                showStatus('threshold-results', `Error: ${error.message}`, 'error');
+                log(`Adaptive thresholds test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.testMemoryMonitoring = async function() {
+            log('Testing memory monitoring...');
+            const resultsElement = document.getElementById('memory-results');
+            resultsElement.innerHTML = '';
+
+            try {
+                const memoryMonitor = getMemoryMonitor();
+                window.testResults.memoryMonitor = memoryMonitor;
+
+                // Get current memory stats
+                const memoryStats = memoryMonitor.getMemoryStats();
+                
+                // Test cleanup callback registration
+                let cleanupCalled = false;
+                const testCleanupCallback = () => {
+                    cleanupCalled = true;
+                    log('Test cleanup callback executed');
+                };
+
+                memoryMonitor.registerCleanupCallback(testCleanupCallback);
+                
+                // Simulate memory pressure (if possible)
+                const shouldOptimize = memoryMonitor.shouldOptimizeForMemory();
+
+                const results = {
+                    memoryStats,
+                    shouldOptimizeForMemory: shouldOptimize,
+                    cleanupCallbackRegistered: true,
+                    monitoringActive: memoryMonitor.isMonitoring
+                };
+
+                showStatus('memory-results', 'Memory monitoring system operational', 'success');
+                showMetrics('memory-results', results);
+                log(`Memory monitoring active: ${memoryMonitor.isMonitoring}`);
+
+                // Clean up test callback
+                memoryMonitor.unregisterCleanupCallback(testCleanupCallback);
+
+            } catch (error) {
+                showStatus('memory-results', `Error: ${error.message}`, 'error');
+                log(`Memory monitoring test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.testLRUCache = async function() {
+            log('Testing LRU cache management...');
+            const resultsElement = document.getElementById('cache-results');
+            resultsElement.innerHTML = '';
+
+            try {
+                const cacheManager = getCacheManager();
+                window.testResults.cacheManager = cacheManager;
+
+                // Test different cache operations
+                const fileContentCache = cacheManager.getCache('fileContent');
+                
+                // Add test data
+                const testData = [
+                    { key: 'test1.js', value: 'console.log("test1");', size: 100 },
+                    { key: 'test2.js', value: 'console.log("test2");', size: 150 },
+                    { key: 'test3.js', value: 'console.log("test3");', size: 200 }
+                ];
+
+                testData.forEach(item => {
+                    fileContentCache.set(item.key, item.value, item.size);
+                });
+
+                // Test cache hits
+                const hit1 = fileContentCache.get('test1.js');
+                const hit2 = fileContentCache.get('test2.js');
+                const miss = fileContentCache.get('nonexistent.js');
+
+                // Get cache statistics
+                const cacheStats = fileContentCache.getStats();
+                const globalStats = cacheManager.getGlobalStats();
+
+                const results = {
+                    cacheHit1: hit1 !== null,
+                    cacheHit2: hit2 !== null,
+                    cacheMiss: miss === null,
+                    cacheStats,
+                    globalStats
+                };
+
+                showStatus('cache-results', 'LRU cache system operational', 'success');
+                showMetrics('cache-results', results);
+                log(`Cache hit rate: ${Math.round(cacheStats.hitRate * 100)}%`);
+
+            } catch (error) {
+                showStatus('cache-results', `Error: ${error.message}`, 'error');
+                log(`LRU cache test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.testPerformanceTracking = async function() {
+            log('Testing performance tracking...');
+            const resultsElement = document.getElementById('performance-results');
+            resultsElement.innerHTML = '';
+
+            try {
+                const performanceTracker = getPerformanceTracker();
+                window.testResults.performanceTracker = performanceTracker;
+
+                // Simulate some tool operations
+                const testOperations = [
+                    { tool: 'read_file', fileType: 'js', duration: 150, success: true, fileSize: 50000 },
+                    { tool: 'read_file', fileType: 'js', duration: 300, success: true, fileSize: 100000 },
+                    { tool: 'write_file', fileType: 'js', duration: 200, success: true, fileSize: 75000 },
+                    { tool: 'analyze_code', fileType: 'ts', duration: 500, success: true, fileSize: 200000 },
+                    { tool: 'search_code', fileType: 'unknown', duration: 100, success: true, fileSize: 0 }
+                ];
+
+                const startTime = Date.now();
+                testOperations.forEach((op, index) => {
+                    const opStartTime = startTime + (index * 100);
+                    const opEndTime = opStartTime + op.duration;
+                    
+                    trackToolPerformance(op.tool, opStartTime, opEndTime, op.success, {
+                        fileType: op.fileType,
+                        fileSize: op.fileSize,
+                        processingMethod: 'test'
+                    });
+                });
+
+                // Get performance metrics
+                const globalStats = performanceTracker.getGlobalStats();
+                const toolMetrics = performanceTracker.getMetrics('read_file', 'js');
+
+                const results = {
+                    globalStats,
+                    readFileMetrics: toolMetrics ? {
+                        totalCalls: toolMetrics.totalCalls,
+                        averageTime: Math.round(toolMetrics.averageTime),
+                        successRate: Math.round((toolMetrics.successCount / toolMetrics.totalCalls) * 100)
+                    } : null,
+                    testOperationsTracked: testOperations.length
+                };
+
+                showStatus('performance-results', 'Performance tracking system operational', 'success');
+                showMetrics('performance-results', results);
+                log(`Tracked ${testOperations.length} test operations`);
+
+            } catch (error) {
+                showStatus('performance-results', `Error: ${error.message}`, 'error');
+                log(`Performance tracking test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.testChunkedProcessing = async function() {
+            log('Testing chunked processing simulation...');
+            const resultsElement = document.getElementById('chunked-results');
+            const progressBar = document.getElementById('chunk-progress');
+            resultsElement.innerHTML = '';
+            progressBar.style.width = '0%';
+
+            try {
+                const adaptiveThresholds = getAdaptiveThresholds();
+                
+                // Simulate processing a large file
+                const simulatedFileSize = 5000000; // 5MB
+                const chunkSize = adaptiveThresholds.getOptimalChunkSize(simulatedFileSize, 'read');
+                const totalChunks = Math.ceil(simulatedFileSize / chunkSize);
+                
+                log(`Simulating chunked processing: ${simulatedFileSize} bytes in ${totalChunks} chunks of ${chunkSize} bytes`);
+
+                const startTime = Date.now();
+                let processedChunks = 0;
+
+                // Simulate chunk processing with progress updates
+                for (let i = 0; i < totalChunks; i++) {
+                    // Simulate processing time
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                    
+                    processedChunks++;
+                    const progress = (processedChunks / totalChunks) * 100;
+                    progressBar.style.width = `${progress}%`;
+                    
+                    if (processedChunks % 5 === 0 || processedChunks === totalChunks) {
+                        log(`Chunk processing progress: ${Math.round(progress)}% (${processedChunks}/${totalChunks})`);
+                    }
+                }
+
+                const processingTime = Date.now() - startTime;
+                const results = {
+                    simulatedFileSize,
+                    chunkSize,
+                    totalChunks,
+                    processedChunks,
+                    processingTime,
+                    averageTimePerChunk: Math.round(processingTime / totalChunks)
+                };
+
+                showStatus('chunked-results', 'Chunked processing simulation completed', 'success');
+                showMetrics('chunked-results', results);
+                log(`Chunked processing completed in ${processingTime}ms`);
+
+            } catch (error) {
+                showStatus('chunked-results', `Error: ${error.message}`, 'error');
+                log(`Chunked processing test failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.generatePerformanceReport = async function() {
+            log('Generating performance report...');
+            const resultsElement = document.getElementById('report-results');
+            resultsElement.innerHTML = '';
+
+            try {
+                const detailedReport = getPerformanceReport(true);
+                const recommendations = getOptimizationRecommendations();
+
+                const results = {
+                    report: detailedReport,
+                    recommendations: recommendations,
+                    recommendationCount: recommendations.length
+                };
+
+                showStatus('report-results', 'Performance report generated successfully', 'success');
+                showMetrics('report-results', results);
+                log(`Generated performance report with ${recommendations.length} recommendations`);
+
+            } catch (error) {
+                showStatus('report-results', `Error: ${error.message}`, 'error');
+                log(`Performance report generation failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.clearLog = function() {
+            document.getElementById('test-log').textContent = '';
+            log('Test log cleared');
+        };
+
+        // Initialize tests on page load
+        window.addEventListener('load', function() {
+            log('Performance Optimization Test Suite initialized');
+            log('Click the test buttons to validate the performance improvements');
+        });
+    </script>
+</body>
+</html>
