@@ -238,9 +238,13 @@ export const AITodoManager = {
      */
     async updateTodoStatus(todoId, newStatus, aiComment = '') {
         try {
-            // Validate the todoId exists
-            const todoExists = await todoManager.getTodoById(todoId);
+            // Validate the todoId exists using the proper TodoManager API
+            // TodoManager doesn't have getTodoById, so we use getAllTodos and find instead
+            const allTodos = await todoManager.getAllTodos();
+            const todoExists = allTodos.find(todo => todo.id === todoId);
+            
             if (!todoExists) {
+                console.error(`Todo item with ID ${todoId} not found`);
                 throw new Error(`Todo item with ID ${todoId} not found`);
             }
             

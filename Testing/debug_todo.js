@@ -124,9 +124,66 @@ async function runTests() {
         console.log("Analysis indicates this should be handled as a todo task");
         const todoItems = await ChatService._handleTodoListQuery(taskQuery);
         console.log("Todo items created:", todoItems.length);
+
+        // Test the updateTodoStatus method that had the TypeError
+        console.log("\n=== Testing updateTodoStatus method (previously had TypeError) ===");
+        try {
+            if (todoItems && todoItems.length > 0) {
+                // Use a todo that was just created
+                const todoId = todoItems[0].id;
+                console.log("Using first created todo item with ID:", todoId);
+                
+                // Try to update its status using the method that had the error
+                console.log("Attempting to update todo status (this previously caused TypeError)...");
+                const updatedTodo = await AITodoManager.updateTodoStatus(todoId, TodoStatus.IN_PROGRESS);
+                console.log("✅ SUCCESS: Todo status updated successfully:", updatedTodo);
+                
+                // Verify the status was actually updated
+                const allTodos = await todoManager.getAllTodos();
+                const verifyTodo = allTodos.find(todo => todo.id === todoId);
+                console.log("Verification - todo after update:", verifyTodo);
+                
+                if (verifyTodo && verifyTodo.status === TodoStatus.IN_PROGRESS) {
+                    console.log("✅ VERIFICATION PASSED: Todo status was correctly updated");
+                } else {
+                    console.log("❌ VERIFICATION FAILED: Todo status was not updated correctly");
+                }
+            } else {
+                console.error("❌ No todo items created to test with");
+            }
+        } catch (error) {
+            console.error("❌ ERROR in updateTodoStatus test:", error);
+        }
     } else {
         console.log("Analysis indicates this should NOT be handled as a todo task");
         console.log("This could explain why todo functionality isn't being triggered for this query");
+        
+        // Still test the updateTodoStatus method even if we didn't create todos through the workflow
+        console.log("\n=== Testing updateTodoStatus method (previously had TypeError) ===");
+        try {
+            // Create a test todo item directly
+            console.log("Creating test todo item directly...");
+            const testTodo = await todoManager.aiCreateTodo("Test todo item for status update", TodoStatus.PENDING);
+            console.log("Test todo created:", testTodo);
+            
+            // Try to update its status using the method that had the error
+            console.log("Attempting to update todo status (this previously caused TypeError)...");
+            const updatedTodo = await AITodoManager.updateTodoStatus(testTodo.id, TodoStatus.IN_PROGRESS);
+            console.log("✅ SUCCESS: Todo status updated successfully:", updatedTodo);
+            
+            // Verify the status was actually updated
+            const allTodos = await todoManager.getAllTodos();
+            const verifyTodo = allTodos.find(todo => todo.id === testTodo.id);
+            console.log("Verification - todo after update:", verifyTodo);
+            
+            if (verifyTodo && verifyTodo.status === TodoStatus.IN_PROGRESS) {
+                console.log("✅ VERIFICATION PASSED: Todo status was correctly updated");
+            } else {
+                console.log("❌ VERIFICATION FAILED: Todo status was not updated correctly");
+            }
+        } catch (error) {
+            console.error("❌ ERROR in updateTodoStatus test:", error);
+        }
     }
 }
 
