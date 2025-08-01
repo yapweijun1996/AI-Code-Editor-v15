@@ -29983,5 +29983,30 @@
   ],
   "frontend\\js\\main.js": [
     "initializeCoreServices"
+  ],
+  "Testing\\run_todo_test.html": [
+    "#test-controls",
+    "#test-case-selector",
+    "#custom-query",
+    "#runTest",
+    "#spinner",
+    "#viewTodos",
+    "#todo-list-container",
+    "#output",
+    "#test-cases-container",
+    ".spinner",
+    ".test-case",
+    ".test-case-header"
+  ],
+  "Testing\\test_ai_todo.js": [
+    "runTest"
+  ],
+  "Testing\\todo_edge_cases.js": [
+    "runEdgeTests"
+  ],
+  "Testing\\todo_edge_tests.html": [
+    "#test-controls",
+    "#runTests",
+    "#output"
   ]
 }
