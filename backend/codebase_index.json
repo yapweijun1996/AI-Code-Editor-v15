@@ -29959,5 +29959,13 @@
   "node_modules/stream-browserify/node_modules/readable-stream/lib/internal/streams/state.js": [
     "highWaterMarkFrom",
     "getHighWaterMark"
+  ],
+  "frontend/js/tool_executor.js": [
+    "trackToolPerformance",
+    "getOptimalTool",
+    "analyzeError",
+    "getSuggestedFix",
+    "getCachedResult",
+    "setCachedResult"
   ]
 }
