@@ -49,7 +49,24 @@ const debuggingState = {
         analysisOperations: 120000, // 2 minutes for complex analysis
         batchOperations: 300000 // 5 minutes for batch operations
     },
-    cancellationTokens: new Map() // Store cancellation tokens for operations
+    cancellationTokens: new Map(), // Store cancellation tokens for operations
+    
+    // Dependency graph modeling for tool orchestration
+    dependencyGraph: {
+        nodes: new Map(), // Tool nodes with metadata
+        edges: new Map(), // Dependencies between tools
+        executionQueue: [], // Ordered execution queue
+        parallelGroups: [], // Groups of tools that can run in parallel
+        completedTools: new Set(), // Track completed tools
+        failedTools: new Set(), // Track failed tools
+        blockedTools: new Set(), // Tools blocked by dependencies
+        statistics: {
+            totalExecutions: 0,
+            parallelExecutions: 0,
+            dependencyViolations: 0,
+            optimizationSavings: 0
+        }
+    }
 };
 
 // Import diff_match_patch for diff creation
@@ -263,9 +280,626 @@ function setCachedResult(toolName, parameters, result) {
     }
 }
 
-// Optimize tool execution order
+// --- Dependency Graph Modeling for Tool Orchestration ---
+
+/**
+ * Represents a tool node in the dependency graph
+ */
+class ToolNode {
+    constructor(toolName, parameters = {}, metadata = {}) {
+        this.id = `${toolName}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        this.toolName = toolName;
+        this.parameters = parameters;
+        this.metadata = {
+            priority: metadata.priority || 'medium',
+            estimatedDuration: metadata.estimatedDuration || 5000,
+            resourceRequirements: metadata.resourceRequirements || [],
+            canRunInParallel: metadata.canRunInParallel !== false,
+            ...metadata
+        };
+        this.dependencies = new Set(); // Tools this depends on
+        this.dependents = new Set(); // Tools that depend on this
+        this.status = 'pending'; // pending, ready, running, completed, failed, blocked
+        this.result = null;
+        this.error = null;
+        this.startTime = null;
+        this.endTime = null;
+        this.executionTime = null;
+    }
+    
+    addDependency(nodeId) {
+        this.dependencies.add(nodeId);
+    }
+    
+    addDependent(nodeId) {
+        this.dependents.add(nodeId);
+    }
+    
+    isReady() {
+        if (this.status !== 'pending') return false;
+        
+        // Check if all dependencies are completed
+        for (const depId of this.dependencies) {
+            const depNode = debuggingState.dependencyGraph.nodes.get(depId);
+            if (!depNode || depNode.status !== 'completed') {
+                return false;
+            }
+        }
+        return true;
+    }
+    
+    canRunInParallelWith(otherNode) {
+        if (!this.metadata.canRunInParallel || !otherNode.metadata.canRunInParallel) {
+            return false;
+        }
+        
+        // Check for resource conflicts
+        const thisResources = new Set(this.metadata.resourceRequirements);
+        const otherResources = new Set(otherNode.metadata.resourceRequirements);
+        
+        // If they share exclusive resources, they can't run in parallel
+        for (const resource of thisResources) {
+            if (otherResources.has(resource) && resource.startsWith('exclusive:')) {
+                return false;
+            }
+        }
+        
+        // Check for file conflicts
+        const thisFiles = this.getFileTargets();
+        const otherFiles = otherNode.getFileTargets();
+        
+        // If they modify the same files, they can't run in parallel
+        for (const file of thisFiles.write) {
+            if (otherFiles.write.has(file)) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    getFileTargets() {
+        const targets = { read: new Set(), write: new Set() };
+        
+        // Analyze parameters to determine file targets
+        if (this.parameters.filename) {
+            if (this.isWriteOperation()) {
+                targets.write.add(this.parameters.filename);
+            } else {
+                targets.read.add(this.parameters.filename);
+            }
+        }
+        
+        if (this.parameters.filenames && Array.isArray(this.parameters.filenames)) {
+            this.parameters.filenames.forEach(filename => {
+                targets.read.add(filename);
+            });
+        }
+        
+        return targets;
+    }
+    
+    isWriteOperation() {
+        const writeTools = [
+            'create_file', 'edit_file', 'rewrite_file', 'apply_diff',
+            'delete_file', 'rename_file', 'append_to_file',
+            'find_and_replace', 'insert_at_line', 'replace_lines', 'smart_replace'
+        ];
+        return writeTools.includes(this.toolName);
+    }
+    
+    getPriority() {
+        const priorityMap = { low: 1, medium: 2, high: 3, critical: 4 };
+        return priorityMap[this.metadata.priority] || 2;
+    }
+}
+
+/**
+ * Dependency graph manager for intelligent tool orchestration
+ */
+class DependencyGraphManager {
+    constructor() {
+        this.graph = debuggingState.dependencyGraph;
+    }
+    
+    /**
+     * Add a tool to the dependency graph
+     */
+    addTool(toolName, parameters = {}, metadata = {}) {
+        const node = new ToolNode(toolName, parameters, metadata);
+        this.graph.nodes.set(node.id, node);
+        
+        // Auto-detect dependencies based on tool patterns
+        this.detectAutomaticDependencies(node);
+        
+        console.log(`[DependencyGraph] Added tool ${toolName} (ID: ${node.id})`);
+        return node.id;
+    }
+    
+    /**
+     * Add explicit dependency between tools
+     */
+    addDependency(dependentId, dependencyId) {
+        const dependent = this.graph.nodes.get(dependentId);
+        const dependency = this.graph.nodes.get(dependencyId);
+        
+        if (!dependent || !dependency) {
+            throw new Error(`Invalid tool IDs: ${dependentId} or ${dependencyId}`);
+        }
+        
+        dependent.addDependency(dependencyId);
+        dependency.addDependent(dependentId);
+        
+        // Update edges
+        if (!this.graph.edges.has(dependencyId)) {
+            this.graph.edges.set(dependencyId, new Set());
+        }
+        this.graph.edges.get(dependencyId).add(dependentId);
+        
+        console.log(`[DependencyGraph] Added dependency: ${dependent.toolName} depends on ${dependency.toolName}`);
+    }
+    
+    /**
+     * Automatically detect dependencies based on tool patterns
+     */
+    detectAutomaticDependencies(node) {
+        const existingNodes = Array.from(this.graph.nodes.values());
+        
+        // Rule 1: File operations depend on structure queries
+        if (node.isWriteOperation() && node.parameters.filename) {
+            const structureNode = existingNodes.find(n =>
+                n.toolName === 'get_project_structure' && n.status !== 'failed'
+            );
+            if (structureNode) {
+                this.addDependency(node.id, structureNode.id);
+            }
+        }
+        
+        // Rule 2: Edit operations should depend on read operations for the same file
+        if (node.isWriteOperation() && node.parameters.filename) {
+            const readNode = existingNodes.find(n =>
+                (n.toolName === 'read_file' || n.toolName === 'read_file_lines') &&
+                n.parameters.filename === node.parameters.filename &&
+                n.status !== 'failed'
+            );
+            if (readNode) {
+                this.addDependency(node.id, readNode.id);
+            }
+        }
+        
+        // Rule 3: apply_diff should depend on read_file with line numbers
+        if (node.toolName === 'apply_diff' && node.parameters.filename) {
+            const readWithLinesNode = existingNodes.find(n =>
+                n.toolName === 'read_file' &&
+                n.parameters.filename === node.parameters.filename &&
+                n.parameters.include_line_numbers === true &&
+                n.status !== 'failed'
+            );
+            if (readWithLinesNode) {
+                this.addDependency(node.id, readWithLinesNode.id);
+            }
+        }
+        
+        // Rule 4: Analysis tools depend on indexing
+        if (['analyze_code_quality', 'build_symbol_table', 'trace_data_flow'].includes(node.toolName)) {
+            const indexNode = existingNodes.find(n =>
+                n.toolName === 'build_or_update_codebase_index' && n.status !== 'failed'
+            );
+            if (indexNode) {
+                this.addDependency(node.id, indexNode.id);
+            }
+        }
+        
+        // Rule 5: Batch operations depend on individual file reads
+        if (node.toolName.startsWith('batch_') && node.parameters.filenames) {
+            node.parameters.filenames.forEach(filename => {
+                const readNode = existingNodes.find(n =>
+                    n.toolName === 'read_file' &&
+                    n.parameters.filename === filename &&
+                    n.status !== 'failed'
+                );
+                if (readNode) {
+                    this.addDependency(node.id, readNode.id);
+                }
+            });
+        }
+    }
+    
+    /**
+     * Generate optimized execution plan
+     */
+    generateExecutionPlan() {
+        const plan = {
+            phases: [],
+            parallelGroups: [],
+            totalEstimatedTime: 0,
+            criticalPath: [],
+            warnings: []
+        };
+        
+        // Topological sort to determine execution order
+        const sorted = this.topologicalSort();
+        if (!sorted) {
+            plan.warnings.push('Circular dependency detected - cannot create execution plan');
+            return plan;
+        }
+        
+        // Group tools into parallel execution phases
+        const phases = this.groupIntoParallelPhases(sorted);
+        plan.phases = phases;
+        
+        // Calculate critical path and estimated time
+        const criticalPath = this.calculateCriticalPath();
+        plan.criticalPath = criticalPath.path;
+        plan.totalEstimatedTime = criticalPath.duration;
+        
+        // Identify optimization opportunities
+        plan.parallelGroups = this.identifyParallelGroups(phases);
+        
+        console.log(`[DependencyGraph] Generated execution plan with ${phases.length} phases`);
+        console.log(`[DependencyGraph] Estimated total time: ${plan.totalEstimatedTime}ms`);
+        console.log(`[DependencyGraph] Critical path length: ${plan.criticalPath.length} tools`);
+        
+        return plan;
+    }
+    
+    /**
+     * Topological sort to detect cycles and determine execution order
+     */
+    topologicalSort() {
+        const visited = new Set();
+        const visiting = new Set();
+        const result = [];
+        
+        const visit = (nodeId) => {
+            if (visiting.has(nodeId)) {
+                return false; // Cycle detected
+            }
+            if (visited.has(nodeId)) {
+                return true;
+            }
+            
+            visiting.add(nodeId);
+            const node = this.graph.nodes.get(nodeId);
+            
+            // Visit all dependencies first
+            for (const depId of node.dependencies) {
+                if (!visit(depId)) {
+                    return false;
+                }
+            }
+            
+            visiting.delete(nodeId);
+            visited.add(nodeId);
+            result.push(nodeId);
+            
+            return true;
+        };
+        
+        // Visit all nodes
+        for (const nodeId of this.graph.nodes.keys()) {
+            if (!visited.has(nodeId)) {
+                if (!visit(nodeId)) {
+                    return null; // Cycle detected
+                }
+            }
+        }
+        
+        return result;
+    }
+    
+    /**
+     * Group tools into phases that can run in parallel
+     */
+    groupIntoParallelPhases(sortedNodes) {
+        const phases = [];
+        const processed = new Set();
+        
+        while (processed.size < sortedNodes.length) {
+            const currentPhase = [];
+            
+            // Find all nodes that are ready to execute
+            for (const nodeId of sortedNodes) {
+                if (processed.has(nodeId)) continue;
+                
+                const node = this.graph.nodes.get(nodeId);
+                
+                // Check if all dependencies are in previous phases
+                const dependenciesReady = Array.from(node.dependencies).every(depId =>
+                    processed.has(depId)
+                );
+                
+                if (dependenciesReady) {
+                    // Check if it can run in parallel with other tools in current phase
+                    const canRunInParallel = currentPhase.every(otherId => {
+                        const otherNode = this.graph.nodes.get(otherId);
+                        return node.canRunInParallelWith(otherNode);
+                    });
+                    
+                    if (canRunInParallel) {
+                        currentPhase.push(nodeId);
+                        processed.add(nodeId);
+                    }
+                }
+            }
+            
+            if (currentPhase.length === 0) {
+                // No more tools can be processed - might indicate an issue
+                break;
+            }
+            
+            phases.push(currentPhase);
+        }
+        
+        return phases;
+    }
+    
+    /**
+     * Calculate critical path through the dependency graph
+     */
+    calculateCriticalPath() {
+        const distances = new Map();
+        const predecessors = new Map();
+        
+        // Initialize distances
+        for (const nodeId of this.graph.nodes.keys()) {
+            distances.set(nodeId, 0);
+        }
+        
+        // Calculate longest path (critical path)
+        const sortedNodes = this.topologicalSort();
+        if (!sortedNodes) return { path: [], duration: 0 };
+        
+        for (const nodeId of sortedNodes) {
+            const node = this.graph.nodes.get(nodeId);
+            const currentDistance = distances.get(nodeId);
+            
+            // Update distances for all dependents
+            for (const dependentId of node.dependents) {
+                const dependent = this.graph.nodes.get(dependentId);
+                const newDistance = currentDistance + node.metadata.estimatedDuration;
+                
+                if (newDistance > distances.get(dependentId)) {
+                    distances.set(dependentId, newDistance);
+                    predecessors.set(dependentId, nodeId);
+                }
+            }
+        }
+        
+        // Find the node with maximum distance (end of critical path)
+        let maxDistance = 0;
+        let endNode = null;
+        
+        for (const [nodeId, distance] of distances) {
+            if (distance > maxDistance) {
+                maxDistance = distance;
+                endNode = nodeId;
+            }
+        }
+        
+        // Reconstruct critical path
+        const path = [];
+        let current = endNode;
+        
+        while (current) {
+            path.unshift(current);
+            current = predecessors.get(current);
+        }
+        
+        return { path, duration: maxDistance };
+    }
+    
+    /**
+     * Identify groups of tools that can run in parallel
+     */
+    identifyParallelGroups(phases) {
+        const parallelGroups = [];
+        
+        phases.forEach((phase, phaseIndex) => {
+            if (phase.length > 1) {
+                const group = {
+                    phaseIndex,
+                    tools: phase.map(nodeId => {
+                        const node = this.graph.nodes.get(nodeId);
+                        return {
+                            id: nodeId,
+                            toolName: node.toolName,
+                            estimatedDuration: node.metadata.estimatedDuration
+                        };
+                    }),
+                    estimatedParallelTime: Math.max(...phase.map(nodeId =>
+                        this.graph.nodes.get(nodeId).metadata.estimatedDuration
+                    )),
+                    estimatedSequentialTime: phase.reduce((sum, nodeId) =>
+                        sum + this.graph.nodes.get(nodeId).metadata.estimatedDuration, 0
+                    )
+                };
+                
+                group.timeSavings = group.estimatedSequentialTime - group.estimatedParallelTime;
+                parallelGroups.push(group);
+            }
+        });
+        
+        return parallelGroups;
+    }
+    
+    /**
+     * Get ready tools that can be executed now
+     */
+    getReadyTools() {
+        const readyTools = [];
+        
+        for (const node of this.graph.nodes.values()) {
+            if (node.isReady()) {
+                readyTools.push(node);
+            }
+        }
+        
+        // Sort by priority
+        readyTools.sort((a, b) => b.getPriority() - a.getPriority());
+        
+        return readyTools;
+    }
+    
+    /**
+     * Mark a tool as completed and update dependent tools
+     */
+    markToolCompleted(nodeId, result) {
+        const node = this.graph.nodes.get(nodeId);
+        if (!node) return;
+        
+        node.status = 'completed';
+        node.result = result;
+        node.endTime = Date.now();
+        node.executionTime = node.endTime - node.startTime;
+        
+        this.graph.completedTools.add(nodeId);
+        this.graph.statistics.totalExecutions++;
+        
+        // Update dependent tools status
+        for (const dependentId of node.dependents) {
+            const dependent = this.graph.nodes.get(dependentId);
+            if (dependent && dependent.status === 'blocked') {
+                if (dependent.isReady()) {
+                    dependent.status = 'pending';
+                    this.graph.blockedTools.delete(dependentId);
+                }
+            }
+        }
+        
+        console.log(`[DependencyGraph] Tool ${node.toolName} completed in ${node.executionTime}ms`);
+    }
+    
+    /**
+     * Mark a tool as failed and handle dependent tools
+     */
+    markToolFailed(nodeId, error) {
+        const node = this.graph.nodes.get(nodeId);
+        if (!node) return;
+        
+        node.status = 'failed';
+        node.error = error;
+        node.endTime = Date.now();
+        node.executionTime = node.endTime - node.startTime;
+        
+        this.graph.failedTools.add(nodeId);
+        
+        // Mark all dependent tools as blocked
+        const blockedTools = this.propagateFailure(nodeId);
+        
+        console.warn(`[DependencyGraph] Tool ${node.toolName} failed, blocking ${blockedTools.length} dependent tools`);
+        
+        return blockedTools;
+    }
+    
+    /**
+     * Propagate failure to dependent tools
+     */
+    propagateFailure(failedNodeId) {
+        const blockedTools = [];
+        const visited = new Set();
+        
+        const propagate = (nodeId) => {
+            if (visited.has(nodeId)) return;
+            visited.add(nodeId);
+            
+            const node = this.graph.nodes.get(nodeId);
+            if (!node) return;
+            
+            for (const dependentId of node.dependents) {
+                const dependent = this.graph.nodes.get(dependentId);
+                if (dependent && dependent.status === 'pending') {
+                    dependent.status = 'blocked';
+                    this.graph.blockedTools.add(dependentId);
+                    blockedTools.push(dependentId);
+                    
+                    // Recursively propagate
+                    propagate(dependentId);
+                }
+            }
+        };
+        
+        propagate(failedNodeId);
+        return blockedTools;
+    }
+    
+    /**
+     * Get execution statistics
+     */
+    getStatistics() {
+        const stats = { ...this.graph.statistics };
+        
+        stats.totalTools = this.graph.nodes.size;
+        stats.completedTools = this.graph.completedTools.size;
+        stats.failedTools = this.graph.failedTools.size;
+        stats.blockedTools = this.graph.blockedTools.size;
+        stats.pendingTools = stats.totalTools - stats.completedTools - stats.failedTools;
+        
+        // Calculate average execution time
+        const completedNodes = Array.from(this.graph.nodes.values())
+            .filter(node => node.status === 'completed' && node.executionTime);
+        
+        stats.averageExecutionTime = completedNodes.length > 0 ?
+            completedNodes.reduce((sum, node) => sum + node.executionTime, 0) / completedNodes.length : 0;
+        
+        return stats;
+    }
+    
+    /**
+     * Clear the dependency graph
+     */
+    clear() {
+        this.graph.nodes.clear();
+        this.graph.edges.clear();
+        this.graph.executionQueue = [];
+        this.graph.parallelGroups = [];
+        this.graph.completedTools.clear();
+        this.graph.failedTools.clear();
+        this.graph.blockedTools.clear();
+        
+        console.log('[DependencyGraph] Cleared dependency graph');
+    }
+    
+    /**
+     * Export graph for visualization or debugging
+     */
+    exportGraph() {
+        const exportData = {
+            nodes: Array.from(this.graph.nodes.entries()).map(([id, node]) => ({
+                id,
+                toolName: node.toolName,
+                status: node.status,
+                dependencies: Array.from(node.dependencies),
+                dependents: Array.from(node.dependents),
+                metadata: node.metadata,
+                executionTime: node.executionTime
+            })),
+            edges: Array.from(this.graph.edges.entries()).map(([from, toSet]) => ({
+                from,
+                to: Array.from(toSet)
+            })),
+            statistics: this.getStatistics()
+        };
+        
+        return exportData;
+    }
+}
+
+// Create global dependency graph manager instance
+const dependencyGraphManager = new DependencyGraphManager();
+
+// Optimize tool execution order (enhanced with dependency graph)
 function optimizeToolSequence(tools) {
-    // Sort tools by priority and dependencies
+    // If dependency graph is available, use it for optimization
+    if (tools.length > 1 && debuggingState.dependencyGraph.nodes.size > 0) {
+        const plan = dependencyGraphManager.generateExecutionPlan();
+        if (plan.phases.length > 0) {
+            console.log('[DependencyGraph] Using dependency-based optimization');
+            return plan;
+        }
+    }
+    
+    // Fallback to simple priority-based sorting
     const priorityOrder = {
         'get_project_structure': 1,
         'read_file': 2,
@@ -3934,10 +4568,260 @@ async function _batchValidateFiles({ filenames, validation_types = ['syntax', 's
     }
 }
 
+// --- Operation Management Tools ---
+
+async function _getActiveOperations() {
+    const operations = getActiveOperationsStatus();
+    return {
+        message: `Found ${operations.length} active operations`,
+        operations,
+        summary: {
+            total: operations.length,
+            running: operations.filter(op => op.status === 'running').length,
+            cancelled: operations.filter(op => op.status === 'cancelled').length,
+            longestRunning: operations.length > 0 ? Math.max(...operations.map(op => op.duration)) : 0
+        }
+    };
+}
+
+async function _cancelOperation({ operation_id, reason = 'User requested cancellation' }) {
+    if (!operation_id) throw new Error("The 'operation_id' parameter is required.");
+    
+    const success = cancelOperation(operation_id, reason);
+    return {
+        message: success ?
+            `Operation ${operation_id} cancelled successfully` :
+            `Operation ${operation_id} not found or already completed`,
+        success,
+        reason
+    };
+}
+
+async function _cancelAllOperations({ reason = 'User requested cancellation of all operations' }) {
+    const cancelledCount = cancelAllOperations(reason);
+    return {
+        message: `Cancelled ${cancelledCount} active operations`,
+        cancelledCount,
+        reason
+    };
+}
+
+async function _getTimeoutSettings() {
+    return {
+        message: 'Current timeout settings',
+        settings: debuggingState.timeoutSettings,
+        activeOperations: debuggingState.activeOperations.size
+    };
+}
+
+async function _updateTimeoutSettings({ tool_type, timeout_ms }) {
+    if (!tool_type || typeof timeout_ms !== 'number') {
+        throw new Error("Both 'tool_type' and 'timeout_ms' parameters are required.");
+    }
+    
+    if (!debuggingState.timeoutSettings.hasOwnProperty(tool_type)) {
+        throw new Error(`Invalid tool_type '${tool_type}'. Valid types: ${Object.keys(debuggingState.timeoutSettings).join(', ')}`);
+    }
+    
+    const oldTimeout = debuggingState.timeoutSettings[tool_type];
+    debuggingState.timeoutSettings[tool_type] = timeout_ms;
+    
+    return {
+        message: `Updated ${tool_type} timeout from ${oldTimeout}ms to ${timeout_ms}ms`,
+        tool_type,
+        old_timeout: oldTimeout,
+        new_timeout: timeout_ms
+    };
+}
+
+// --- Dependency Graph Management Tools ---
+
+async function _createDependencyGraph({ tools, auto_detect_dependencies = true }) {
+    if (!tools || !Array.isArray(tools) || tools.length === 0) {
+        throw new Error("The 'tools' parameter is required and must be a non-empty array of tool definitions.");
+    }
+    
+    // Clear existing graph
+    dependencyGraphManager.clear();
+    
+    const nodeIds = [];
+    
+    // Add all tools to the graph
+    for (const toolDef of tools) {
+        if (!toolDef.name) {
+            throw new Error("Each tool definition must have a 'name' property.");
+        }
+        
+        const nodeId = dependencyGraphManager.addTool(
+            toolDef.name,
+            toolDef.parameters || {},
+            toolDef.metadata || {}
+        );
+        nodeIds.push(nodeId);
+    }
+    
+    // Add explicit dependencies if provided
+    for (let i = 0; i < tools.length; i++) {
+        const toolDef = tools[i];
+        if (toolDef.dependencies && Array.isArray(toolDef.dependencies)) {
+            for (const depIndex of toolDef.dependencies) {
+                if (depIndex >= 0 && depIndex < nodeIds.length) {
+                    dependencyGraphManager.addDependency(nodeIds[i], nodeIds[depIndex]);
+                }
+            }
+        }
+    }
+    
+    // Generate execution plan
+    const plan = dependencyGraphManager.generateExecutionPlan();
+    
+    return {
+        message: `Created dependency graph with ${nodeIds.length} tools`,
+        nodeIds,
+        executionPlan: {
+            phases: plan.phases.length,
+            totalEstimatedTime: plan.totalEstimatedTime,
+            parallelGroups: plan.parallelGroups.length,
+            criticalPathLength: plan.criticalPath.length,
+            warnings: plan.warnings
+        },
+        statistics: dependencyGraphManager.getStatistics()
+    };
+}
+
+async function _getExecutionPlan() {
+    const plan = dependencyGraphManager.generateExecutionPlan();
+    const stats = dependencyGraphManager.getStatistics();
+    
+    return {
+        message: `Execution plan for ${stats.totalTools} tools`,
+        plan: {
+            phases: plan.phases.map((phase, index) => ({
+                phaseIndex: index,
+                toolCount: phase.length,
+                tools: phase.map(nodeId => {
+                    const node = debuggingState.dependencyGraph.nodes.get(nodeId);
+                    return {
+                        id: nodeId,
+                        toolName: node.toolName,
+                        status: node.status,
+                        estimatedDuration: node.metadata.estimatedDuration
+                    };
+                }),
+                canRunInParallel: phase.length > 1
+            })),
+            totalEstimatedTime: plan.totalEstimatedTime,
+            criticalPath: plan.criticalPath.map(nodeId => {
+                const node = debuggingState.dependencyGraph.nodes.get(nodeId);
+                return {
+                    id: nodeId,
+                    toolName: node.toolName,
+                    estimatedDuration: node.metadata.estimatedDuration
+                };
+            }),
+            parallelGroups: plan.parallelGroups,
+            warnings: plan.warnings
+        },
+        statistics: stats
+    };
+}
+
+async function _getDependencyGraphStatus() {
+    const stats = dependencyGraphManager.getStatistics();
+    const readyTools = dependencyGraphManager.getReadyTools();
+    
+    return {
+        message: `Dependency graph status: ${stats.totalTools} total tools`,
+        statistics: stats,
+        readyTools: readyTools.map(node => ({
+            id: node.id,
+            toolName: node.toolName,
+            priority: node.metadata.priority,
+            estimatedDuration: node.metadata.estimatedDuration,
+            dependencies: Array.from(node.dependencies),
+            canRunInParallel: node.metadata.canRunInParallel
+        })),
+        graphSummary: {
+            totalNodes: debuggingState.dependencyGraph.nodes.size,
+            totalEdges: Array.from(debuggingState.dependencyGraph.edges.values())
+                .reduce((sum, set) => sum + set.size, 0),
+            completedTools: debuggingState.dependencyGraph.completedTools.size,
+            failedTools: debuggingState.dependencyGraph.failedTools.size,
+            blockedTools: debuggingState.dependencyGraph.blockedTools.size
+        }
+    };
+}
+
+async function _addToolToDependencyGraph({ tool_name, parameters = {}, metadata = {}, dependencies = [] }) {
+    if (!tool_name) {
+        throw new Error("The 'tool_name' parameter is required.");
+    }
+    
+    const nodeId = dependencyGraphManager.addTool(tool_name, parameters, metadata);
+    
+    // Add dependencies if provided
+    for (const depId of dependencies) {
+        if (debuggingState.dependencyGraph.nodes.has(depId)) {
+            dependencyGraphManager.addDependency(nodeId, depId);
+        }
+    }
+    
+    const node = debuggingState.dependencyGraph.nodes.get(nodeId);
+    
+    return {
+        message: `Added ${tool_name} to dependency graph`,
+        nodeId,
+        toolInfo: {
+            id: nodeId,
+            toolName: node.toolName,
+            status: node.status,
+            dependencies: Array.from(node.dependencies),
+            dependents: Array.from(node.dependents),
+            metadata: node.metadata
+        }
+    };
+}
+
+async function _clearDependencyGraph() {
+    const stats = dependencyGraphManager.getStatistics();
+    dependencyGraphManager.clear();
+    
+    return {
+        message: 'Dependency graph cleared successfully',
+        previousStatistics: stats
+    };
+}
+
+async function _exportDependencyGraph() {
+    const exportData = dependencyGraphManager.exportGraph();
+    
+    return {
+        message: `Exported dependency graph with ${exportData.nodes.length} nodes`,
+        graphData: exportData,
+        exportTimestamp: new Date().toISOString()
+    };
+}
+
 // --- Tool Registry ---
 
 const toolRegistry = {
    list_tools: { handler: _listTools, requiresProject: false, createsCheckpoint: false },
+    
+    // Operation management tools
+    get_active_operations: { handler: _getActiveOperations, requiresProject: false, createsCheckpoint: false },
+    cancel_operation: { handler: _cancelOperation, requiresProject: false, createsCheckpoint: false },
+    cancel_all_operations: { handler: _cancelAllOperations, requiresProject: false, createsCheckpoint: false },
+    get_timeout_settings: { handler: _getTimeoutSettings, requiresProject: false, createsCheckpoint: false },
+    update_timeout_settings: { handler: _updateTimeoutSettings, requiresProject: false, createsCheckpoint: false },
+    
+    // Dependency graph management tools
+    create_dependency_graph: { handler: _createDependencyGraph, requiresProject: false, createsCheckpoint: false },
+    get_execution_plan: { handler: _getExecutionPlan, requiresProject: false, createsCheckpoint: false },
+    get_dependency_graph_status: { handler: _getDependencyGraphStatus, requiresProject: false, createsCheckpoint: false },
+    add_tool_to_dependency_graph: { handler: _addToolToDependencyGraph, requiresProject: false, createsCheckpoint: false },
+    clear_dependency_graph: { handler: _clearDependencyGraph, requiresProject: false, createsCheckpoint: false },
+    export_dependency_graph: { handler: _exportDependencyGraph, requiresProject: false, createsCheckpoint: false },
+    
     // Project-based tools
     get_project_structure: { handler: _getProjectStructure, requiresProject: true, createsCheckpoint: false },
     
@@ -4084,6 +4968,36 @@ export async function execute(toolCall, rootDirectoryHandle, silent = false) {
         console.log(`[Smart Selection] Recommended: ${recommendation.recommendedTool} - ${recommendation.reason}`);
     }
 
+    // Dependency graph integration - add tool to graph for tracking
+    let dependencyNodeId = null;
+    try {
+        // Estimate duration based on tool type and parameters
+        const estimatedDuration = getToolTimeout(toolName, parameters);
+        
+        // Determine if tool can run in parallel
+        const canRunInParallel = !['create_file', 'edit_file', 'rewrite_file', 'apply_diff', 'delete_file'].includes(toolName) ||
+                                !parameters.filename; // File operations on different files can run in parallel
+        
+        // Add tool to dependency graph for tracking and optimization
+        dependencyNodeId = dependencyGraphManager.addTool(toolName, parameters, {
+            priority: context.mode === 'amend' ? 'high' : 'medium',
+            estimatedDuration,
+            canRunInParallel,
+            resourceRequirements: parameters.filename ? [`file:${parameters.filename}`] : [],
+            executionContext: context
+        });
+        
+        console.log(`[DependencyGraph] Added ${toolName} to graph (ID: ${dependencyNodeId})`);
+    } catch (error) {
+        console.warn(`[DependencyGraph] Failed to add tool to dependency graph: ${error.message}`);
+        // Continue execution without dependency tracking
+    }
+
+    // Create operation tracking
+    const operationId = `${toolName}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const cancellationToken = createOperationToken(operationId, toolName);
+    const timeout = getToolTimeout(toolName, parameters);
+
     const groupTitle = `AI Tool Call: ${toolName}`;
     const groupContent = parameters && Object.keys(parameters).length > 0 ? parameters : 'No parameters';
     console.group(groupTitle, groupContent);
@@ -4097,9 +5011,22 @@ export async function execute(toolCall, rootDirectoryHandle, silent = false) {
     let isSuccess = true;
 
     try {
-        // Enhanced execution with performance monitoring
+        // Enhanced execution with performance monitoring, timeout, and cancellation support
         performanceOptimizer.startTimer(`tool_${toolName}`);
-        resultForModel = await executeTool(toolCall, rootDirectoryHandle);
+        
+        console.log(`[Execution] Starting ${toolName} with ${timeout}ms timeout (Operation ID: ${operationId})`);
+        
+        // Wrap tool execution with timeout and cancellation
+        resultForModel = await withTimeoutAndCancellation(
+            executeTool(toolCall, rootDirectoryHandle),
+            {
+                timeout,
+                cancellationToken,
+                timeoutMessage: `Tool '${toolName}' timed out`,
+                operationId
+            }
+        );
+        
         const executionTime = performanceOptimizer.endTimer(`tool_${toolName}`);
         
         // Track performance metrics
@@ -4110,12 +5037,28 @@ export async function execute(toolCall, rootDirectoryHandle, silent = false) {
             setCachedResult(toolName, parameters, resultForModel);
         }
         
-        toolLogger.log(toolName, parameters, 'Success', resultForModel);
+        toolLogger.log(toolName, parameters, 'Success', resultForModel, {
+            operationId,
+            executionTime,
+            timeout,
+            cancelled: false
+        });
+        
+        // Mark tool as completed in dependency graph
+        if (dependencyNodeId) {
+            try {
+                dependencyGraphManager.markToolCompleted(dependencyNodeId, resultForModel);
+            } catch (depError) {
+                console.warn(`[DependencyGraph] Failed to mark tool as completed: ${depError.message}`);
+            }
+        }
         
         // Log performance insights
         if (executionTime > 2000) {
             console.warn(`[Performance] Tool ${toolName} took ${executionTime}ms - consider optimization`);
         }
+        
+        console.log(`[Execution] Completed ${toolName} successfully in ${executionTime}ms`);
         
     } catch (error) {
         isSuccess = false;
@@ -4124,26 +5067,73 @@ export async function execute(toolCall, rootDirectoryHandle, silent = false) {
         // Track failed performance
         trackToolPerformance(toolName, startTime, endTime, false, context);
         
-        // Analyze error patterns and suggest fixes
-        const errorAnalysis = analyzeError(toolName, error, context);
-        let errorMessage = `Error executing tool '${toolName}': ${error.message}`;
+        // Mark tool as failed in dependency graph
+        if (dependencyNodeId) {
+            try {
+                const blockedTools = dependencyGraphManager.markToolFailed(dependencyNodeId, error);
+                if (blockedTools.length > 0) {
+                    console.warn(`[DependencyGraph] Tool failure blocked ${blockedTools.length} dependent tools`);
+                }
+            } catch (depError) {
+                console.warn(`[DependencyGraph] Failed to mark tool as failed: ${depError.message}`);
+            }
+        }
         
-        if (errorAnalysis && errorAnalysis.suggestion) {
-            errorMessage += `\n\nSuggestion: ${errorAnalysis.suggestion}`;
-            if (errorAnalysis.alternativeTool) {
-                errorMessage += `\nConsider using: ${errorAnalysis.alternativeTool}`;
+        // Enhanced error handling for timeout and cancellation
+        let errorMessage = `Error executing tool '${toolName}': ${error.message}`;
+        let errorContext = {
+            message: error.message,
+            stack: error.stack,
+            operationId,
+            timeout,
+            isTimeout: error.isTimeout || false,
+            isCancelled: error.isCancelled || false,
+            timeoutDuration: error.timeoutDuration
+        };
+        
+        // Add specific guidance for timeout and cancellation errors
+        if (error.isTimeout) {
+            errorMessage += `\n\nTimeout Details: Operation exceeded ${timeout}ms limit.`;
+            errorMessage += `\nSuggestion: This tool may need more time. Consider breaking down the operation or optimizing the input.`;
+            
+            // Log timeout for analysis
+            console.warn(`[Timeout] Tool ${toolName} timed out after ${timeout}ms`);
+            
+        } else if (error.isCancelled) {
+            errorMessage += `\n\nCancellation Details: Operation was cancelled by user or system.`;
+            console.log(`[Cancellation] Tool ${toolName} was cancelled: ${error.message}`);
+            
+        } else {
+            // Analyze error patterns and suggest fixes for other errors
+            const errorAnalysis = analyzeError(toolName, error, context);
+            if (errorAnalysis && errorAnalysis.suggestion) {
+                errorMessage += `\n\nSuggestion: ${errorAnalysis.suggestion}`;
+                if (errorAnalysis.alternativeTool) {
+                    errorMessage += `\nConsider using: ${errorAnalysis.alternativeTool}`;
+                }
+                errorContext.suggestion = errorAnalysis.suggestion;
+                errorContext.alternativeTool = errorAnalysis.alternativeTool;
             }
         }
         
         resultForModel = { error: errorMessage };
         UI.showError(errorMessage);
         console.error(errorMessage, error);
-        toolLogger.log(toolName, parameters, 'Error', {
-            message: error.message,
-            stack: error.stack,
-            suggestion: errorAnalysis?.suggestion,
-            alternativeTool: errorAnalysis?.alternativeTool
-        });
+        
+        toolLogger.log(toolName, parameters, 'Error', errorContext);
+    } finally {
+        // Clean up operation tracking
+        if (debuggingState.activeOperations.has(operationId)) {
+            const operation = debuggingState.activeOperations.get(operationId);
+            operation.status = isSuccess ? 'completed' : 'failed';
+            operation.endTime = Date.now();
+            
+            // Remove from active operations after a short delay to allow for cleanup
+            setTimeout(() => {
+                debuggingState.activeOperations.delete(operationId);
+                debuggingState.cancellationTokens.delete(operationId);
+            }, 1000);
+        }
     }
 
     const resultForLog = isSuccess ? { status: 'Success', ...resultForModel } : { status: 'Error', message: resultForModel.error };
