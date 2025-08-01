@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Query Analysis Debug</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 10px;
+        }
+        #output {
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            height: 400px;
+            overflow: auto;
+        }
+        .query-input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+        .test-card {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+            background-color: #fff;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #eef;
+            border-radius: 4px;
+        }
+        .button-row {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        button {
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Query Analysis Debug Tool</h1>
+    <p>This tool analyzes how queries are evaluated for todo list creation.</p>
+    
+    <div class="button-row">
+        <button id="runTests">Run Predefined Tests</button>
+        <button id="runTargetTest" style="background-color: #e67700;">Test Bug Report Query</button>
+        <button id="runCustomTest">Test Custom Query</button>
+    </div>
+    
+    <div id="customTestContainer" style="display: none;">
+        <h2>Custom Query Test</h2>
+        <textarea class="query-input" id="customQuery" rows="4" placeholder="Enter a query to test..."></textarea>
+        <button id="analyzeCustomQuery">Analyze Query</button>
+        <div class="result" id="customResult"></div>
+    </div>
+    
+    <h2>Test Results</h2>
+    <div id="testResults"></div>
+
+    <script type="module">
+        // Import the AITodoManager
+        import { AITodoManager } from '../frontend/js/ai_todo_manager.js';
+        
+        // Test queries
+        const testQueries = [
+            {
+                name: "Simple Question",
+                query: "What is JavaScript?",
+                expectTodo: false
+            },
+            {
+                name: "Complex Task with Keywords",
+                query: "Create a responsive website with HTML, CSS, and JavaScript that includes a navigation menu, hero section, and contact form.",
+                expectTodo: true
+            },
+            {
+                name: "Explicit Todo Mention",
+                query: "Please create a todo list for building a simple web app",
+                expectTodo: true
+            },
+            {
+                name: "Bug Report Query (Fixed)",
+                query: "improve inc_scm_soe_track_querymain.cfm sql logic",
+                expectTodo: true  // Should now be true with our fix
+            },
+            {
+                name: "Technical Query - SQL Optimization",
+                query: "optimize database query performance",
+                expectTodo: true
+            },
+            {
+                name: "Technical Query - Bug Fix",
+                query: "fix login authentication bug",
+                expectTodo: true
+            },
+            {
+                name: "Technical Query - Code Refactoring",
+                query: "refactor user authentication module",
+                expectTodo: true
+            },
+            {
+                name: "Technical Query - API Integration",
+                query: "integrate payment API with checkout",
+                expectTodo: true
+            }
+        ];
+        
+        // Function to test a query and display results
+        function testQuery(query, name, container, expectTodo) {
+            const testCard = document.createElement('div');
+            testCard.className = 'test-card';
+            
+            const header = document.createElement('h3');
+            header.textContent = name;
+            
+            const queryDisplay = document.createElement('div');
+            queryDisplay.textContent = `Query: "${query}"`;
+            
+            const result = document.createElement('div');
+            result.className = 'result';
+            
+            testCard.appendChild(header);
+            testCard.appendChild(queryDisplay);
+            testCard.appendChild(result);
+            container.appendChild(testCard);
+            
+            try {
+                // Call the analyze method and get detailed results
+                const analysis = AITodoManager.analyzeQuery(query);
+                
+                // Get debug details
+                const isComplex = query.length > 100 || query.split(' ').length > 15;
+                const containsTaskKeywords = false; // We'll calculate this later
+                const actionCount = AITodoManager._countDistinctActions(query);
+                const containsTodo = query.toLowerCase().includes('todo');
+                
+                // Try to extract task keywords logic from AITodoManager
+                let taskKeywords = [];
+                try {
+                    // This assumes the implementation in AITodoManager
+                    taskKeywords = [
+                        'create', 'make', 'build', 'implement', 'develop', 'setup', 'configure',
+                        'organize', 'plan', 'optimize', 'improve', 'refactor', 'update', 'add',
+                        'step by step', 'todo', 'task list', 'checklist', 'roadmap'
+                    ];
+                } catch (e) {
+                    console.error("Couldn't extract task keywords:", e);
+                }
+                
+                // Technical terms that suggest a complex task even if the query is short
+                const technicalTerms = [
+                    'sql', 'database', 'query', 'api', 'endpoint', 'algorithm', 'function',
+                    'optimization', 'performance', 'schema', 'code', 'logic', 'bug', 'fix',
+                    'architecture', 'framework', 'library', 'component', 'module', 'integration'
+                ];
+                
+                // Check for technical terms
+                const foundTechnicalTerms = technicalTerms.filter(term =>
+                    query.toLowerCase().includes(term)
+                );
+                const containsTechnicalTerms = foundTechnicalTerms.length > 0;
+                
+                // Calculate which keywords were found
+                const foundKeywords = taskKeywords.filter(keyword => 
+                    query.toLowerCase().includes(keyword)
+                );
+                
+                // Log out the decision factors
+                let resultHTML = `
+                    <strong>Result:</strong> ${analysis.shouldCreateTodoList ? 'Will' : 'Will NOT'} use todo list approach<br>
+                    <strong>Expected:</strong> ${expectTodo ? 'Should' : 'Should NOT'} use todo list approach<br>
+                    <strong>Verdict:</strong> ${analysis.shouldCreateTodoList === expectTodo ? '✅ Correct' : '❌ Incorrect'}<br>
+                    <strong>Reason:</strong> ${analysis.reason}<br><br>
+                    
+                    <strong>Decision Factors:</strong><br>
+                    <ul>
+                        <li>Is Complex: ${isComplex} (length: ${query.length}, words: ${query.split(' ').length})</li>
+                        <li>Action Count: ${actionCount}</li>
+                        <li>Contains Task Keywords: ${foundKeywords.length > 0} (found: ${foundKeywords.join(', ') || 'none'})</li>
+                        <li>Explicitly Contains "todo": ${containsTodo}</li>
+                    </ul>
+                    
+                    <strong>Technical Terms:</strong><br>
+                    <ul id="technical-terms">
+                        <li>Checking for technical terms...</li>
+                    </ul>
+                    
+                    <strong>Decision Logic:</strong><br>
+                    shouldCreateTodoList = <br>
+                    - (containsTaskKeywords && containsTechnicalTerms) || <br>
+                    - (isComplex && containsTaskKeywords) || <br>
+                    - (containsTechnicalTerms && actionCount >= 2) || <br>
+                    - (actionCount >= 3) || <br>
+                    - query.includes("todo")
+                `;
+                
+                result.innerHTML = resultHTML;
+                
+            } catch (error) {
+                result.innerHTML = `<strong>Error:</strong> ${error.message}`;
+            }
+        }
+        
+        // Run all predefined tests
+        document.getElementById('runTests').addEventListener('click', () => {
+            const resultsContainer = document.getElementById('testResults');
+            resultsContainer.innerHTML = '';
+            
+            testQueries.forEach(test => {
+                testQuery(test.query, test.name, resultsContainer, test.expectTodo);
+            });
+        });
+        
+        // Test specifically the bug report query
+        document.getElementById('runTargetTest').addEventListener('click', () => {
+            const resultsContainer = document.getElementById('testResults');
+            resultsContainer.innerHTML = '';
+            
+            // The original query from the bug report
+            const bugQuery = "improve inc_scm_soe_track_querymain.cfm sql logic";
+            testQuery(bugQuery, "Bug Report Query Test", resultsContainer, true);
+        });
+        
+        // Show/hide custom test input
+        document.getElementById('runCustomTest').addEventListener('click', () => {
+            const container = document.getElementById('customTestContainer');
+            container.style.display = container.style.display === 'none' ? 'block' : 'none';
+        });
+        
+        // Run custom test
+        document.getElementById('analyzeCustomQuery').addEventListener('click', () => {
+            const query = document.getElementById('customQuery').value;
+            const resultContainer = document.getElementById('customResult');
+            
+            if (!query) {
+                resultContainer.innerHTML = 'Please enter a query to test.';
+                return;
+            }
+            
+            try {
+                const analysis = AITodoManager.analyzeQuery(query);
+                
+                // Get debug details
+                const isComplex = query.length > 100 || query.split(' ').length > 15;
+                const actionCount = AITodoManager._countDistinctActions(query);
+                const containsTodo = query.toLowerCase().includes('todo');
+                
+                // Try to extract task keywords logic from AITodoManager
+                let taskKeywords = [
+                    'create', 'make', 'build', 'implement', 'develop', 'setup', 'configure',
+                    'organize', 'plan', 'optimize', 'improve', 'refactor', 'update', 'add',
+                    'step by step', 'todo', 'task list', 'checklist', 'roadmap'
+                ];
+                
+                // Calculate which keywords were found
+                const foundKeywords = taskKeywords.filter(keyword => 
+                    query.toLowerCase().includes(keyword)
+                );
+                
+                let resultHTML = `
+                    <strong>Result:</strong> ${analysis.shouldCreateTodoList ? 'Will' : 'Will NOT'} use todo list approach<br>
+                    <strong>Reason:</strong> ${analysis.reason}<br><br>
+                    
+                    <strong>Decision Factors:</strong><br>
+                    <ul>
+                        <li>Is Complex: ${isComplex} (length: ${query.length}, words: ${query.split(' ').length})</li>
+                        <li>Action Count: ${actionCount}</li>
+                        <li>Contains Task Keywords: ${foundKeywords.length > 0} (found: ${foundKeywords.join(', ') || 'none'})</li>
+                        <li>Explicitly Contains "todo": ${containsTodo}</li>
+                    </ul>
+                `;
+                
+                resultContainer.innerHTML = resultHTML;
+                
+            } catch (error) {
+                resultContainer.innerHTML = `<strong>Error:</strong> ${error.message}`;
+            }
+        });
+    </script>
+</body>
+</html>

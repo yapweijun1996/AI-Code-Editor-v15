@@ -17,35 +17,87 @@ export const AITodoManager = {
      * @returns {Object} Analysis result with shouldCreateTodoList and reason properties
      */
     analyzeQuery(query) {
+        console.log('[DEBUG] AITodoManager.analyzeQuery called with query:', query);
+        
         // Keywords that suggest a task-based approach would be beneficial
         const taskKeywords = [
             'create', 'make', 'build', 'implement', 'develop', 'setup', 'configure',
             'organize', 'plan', 'optimize', 'improve', 'refactor', 'update', 'add',
             'step by step', 'todo', 'task list', 'checklist', 'roadmap'
         ];
+        
+        // Technical terms that suggest a complex task even if the query is short
+        const technicalTerms = [
+            'sql', 'database', 'query', 'api', 'endpoint', 'algorithm', 'function',
+            'optimization', 'performance', 'schema', 'code', 'logic', 'bug', 'fix',
+            'architecture', 'framework', 'library', 'component', 'module', 'integration'
+        ];
 
         // Check if query is complex enough for a todo list approach
         const isComplex = query.length > 100 || query.split(' ').length > 15;
+        console.log('[DEBUG] isComplex:', isComplex, `(length: ${query.length}, words: ${query.split(' ').length})`);
         
         // Check if query contains multiple distinct actions
         const actionCount = this._countDistinctActions(query);
+        console.log('[DEBUG] actionCount:', actionCount);
         
         // Check if query matches task keywords
-        const containsTaskKeywords = taskKeywords.some(keyword => 
+        const containsTaskKeywords = taskKeywords.some(keyword =>
             query.toLowerCase().includes(keyword)
         );
+        console.log('[DEBUG] containsTaskKeywords:', containsTaskKeywords);
         
-        // Determine if query would benefit from a todo approach
-        const shouldCreateTodoList = (isComplex && containsTaskKeywords) || 
-                                    (actionCount >= 3) || 
-                                    query.toLowerCase().includes('todo');
+        // Check if query contains technical terms
+        const containsTechnicalTerms = technicalTerms.some(term =>
+            query.toLowerCase().includes(term)
+        );
+        console.log('[DEBUG] containsTechnicalTerms:', containsTechnicalTerms);
         
-        return {
+        // Log which keywords were found
+        const foundKeywords = taskKeywords.filter(keyword =>
+            query.toLowerCase().includes(keyword)
+        );
+        console.log('[DEBUG] Found keywords:', foundKeywords);
+        
+        // Log which technical terms were found
+        const foundTechnicalTerms = technicalTerms.filter(term =>
+            query.toLowerCase().includes(term)
+        );
+        console.log('[DEBUG] Found technical terms:', foundTechnicalTerms);
+        
+        // MODIFIED LOGIC: Make it more inclusive of shorter technical tasks
+        // 1. Technical tasks with keywords are eligible regardless of length
+        // 2. Lower the action count threshold for technical queries
+        // 3. Keep the existing conditions as fallbacks
+        const shouldCreateTodoList =
+            // Technical tasks with task keywords (regardless of complexity)
+            (containsTaskKeywords && containsTechnicalTerms) ||
+            // Original complexity-based condition
+            (isComplex && containsTaskKeywords) ||
+            // Reduced action threshold for technical tasks
+            (containsTechnicalTerms && actionCount >= 2) ||
+            // Original action count threshold
+            (actionCount >= 3) ||
+            // Explicit todo mention
+            query.toLowerCase().includes('todo');
+        
+        console.log('[DEBUG] shouldCreateTodoList decision:', shouldCreateTodoList);
+        console.log('[DEBUG] Decision factors:');
+        console.log('[DEBUG] - (containsTaskKeywords && containsTechnicalTerms)=', (containsTaskKeywords && containsTechnicalTerms));
+        console.log('[DEBUG] - (isComplex && containsTaskKeywords)=', (isComplex && containsTaskKeywords));
+        console.log('[DEBUG] - (containsTechnicalTerms && actionCount >= 2)=', (containsTechnicalTerms && actionCount >= 2));
+        console.log('[DEBUG] - (actionCount >= 3)=', (actionCount >= 3));
+        console.log('[DEBUG] - includes("todo")=', query.toLowerCase().includes('todo'));
+        
+        const result = {
             shouldCreateTodoList,
-            reason: shouldCreateTodoList 
-                ? `Query is ${isComplex ? 'complex' : 'simple'} with ${actionCount} actions and ${containsTaskKeywords ? 'contains' : 'lacks'} task keywords.`
+            reason: shouldCreateTodoList
+                ? `Query ${containsTechnicalTerms ? 'is technical' : ''} ${isComplex ? 'and complex' : ''} with ${actionCount} actions and ${containsTaskKeywords ? 'contains' : 'lacks'} task keywords.`
                 : 'Query is simple and direct, not requiring a todo list approach.'
         };
+        
+        console.log('[DEBUG] analyzeQuery result:', result);
+        return result;
     },
 
     /**
@@ -55,6 +107,8 @@ export const AITodoManager = {
      * @returns {number} Estimated number of distinct actions
      */
     _countDistinctActions(query) {
+        console.log('[DEBUG] _countDistinctActions called with query:', query);
+        
         // This is a simple heuristic - look for common verbs and action phrases
         const commonVerbs = [
             'create', 'make', 'build', 'implement', 'develop', 'update', 'add',
@@ -67,15 +121,26 @@ export const AITodoManager = {
         const sentences = queryLower.split(/[.!?]+/);
         
         // Count sentences as potential actions
-        count += sentences.filter(s => s.trim().length > 0).length;
+        const sentenceCount = sentences.filter(s => s.trim().length > 0).length;
+        count += sentenceCount;
+        console.log('[DEBUG] Sentence count:', sentenceCount, 'sentences:', sentences.filter(s => s.trim().length > 0));
         
         // Count verbs as potential actions
+        let verbsFound = [];
         commonVerbs.forEach(verb => {
-            if (queryLower.includes(verb)) count++;
+            if (queryLower.includes(verb)) {
+                count++;
+                verbsFound.push(verb);
+            }
         });
+        console.log('[DEBUG] Verbs found:', verbsFound, 'verb count:', verbsFound.length);
         
         // Normalize the count to avoid overestimation
-        return Math.min(Math.ceil(count / 2), 10); // Cap at 10 to prevent extremes
+        const rawCount = count;
+        const normalizedCount = Math.min(Math.ceil(count / 2), 10); // Cap at 10 to prevent extremes
+        console.log('[DEBUG] Raw action count:', rawCount, 'normalized count:', normalizedCount);
+        
+        return normalizedCount;
     },
 
     /**

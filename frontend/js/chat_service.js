@@ -469,19 +469,25 @@ export const ChatService = {
         
         // Store the original user query for todo management
         this.lastUserQuery = userPrompt;
+        console.log('[DEBUG] ChatService.sendMessage: processing query:', userPrompt);
 
         try {
             // Check if todo mode is active and this is a follow-up query
             if (this.todoMode && AITodoManager.activePlan) {
+                console.log('[DEBUG] Todo mode is active with existing plan, handling as todo mode message');
                 await this._handleTodoModeMessage(userPrompt, chatMessages);
             } else {
+                console.log('[DEBUG] Analyzing if query should use todo list approach...');
                 // Analyze if this query should use todo list approach
                 const todoAnalysis = AITodoManager.analyzeQuery(userPrompt);
+                console.log('[DEBUG] Todo analysis result:', todoAnalysis);
                 
                 if (todoAnalysis.shouldCreateTodoList) {
+                    console.log('[DEBUG] Analysis indicates this query should use todo approach');
                     // Handle as a todo list task
                     await this._handleTodoListQuery(userPrompt, chatMessages);
                 } else {
+                    console.log('[DEBUG] Using regular message handling (not todo approach)');
                     // Regular message handling
                     // Prepare user message with intelligent context injection
                     const messageParts = this._prepareAndRenderUserMessage(chatInput, chatMessages, uploadedImage, clearImagePreview);
@@ -644,11 +650,13 @@ export const ChatService = {
     * @param {HTMLElement} chatMessages - The chat messages container
     */
    async _handleTodoListQuery(userQuery, chatMessages) {
+       console.log('[DEBUG] _handleTodoListQuery called for query:', userQuery);
        try {
            // Append user message to the UI
            UI.appendMessage(chatMessages, userQuery, 'user');
            
            // Get initial AI analysis of the query for task planning
+           console.log('[DEBUG] Showing thinking indicator and preparing AI prompt');
            UI.showThinkingIndicator(chatMessages, 'Analyzing your request and creating a plan...');
            
            const initialPrompt = `
@@ -668,14 +676,19 @@ export const ChatService = {
                ...
            `;
            
+           console.log('[DEBUG] Sending initial prompt to AI for task planning');
            const initialResponse = await this.sendPrompt(initialPrompt, {
                customRules: 'You are a task planning assistant that breaks down complex requests into clear, actionable steps.'
            });
+           console.log('[DEBUG] Received AI response for task planning:', initialResponse);
            
            // Generate todo items from the AI response
+           console.log('[DEBUG] Generating todo items from AI response');
            const todoItems = await AITodoManager.generateTodoList(userQuery, initialResponse);
+           console.log('[DEBUG] Generated todo items:', todoItems);
            
            // Update the UI with todo list
+           console.log('[DEBUG] Updating UI with todo list');
            UI.updateTodoList(todoItems);
            
            // Format and display the initial plan response
@@ -683,15 +696,20 @@ export const ChatService = {
            UI.appendMessage(chatMessages, formattedResponse, 'ai');
            
            // Set todo mode active
+           console.log('[DEBUG] Setting todo mode to active');
            this.todoMode = true;
            
            // Start working on the first task
            if (todoItems.length > 0) {
                const firstTask = todoItems[0];
+               console.log('[DEBUG] Setting first task to IN_PROGRESS:', firstTask);
                await AITodoManager.updateTodoStatus(firstTask.id, TodoStatus.IN_PROGRESS);
                
                // Execute the first task
+               console.log('[DEBUG] Executing first task');
                await this._executeTodoTask(firstTask, chatMessages);
+           } else {
+               console.log('[DEBUG] No todo items were generated');
            }
        } catch (error) {
            console.error('Error handling todo list query:', error);
