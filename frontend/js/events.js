@@ -4,10 +4,9 @@ import { ChatService } from './chat_service.js';
 import * as Editor from './editor.js';
 import * as UI from './ui.js';
 import * as FileSystem from './file_system.js';
-import TaskRunner from './task_runner.js';
+// Task management imports removed
 import { toolLogger } from './tool_logger.js';
-import { todoListUI } from './todo_list_ui.js';
-import { taskManager } from './task_manager.js';
+// todoListUI and taskManager imports removed
 
 export function initializeEventListeners(appState) {
     const {
@@ -70,8 +69,7 @@ export function initializeEventListeners(appState) {
     const searchTab = document.getElementById('search-tab');
     const filesContent = document.getElementById('files-content');
     const searchContent = document.getElementById('search-content');
-    const tasksTab = document.getElementById('tasks-tab');
-    const tasksContent = document.getElementById('tasks-content');
+    // Task management tabs/content elements removed
     const searchInput = document.getElementById('search-input');
     const tasksContainer = document.getElementById('tasks-container');
     const taskOutput = document.getElementById('task-output');
@@ -444,26 +442,21 @@ export function initializeEventListeners(appState) {
         ChatService.runToolDirectly('undo_last_change', {});
     });
 
-    if (filesTab && searchTab && tasksTab && filesContent && searchContent && tasksContent) {
+    if (filesTab && searchTab && filesContent && searchContent) {
         filesTab.addEventListener('click', () => {
             filesTab.classList.add('active');
             searchTab.classList.remove('active');
-            tasksTab.classList.remove('active');
             filesContent.style.display = 'block';
             searchContent.style.display = 'none';
-            tasksContent.style.display = 'none';
         });
     }
 
-
-    if (searchTab && filesTab && tasksTab && searchContent && filesContent && tasksContent) {
+    if (searchTab && filesTab && searchContent && filesContent) {
         searchTab.addEventListener('click', () => {
             searchTab.classList.add('active');
             filesTab.classList.remove('active');
-            tasksTab.classList.remove('active');
             searchContent.style.display = 'block';
             filesContent.style.display = 'none';
-            tasksContent.style.display = 'none';
         });
     }
 
@@ -526,134 +519,7 @@ export function initializeEventListeners(appState) {
             });
         });
     }
-    if (tasksTab && filesTab && searchTab && tasksContent && filesContent && searchContent) {
-        tasksTab.addEventListener('click', async () => {
-            tasksTab.classList.add('active');
-            filesTab.classList.remove('active');
-            searchTab.classList.remove('active');
-            tasksContent.style.display = 'block';
-            filesContent.style.display = 'none';
-            searchContent.style.display = 'none';
-            await displayTasks(appState);
-        });
-    }
-
-    async function displayTasks(appState) {
-        // Show TodoListUI embedded in the tasks tab
-        tasksContainer.innerHTML = `
-            <div class="tasks-header">
-                <h3>Task Management</h3>
-                <div class="tasks-actions">
-                    <button id="open-todo-overlay" class="btn-primary">
-                        <i class="fas fa-tasks" style="
-    font-size: 12px;
-"></i> Open Todo List (Ctrl+T)
-                    </button>
-                    <button id="add-quick-task" class="btn-secondary">
-                        <i class="fas fa-plus"></i> Quick Add
-                    </button>
-                </div>
-            </div>
-            <div class="tasks-summary" id="tasks-summary">
-                <div class="summary-stats" id="summary-stats">
-                    Loading tasks...
-                </div>
-            </div>
-            <div class="recent-tasks" id="recent-tasks">
-                <h4>Recent Tasks</h4>
-                <div id="recent-tasks-list"></div>
-            </div>
-        `;
-
-        // Add event listeners
-        document.getElementById('open-todo-overlay').addEventListener('click', () => {
-            todoListUI.show();
-        });
-
-        document.getElementById('add-quick-task').addEventListener('click', () => {
-            const title = prompt('Enter task title:');
-            if (title && title.trim()) {
-                // Use the imported taskManager
-                taskManager.createTask({ 
-                    title: title.trim(),
-                    priority: 'medium'
-                }).then(() => {
-                    refreshTasksSummary();
-                });
-            }
-        });
-
-        // Initial load
-        refreshTasksSummary();
-
-        // Listen for task manager events to refresh the summary
-        taskManager.addEventListener((event, data) => {
-            if (['task_created', 'task_updated', 'task_deleted'].includes(event)) {
-                refreshTasksSummary();
-            }
-        });
-    }
-
-    function refreshTasksSummary() {
-        if (!taskManager) return;
-
-        const stats = taskManager.getStats();
-        const recentTasks = taskManager.getAllTasks()
-            .sort((a, b) => (b.updatedTime || b.createdTime) - (a.updatedTime || a.createdTime))
-            .slice(0, 5);
-
-        // Update stats
-        const summaryStats = document.getElementById('summary-stats');
-        if (summaryStats) {
-            summaryStats.innerHTML = `
-                <div class="stat-item">
-                    <span class="stat-number">${stats.total}</span>
-                    <span class="stat-label">Total</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-number">${stats.pending}</span>
-                    <span class="stat-label">Pending</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-number">${stats.in_progress}</span>
-                    <span class="stat-label">In Progress</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-number">${stats.completed}</span>
-                    <span class="stat-label">Completed</span>
-                </div>
-            `;
-        }
-
-        // Update recent tasks
-        const recentTasksList = document.getElementById('recent-tasks-list');
-        if (recentTasksList) {
-            if (recentTasks.length === 0) {
-                recentTasksList.innerHTML = '<p class="no-tasks">No tasks yet. Create your first task!</p>';
-            } else {
-                recentTasksList.innerHTML = recentTasks.map(task => `
-                    <div class="task-item status-${task.status}" data-task-id="${task.id}">
-                        <div class="task-title">${task.title}</div>
-                        <div class="task-meta">
-                            <span class="task-status status-${task.status}">${task.status.replace('_', ' ')}</span>
-                            <span class="task-priority priority-${task.priority}">${task.priority}</span>
-                        </div>
-                    </div>
-                `).join('');
-
-                // Add click handlers for task items
-                recentTasksList.querySelectorAll('.task-item').forEach(item => {
-                    item.addEventListener('click', () => {
-                        const taskId = item.dataset.taskId;
-                        todoListUI.show();
-                        setTimeout(() => {
-                            todoListUI.showDetailView(taskId);
-                        }, 100);
-                    });
-                });
-            }
-        }
-    }
+    // Task management tab section and related functions removed
 
     const btnCollapse = document.getElementById('toggle-files-button');
     const sidebar = document.getElementById('file-tree-container');

@@ -82,7 +82,6 @@
     
     <script type="module">
         import { execute } from './js/tool_executor.js';
-        import { TaskTools } from './js/task_manager.js';
         
         const runTestBtn = document.getElementById('runTest');
         const cleanupBtn = document.getElementById('cleanupTasks');
@@ -160,10 +159,7 @@
                 console.log('✅ Test completed successfully!');
                 console.log('Result summary:', result.toolResponse?.response?.summary || 'No summary available');
                 
-                // Perform auto-cleanup if enabled
-                if (autoCleanupCheckbox.checked) {
-                    await cleanupStaleTasks(10 * 60 * 1000); // 10 minutes threshold
-                }
+                // Auto-cleanup functionality has been removed
             } catch (error) {
                 console.error('Test failed:', error);
             } finally {
@@ -172,37 +168,11 @@
             }
         }
         
-        /**
-         * Cleans up stale tasks with a specified inactivity threshold
-         * @param {number} threshold - Inactivity threshold in milliseconds
-         */
-        async function cleanupStaleTasks(threshold = 30 * 60 * 1000) {
-            console.log(`🧹 Running task cleanup (threshold: ${threshold / (60 * 1000)} minutes)...`);
-            
-            // Temporarily update cleanup configuration
-            TaskTools.updateCleanupConfig({
-                inactivityThreshold: threshold,
-                action: 'complete'  // Mark as complete rather than delete
-            });
-            
-            try {
-                // Run the cleanup
-                await TaskTools.cleanupStale();
-                console.log('✅ Task cleanup completed successfully');
-                
-                // Reset to default settings
-                TaskTools.updateCleanupConfig({
-                    inactivityThreshold: 24 * 60 * 60 * 1000, // Reset to 24 hours
-                    action: 'complete'
-                });
-            } catch (error) {
-                console.error('❌ Task cleanup failed:', error);
-            }
-        }
+        // Task management functionality has been removed
         
         // Event listeners for buttons
         runTestBtn.addEventListener('click', runTest);
-        cleanupBtn.addEventListener('click', () => cleanupStaleTasks(5 * 60 * 1000)); // 5 min threshold for manual cleanup
+        cleanupBtn.addEventListener('click', () => console.log('Task cleanup functionality has been removed'));
     </script>
 </body>
 </html>

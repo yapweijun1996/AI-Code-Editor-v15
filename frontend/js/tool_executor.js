@@ -10,7 +10,7 @@ import { syntaxValidator } from './syntax_validator.js';
 import { codeComprehension } from './code_comprehension.js';
 import { preciseEditor } from './precise_editor.js';
 import { backgroundIndexer } from './background_indexer.js';
-import { taskManager, TaskTools } from './task_manager.js';
+// Task manager import removed
 import { performanceOptimizer } from './performance_optimizer.js';
 import { providerOptimizer } from './provider_optimizer.js';
 import { workerManager, ensureWorkersInitialized } from './worker_manager.js';
@@ -1734,159 +1734,7 @@ async function _getFileInfo({ filename }, rootHandle) {
 
 // --- Unified Task Management Tool Handlers ---
 
-async function _taskCreate({ title, description = '', priority = 'medium', parentId = null, listId = null }) {
-    if (!title) throw new Error("The 'title' parameter is required.");
-    if (typeof title !== 'string') throw new Error("The 'title' parameter must be a string.");
-    if (priority && !['low', 'medium', 'high', 'urgent'].includes(priority)) {
-        throw new Error("The 'priority' parameter must be one of: low, medium, high, urgent.");
-    }
-    
-    try {
-        const task = await TaskTools.create({ title, description, priority, parentId, listId });
-        return {
-            message: `Task "${title}" created with ID ${task.id}.`,
-            details: task
-        };
-    } catch (error) {
-        throw new Error(`Failed to create task: ${error.message}`);
-    }
-}
-
-async function _taskUpdate({ taskId, updates }) {
-    if (!taskId || !updates) {
-        throw new Error("The 'task_update' tool requires both a 'taskId' (string) and an 'updates' (object) parameter. Please provide both in your next tool call.");
-    }
-    if (typeof taskId !== 'string') throw new Error("The 'taskId' parameter must be a string.");
-    if (typeof updates !== 'object' || updates === null) throw new Error("The 'updates' parameter must be an object.");
-    
-    try {
-        const task = await TaskTools.update(taskId, updates);
-        return {
-            message: `Task "${task.title}" (ID: ${taskId}) updated.`,
-            details: task
-        };
-    } catch (error) {
-        throw new Error(`Failed to update task ${taskId}: ${error.message}`);
-    }
-}
-
-async function _taskDelete({ taskId }) {
-    if (!taskId) throw new Error("The 'taskId' parameter is required.");
-    if (typeof taskId !== 'string') throw new Error("The 'taskId' parameter must be a string.");
-    
-    try {
-        const task = await TaskTools.delete(taskId);
-        return {
-            message: `Task "${task.title}" (ID: ${taskId}) and all its subtasks have been deleted.`,
-            details: task
-        };
-    } catch (error) {
-        throw new Error(`Failed to delete task ${taskId}: ${error.message}`);
-    }
-}
-
-async function _taskBreakdown({ taskId }) {
-    if (!taskId) throw new Error("The 'taskId' parameter is required.");
-    if (typeof taskId !== 'string') throw new Error("The 'taskId' parameter must be a string.");
-    
-    try {
-        const mainTask = TaskTools.getById(taskId);
-        if (!mainTask) throw new Error(`Task with ID ${taskId} not found.`);
-        
-        const subtasks = await TaskTools.breakdown(mainTask);
-        return {
-            message: `Goal "${mainTask.title}" has been broken down into ${subtasks.length} subtasks.`,
-            details: {
-                mainTask,
-                subtasks
-            }
-        };
-    } catch (error) {
-        throw new Error(`Failed to breakdown task ${taskId}: ${error.message}`);
-    }
-}
-
-async function _taskGetNext() {
-    try {
-        const nextTask = TaskTools.getNext();
-        if (!nextTask) {
-            return {
-                message: "No actionable tasks are currently available. All tasks may be completed or blocked by dependencies.",
-                details: null
-            };
-        }
-        return {
-            message: `The next actionable task is "${nextTask.title}".`,
-            details: nextTask
-        };
-    } catch (error) {
-        throw new Error(`Failed to get next task: ${error.message}`);
-    }
-}
-
-async function _taskGetStatus({ taskId }) {
-    try {
-        if (taskId) {
-            if (typeof taskId !== 'string') throw new Error("The 'taskId' parameter must be a string.");
-            
-            const task = TaskTools.getById(taskId);
-            if (!task) {
-                return {
-                    message: `Task with ID ${taskId} not found.`,
-                    details: null
-                };
-            }
-            return {
-                message: `Task "${task.title}" is currently ${task.status}.`,
-                details: task
-            };
-        } else {
-            // Get overall status of all tasks
-            const allTasks = TaskTools.getAll();
-            const stats = {
-                total: allTasks.length,
-                pending: allTasks.filter(t => t.status === 'pending').length,
-                in_progress: allTasks.filter(t => t.status === 'in_progress').length,
-                completed: allTasks.filter(t => t.status === 'completed').length,
-                failed: allTasks.filter(t => t.status === 'failed').length
-            };
-            
-            const activeTasks = allTasks.filter(t => t.status === 'in_progress');
-            const nextTask = TaskTools.getNext();
-            
-            return {
-                message: `Task Status Overview: ${stats.total} total, ${stats.pending} pending, ${stats.in_progress} in progress, ${stats.completed} completed, ${stats.failed} failed.`,
-                details: {
-                    stats,
-                    activeTasks,
-                    nextTask,
-                    recentTasks: allTasks.sort((a, b) => (b.updatedTime || b.createdTime) - (a.updatedTime || a.createdTime)).slice(0, 5)
-                }
-            };
-        }
-    } catch (error) {
-        throw new Error(`Failed to get task status: ${error.message}`);
-    }
-}
-async function _startTaskSession({ taskId, description = '', duration = null }) {
-    if (!taskId) throw new Error("The 'taskId' parameter is required.");
-    if (typeof taskId !== 'string') throw new Error("The 'taskId' parameter must be a string.");
-    
-    try {
-        const task = TaskTools.getById(taskId);
-        if (!task) {
-            throw new Error(`Task with ID ${taskId} not found.`);
-        }
-        
-        const session = await TaskTools.startSession(taskId, { description, duration });
-        return {
-            message: `Task session started for "${task.title}" (ID: ${taskId})`,
-            details: session
-        };
-    } catch (error) {
-        throw new Error(`Failed to start task session: ${error.message}`);
-    }
-}
+// Task management functions removed
 
 async function _createFolder({ folder_path }, rootHandle) {
     if (!folder_path) throw new Error("The 'folder_path' parameter is required for create_folder.");
@@ -2268,12 +2116,10 @@ async function _performResearch({ query, max_results = 3, depth = 2, relevance_t
     // If task_id is provided, try to get task info and subtasks
     if (task_id) {
         try {
-            // Import TaskTools dynamically to avoid circular dependencies
-            const { TaskTools } = await import('./task_manager.js');
-            taskTools = TaskTools;
+            // Task management system has been removed
+            console.log("Task management functionality is no longer available");
             
-            // Get the parent task
-            const parentTask = taskTools.getById(task_id);
+            // Continue without task tracking
             if (parentTask) {
                 console.log(`[Research] Linked to parent task: ${parentTask.title} (ID: ${task_id})`);
                 
@@ -3942,14 +3788,7 @@ const toolRegistry = {
     delete_folder: { handler: _deleteFolder, requiresProject: true, createsCheckpoint: true },
     rename_folder: { handler: _renameFolder, requiresProject: true, createsCheckpoint: true },
 
-    // --- Unified Task Management Tools ---
-    task_create: { handler: _taskCreate, requiresProject: false, createsCheckpoint: true },
-    task_update: { handler: _taskUpdate, requiresProject: false, createsCheckpoint: true },
-    task_delete: { handler: _taskDelete, requiresProject: false, createsCheckpoint: true },
-    task_breakdown: { handler: _taskBreakdown, requiresProject: false, createsCheckpoint: true },
-    task_get_next: { handler: _taskGetNext, requiresProject: false, createsCheckpoint: false },
-    task_get_status: { handler: _taskGetStatus, requiresProject: false, createsCheckpoint: false },
-    start_task_session: { handler: _startTaskSession, requiresProject: false, createsCheckpoint: true },
+    // Task management tools removed
 
     // Non-project / Editor tools
     read_url: { handler: _readUrl, requiresProject: false, createsCheckpoint: false },
@@ -4160,14 +3999,7 @@ export function getToolDefinitions() {
             { name: 'replace_lines', description: "📄 Replace a range of lines with new content. Ideal for replacing entire sections or functions.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, start_line: { type: 'NUMBER', description: 'First line to replace (1-based)' }, end_line: { type: 'NUMBER', description: 'Last line to replace (1-based)' }, new_content: { type: 'STRING', description: 'New content to replace the line range with' } }, required: ['filename', 'start_line', 'end_line', 'new_content'] } },
             { name: 'smart_replace', description: "🧠 Fuzzy matching replacement. Finds and replaces similar content even if not exactly matching. Use when content might have changed slightly.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, old_content: { type: 'STRING', description: 'Content to find (allows some differences)' }, new_content: { type: 'STRING', description: 'New content to replace with' }, similarity_threshold: { type: 'NUMBER', description: 'Minimum similarity required (0.0-1.0, default: 0.8)' } }, required: ['filename', 'old_content', 'new_content'] } },
             
-            // --- Unified Task Management System ---
-            { name: 'task_create', description: "Creates a new task. This is the starting point for any new goal.", parameters: { type: 'OBJECT', properties: { title: { type: 'STRING' }, description: { type: 'STRING' }, priority: { type: 'STRING', enum: ['low', 'medium', 'high', 'urgent'] }, parentId: { type: 'STRING' }, listId: { type: 'STRING' } }, required: ['title'] } },
-            { name: 'task_update', description: "🔄 Updates an existing task with new information or status. MANDATORY: Both 'taskId' (string) and 'updates' (object) parameters are REQUIRED. The updates object must contain at least one property like {status: 'completed', notes: 'Task finished successfully'}.", parameters: { type: 'OBJECT', properties: { taskId: { type: 'STRING', description: 'REQUIRED: The ID of the task to update' }, updates: { type: 'OBJECT', description: 'REQUIRED: Object containing the updates to apply (e.g., {status: "completed", progress: 100})' } }, required: ['taskId', 'updates'] } },
-            { name: 'task_delete', description: "Deletes a task and all of its subtasks.", parameters: { type: 'OBJECT', properties: { taskId: { type: 'STRING' } }, required: ['taskId'] } },
-            { name: 'task_breakdown', description: "🎯 CRITICAL: Analyzes a high-level task and breaks it down into SPECIFIC, ACTIONABLE subtasks. DO NOT create generic tasks like 'Analyze requirements' or 'Plan approach'. Instead, create concrete tasks like 'Locate CSS files containing dashboard styles', 'Identify color variables in style.css', 'Update background-color properties to blue theme'. Each subtask should be a specific action that can be executed immediately.", parameters: { type: 'OBJECT', properties: { taskId: { type: 'STRING' } }, required: ['taskId'] } },
-            { name: 'task_get_next', description: "Fetches the next logical task for the AI to work on, based on priority and dependencies." },
-            { name: 'task_get_status', description: "Gets status information about tasks. Can check a specific task by ID or get overall task statistics.", parameters: { type: 'OBJECT', properties: { taskId: { type: 'STRING', description: 'Optional specific task ID to check. If omitted, returns overview of all tasks.' } } } },
-            { name: 'start_task_session', description: "Starts a new work session for a specific task, tracking time spent and progress. Useful for focused work periods on complex tasks.", parameters: { type: 'OBJECT', properties: { taskId: { type: 'STRING', description: 'The ID of the task to start a session for' }, description: { type: 'STRING', description: 'Optional description of this work session' }, duration: { type: 'NUMBER', description: 'Optional planned duration in minutes' } }, required: ['taskId'] } },
+            // Task management system removed
             
             // Enhanced code comprehension tools
             { name: 'analyze_symbol', description: 'Analyzes a symbol (variable, function, class) across the entire codebase to understand its usage, definition, and relationships.', parameters: { type: 'OBJECT', properties: { symbol_name: { type: 'STRING', description: 'The name of the symbol to analyze' }, file_path: { type: 'STRING', description: 'The file path where the symbol is used or defined' } }, required: ['symbol_name', 'file_path'] } },

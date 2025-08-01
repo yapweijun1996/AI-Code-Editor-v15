@@ -37,64 +37,14 @@ export async function testResearch(options = {}) {
     const depth = options.depth || 2;
     const relevanceThreshold = options.relevanceThreshold || 0.7;
     const verbose = options.verbose !== false;
-    const trackTask = options.trackTask !== false;
     
     console.log(`🧪 TESTING MULTI-STAGE RESEARCH 🧪`);
     console.log(`Query: "${query}"`);
     console.log(`Parameters: maxResults=${maxResults}, depth=${depth}, relevanceThreshold=${relevanceThreshold}`);
     
     const startTime = Date.now();
-    let researchTaskId = null;
     
     try {
-        // Create a master research task if tracking is enabled
-        if (trackTask) {
-            // Import the TaskTools dynamically to avoid circular dependencies
-            const { TaskTools } = await import('./task_manager.js');
-            
-            // Create a master task for this research session
-            const masterTask = await TaskTools.create({
-                title: `Research: ${query}`,
-                description: `Perform multi-stage research on: ${query}`,
-                priority: 'high',
-                status: 'in_progress',
-                tags: ['research', 'automated-test'],
-                context: {
-                    type: 'research',
-                    query,
-                    parameters: { maxResults, depth, relevanceThreshold }
-                }
-            });
-            
-            researchTaskId = masterTask.id;
-            console.log(`Created research task with ID: ${researchTaskId}`);
-            
-            // Create linked subtasks for each stage
-            const stage1Task = await TaskTools.create({
-                title: `Stage 1: Broad exploration`,
-                description: `Extract keywords and perform parallel searches`,
-                parentId: researchTaskId,
-                status: 'in_progress',
-                tags: ['research', 'stage-1']
-            });
-            
-            const stage2Task = await TaskTools.create({
-                title: `Stage 2: Knowledge gap analysis`,
-                description: `Analyze content and identify knowledge gaps`,
-                parentId: researchTaskId,
-                dependencies: [stage1Task.id],
-                tags: ['research', 'stage-2']
-            });
-            
-            const stage3Task = await TaskTools.create({
-                title: `Stage 3: Focused content reading`,
-                description: `Fill knowledge gaps with targeted research`,
-                parentId: researchTaskId,
-                dependencies: [stage2Task.id],
-                tags: ['research', 'stage-3']
-            });
-        }
-        
         // Execute the performResearch tool
         const toolCall = {
             name: 'perform_research',
@@ -134,100 +84,19 @@ export async function testResearch(options = {}) {
             console.log(researchResults.summary);
         }
         
-        // Mark research tasks as completed if they were created
-        if (trackTask && researchTaskId) {
-            // Import the TaskTools dynamically to avoid circular dependencies
-            const { TaskTools } = await import('./task_manager.js');
-            
-            try {
-                // Get all subtasks of the research task
-                const masterTask = TaskTools.getById(researchTaskId);
-                if (masterTask) {
-                    // Mark all subtasks as completed first
-                    for (const subtaskId of masterTask.subtasks) {
-                        await TaskTools.update(subtaskId, {
-                            status: 'completed',
-                            completedTime: Date.now()
-                        });
-                    }
-                    
-                    // Then mark the master task as completed
-                    await TaskTools.update(researchTaskId, {
-                        status: 'completed',
-                        completedTime: Date.now(),
-                        context: {
-                            ...masterTask.context,
-                            results: {
-                                totalSources: stats.totalSources,
-                                uniqueDomains: stats.uniqueDomains,
-                                knowledgeGaps: stats.knowledgeGaps,
-                                duration: duration
-                            }
-                        }
-                    });
-                    
-                    console.log(`Research task and all subtasks marked as completed`);
-                }
-            } catch (taskError) {
-                console.warn(`Failed to update task status: ${taskError.message}`);
-            }
-        }
-        
         return {
             results: researchResults,
             stats: stats,
             duration: duration,
-            success: true,
-            taskId: researchTaskId
+            success: true
         };
     } catch (error) {
         console.error(`❌ Research test failed:`, error);
         
-        // Mark research tasks as failed if they were created
-        if (trackTask && researchTaskId) {
-            try {
-                // Import the TaskTools dynamically to avoid circular dependencies
-                const { TaskTools } = await import('./task_manager.js');
-                
-                // Mark all subtasks and the master task as failed
-                const masterTask = TaskTools.getById(researchTaskId);
-                if (masterTask) {
-                    for (const subtaskId of masterTask.subtasks) {
-                        await TaskTools.update(subtaskId, {
-                            status: 'failed',
-                            completedTime: Date.now(),
-                            notes: [{
-                                id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                                content: `Failed due to error: ${error.message}`,
-                                type: 'system',
-                                timestamp: Date.now()
-                            }]
-                        });
-                    }
-                    
-                    await TaskTools.update(researchTaskId, {
-                        status: 'failed',
-                        completedTime: Date.now(),
-                        notes: [{
-                            id: `note_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                            content: `Research failed: ${error.message}`,
-                            type: 'system',
-                            timestamp: Date.now()
-                        }]
-                    });
-                    
-                    console.log(`Research task and all subtasks marked as failed`);
-                }
-            } catch (taskError) {
-                console.warn(`Failed to update task status: ${taskError.message}`);
-            }
-        }
-        
         return {
             error: error.message,
             duration: (Date.now() - startTime) / 1000,
-            success: false,
-            taskId: researchTaskId
+            success: false
         };
     }
 }

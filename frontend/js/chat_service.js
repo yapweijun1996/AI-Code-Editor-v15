@@ -8,7 +8,7 @@ import * as Editor from './editor.js';
 import * as UI from './ui.js';
 import { performanceOptimizer } from './performance_optimizer.js';
 import { providerOptimizer } from './provider_optimizer.js';
-import { taskManager } from './task_manager.js';
+// taskManager import removed
 import { contextAnalyzer } from './context_analyzer.js';
 import { contextBuilder } from './context_builder.js';
 
@@ -161,9 +161,9 @@ export const ChatService = {
         };
 
         try {
-            // Skip auto-context for task-based queries to avoid workflow interference
-            if (await this._isTaskBasedQuery(userPrompt)) {
-                console.log(`[Context Analysis] Skipping auto-context for task-based query`);
+            // Skip auto-context for certain types of queries
+            if (userPrompt.length > 150 && this._containsComplexQueryIndicators(userPrompt)) {
+                console.log(`[Context Analysis] Skipping auto-context for complex query`);
                 return result;
             }
 
@@ -207,62 +207,19 @@ export const ChatService = {
     },
 
     /**
-     * AI-driven check if query is task-based and should skip auto-context
+     * Check if query contains indicators of a complex request
      */
-    async _isTaskBasedQuery(userPrompt) {
-        // Quick heuristic check first for performance
-        const quickIndicators = [
+    _containsComplexQueryIndicators(userPrompt) {
+        // Simple heuristic check for complex query indicators
+        const complexQueryIndicators = [
             'review all', 'make', 'create', 'build', 'implement', 'develop',
             'update all', 'change all', 'modify', 'refactor', 'optimize',
             'redesign', 'restructure', 'dashboard', 'application', 'system'
         ];
         
-        const hasQuickIndicator = quickIndicators.some(indicator =>
+        return complexQueryIndicators.some(indicator =>
             userPrompt.toLowerCase().includes(indicator)
-        );
-        
-        // If no quick indicators, it's likely not task-based
-        if (!hasQuickIndicator) {
-            return false;
-        }
-        
-        // For queries with indicators, use AI to make a more intelligent decision
-        try {
-            const analysisPrompt = `Analyze this user query and determine if it's a task-based request that requires breaking down into multiple steps:
-
-QUERY: "${userPrompt}"
-
-A task-based query is one that:
-- Requires multiple sequential steps to complete
-- Involves complex operations across multiple files
-- Needs project-wide changes or analysis
-- Would benefit from being broken down into subtasks
-
-Examples of task-based queries:
-- "review all files, make erp dashboard to blue color design"
-- "create a new user authentication system"
-- "refactor the entire project structure"
-- "implement a shopping cart feature"
-
-Examples of NON-task-based queries:
-- "explain this function"
-- "fix this specific error"
-- "what does this code do?"
-- "help me understand this concept"
-
-Return ONLY "true" or "false" (no quotes, no explanation).`;
-
-            const response = await this.sendMessage(analysisPrompt, [], false);
-            const isTaskBased = response.trim().toLowerCase() === 'true';
-            
-            console.log(`[Context Analysis] AI determined query is ${isTaskBased ? 'task-based' : 'not task-based'}`);
-            return isTaskBased;
-            
-        } catch (error) {
-            console.warn('[Context Analysis] AI analysis failed, using heuristic:', error);
-            // Fallback to heuristic if AI fails
-            return hasQuickIndicator && userPrompt.split(' ').length > 5; // Complex queries are likely task-based
-        }
+        ) && userPrompt.split(' ').length > 5; // Complex queries are typically longer
     },
 
     /**
@@ -507,170 +464,17 @@ Return ONLY "true" or "false" (no quotes, no explanation).`;
         this.resetErrorTracker();
 
         try {
-            // 1. Prepare user message with intelligent context injection
+            // Prepare user message with intelligent context injection
             const messageParts = this._prepareAndRenderUserMessage(chatInput, chatMessages, uploadedImage, clearImagePreview);
             
-            // 2. Create a main task for the user's prompt
-            if (chatMessages) {
-                UI.appendMessage(chatMessages, `Task created: "${userPrompt}"`, 'ai');
-            }
-            const mainTask = await taskManager.createTask({ title: userPrompt, priority: 'high' });
-
-            // 3. Prepare for autonomous execution with enhanced context
+            // Process the message directly (task management functionality has been removed)
             const history = await DbManager.getChatHistory();
             
             // Use the enhanced message parts that may include auto-context
             history.push({ role: 'user', parts: messageParts });
             
-            // Add task breakdown instruction
-            history.push({ role: 'user', parts: [{ text: `The main task ID is ${mainTask.id}. Your first step is to call the "task_breakdown" tool with this ID.` }] });
-
-            // 3. First API Call: Force breakdown
-            await this._performApiCall(history, chatMessages, true); // singleTurn = true
-
-            // 4. Enhanced Autonomous Execution Loop with Adaptive Planning
-            let nextTask = taskManager.getNextTask();
-            let executionAttempts = 0;
-            const maxExecutionAttempts = 10; // Prevent infinite loops
-            
-            while (nextTask && !this.isCancelled && executionAttempts < maxExecutionAttempts) {
-                executionAttempts++;
-                
-                UI.appendMessage(chatMessages, `Executing subtask ${executionAttempts}: "${nextTask.title}"`, 'ai');
-                await taskManager.updateTask(nextTask.id, { status: 'in_progress' });
-                
-                // Enhanced prompt with context awareness
-                const contextInfo = this._buildTaskContext(nextTask);
-                const prompt = `Current subtask: "${nextTask.title}"${nextTask.description ? ` - ${nextTask.description}` : ''}.
-                
-Context: ${contextInfo}
-
-Execute this task step by step. When completed, call the task_update tool to mark it as completed. Task ID: ${nextTask.id}`;
-                
-                history.push({ role: 'user', parts: [{ text: prompt }] });
-                
-                let executionResult = null;
-                try {
-                    const startTime = Date.now();
-                    await this._performApiCall(history, chatMessages, false); // singleTurn = false to allow tool chains
-                    const endTime = Date.now();
-                    
-                    // Check if the task is still in progress (AI should have updated it)
-                    const updatedTask = taskManager.tasks.get(nextTask.id);
-                    if (updatedTask && updatedTask.status === 'in_progress') {
-                        // AI didn't mark as completed, so we do it automatically
-                        await taskManager.updateTask(nextTask.id, {
-                            status: 'completed',
-                            results: {
-                                completedAutomatically: true,
-                                timestamp: Date.now(),
-                                executionTime: endTime - startTime
-                            }
-                        });
-                        executionResult = { success: true, executionTime: endTime - startTime };
-                    } else {
-                        executionResult = {
-                            success: updatedTask?.status === 'completed',
-                            status: updatedTask?.status,
-                            results: updatedTask?.results
-                        };
-                    }
-                    
-                } catch (error) {
-                    console.error(`[ChatService] Error executing task ${nextTask.id}:`, error);
-                    
-                    // Enhanced error handling with recovery attempts
-                    const errorAnalysis = this._analyzeTaskError(nextTask, error);
-                    executionResult = {
-                        error: error.message,
-                        timestamp: Date.now(),
-                        analysis: errorAnalysis
-                    };
-                    
-                    if (errorAnalysis.canRecover && errorAnalysis.retryCount < 2) {
-                        // Attempt recovery
-                        UI.appendMessage(chatMessages, `Task "${nextTask.title}" encountered an error. Attempting recovery...`, 'ai');
-                        
-                        await taskManager.updateTask(nextTask.id, {
-                            status: 'pending', // Reset to pending for retry
-                            context: {
-                                ...nextTask.context,
-                                errorHistory: [...(nextTask.context?.errorHistory || []), {
-                                    error: error.message,
-                                    timestamp: Date.now(),
-                                    retryCount: errorAnalysis.retryCount + 1
-                                }]
-                            }
-                        });
-                        
-                        // Try adaptive re-planning
-                        await taskManager.replanBasedOnResults(nextTask.id, executionResult);
-                        
-                    } else {
-                        // Mark as failed after exhausting recovery options
-                        await taskManager.updateTask(nextTask.id, {
-                            status: 'failed',
-                            results: executionResult
-                        });
-                        UI.appendMessage(chatMessages, `Task "${nextTask.title}" failed after recovery attempts: ${error.message}`, 'ai');
-                        
-                        // Try adaptive re-planning even for failed tasks
-                        await taskManager.replanBasedOnResults(nextTask.id, executionResult);
-                    }
-                }
-                
-                // Adaptive re-planning based on execution results
-                if (executionResult && !executionResult.error) {
-                    await taskManager.replanBasedOnResults(nextTask.id, executionResult);
-                }
-                
-                // Get the next task (may have changed due to re-planning)
-                nextTask = taskManager.getNextTask();
-                
-                // Safety check: if we keep getting the same failed task, break the loop
-                if (nextTask && nextTask.status === 'failed' && executionAttempts > 3) {
-                    console.warn(`[ChatService] Breaking execution loop - repeated failed task: ${nextTask.title}`);
-                    break;
-                }
-            }
-            
-            if (executionAttempts >= maxExecutionAttempts) {
-                UI.appendMessage(chatMessages, 'Execution stopped: Maximum attempts reached to prevent infinite loops.', 'ai');
-            }
-
-            if (this.isCancelled) {
-                UI.appendMessage(chatMessages, 'Execution cancelled by user.', 'ai');
-                await taskManager.updateTask(mainTask.id, { 
-                    status: 'failed',
-                    results: { cancelled: true, timestamp: Date.now() }
-                });
-            } else {
-                // Check if all subtasks are completed
-                const allSubtasks = mainTask.subtasks.map(id => taskManager.tasks.get(id)).filter(Boolean);
-                const completedSubtasks = allSubtasks.filter(t => t.status === 'completed');
-                const failedSubtasks = allSubtasks.filter(t => t.status === 'failed');
-                
-                if (failedSubtasks.length > 0) {
-                    await taskManager.updateTask(mainTask.id, { 
-                        status: 'failed',
-                        results: { 
-                            completedSubtasks: completedSubtasks.length,
-                            failedSubtasks: failedSubtasks.length,
-                            timestamp: Date.now()
-                        }
-                    });
-                    UI.appendMessage(chatMessages, `Main task "${mainTask.title}" partially completed. ${completedSubtasks.length}/${allSubtasks.length} subtasks successful.`, 'ai');
-                } else {
-                    await taskManager.updateTask(mainTask.id, { 
-                        status: 'completed',
-                        results: { 
-                            completedSubtasks: completedSubtasks.length,
-                            timestamp: Date.now()
-                        }
-                    });
-                    UI.appendMessage(chatMessages, `Main task "${mainTask.title}" completed successfully! All ${completedSubtasks.length} subtasks finished.`, 'ai');
-                }
-            }
+            // Process the request with a single API call
+            await this._performApiCall(history, chatMessages, false); // singleTurn = false to allow tool chains
             
             await DbManager.saveChatHistory(history);
 
@@ -812,164 +616,5 @@ Execute this task step by step. When completed, call the task_update tool to mar
        }
    },
 
-   /**
-    * Build contextual information for task execution
-    */
-   _buildTaskContext(task) {
-       const context = [];
-       
-       // Add task metadata
-       if (task.priority !== 'medium') {
-           context.push(`Priority: ${task.priority}`);
-       }
-       
-       if (task.confidence < 0.8) {
-           context.push(`Confidence: ${(task.confidence * 100).toFixed(0)}% (proceed with caution)`);
-       }
-       
-       if (task.context?.riskLevel && task.context.riskLevel !== 'low') {
-           context.push(`Risk Level: ${task.context.riskLevel}`);
-       }
-       
-       if (task.context?.complexity && task.context.complexity !== 'low') {
-           context.push(`Complexity: ${task.context.complexity}`);
-       }
-       
-       // Add pattern information
-       if (task.context?.patternUsed) {
-           context.push(`Pattern: ${task.context.patternUsed} (confidence: ${(task.context.patternConfidence * 100).toFixed(0)}%)`);
-       }
-       
-       // Add error history if exists
-       if (task.context?.errorHistory && task.context.errorHistory.length > 0) {
-           const lastError = task.context.errorHistory[task.context.errorHistory.length - 1];
-           context.push(`Previous Error: ${lastError.error} (retry #${lastError.retryCount})`);
-       }
-       
-       // Add parent task context
-       if (task.parentId) {
-           const parent = taskManager.tasks.get(task.parentId);
-           if (parent) {
-               context.push(`Parent Task: "${parent.title}"`);
-               
-               // Check for failed siblings
-               const failedSiblings = parent.subtasks
-                   .map(id => taskManager.tasks.get(id))
-                   .filter(t => t && t.status === 'failed');
-               
-               if (failedSiblings.length > 0) {
-                   context.push(`Warning: ${failedSiblings.length} sibling task(s) have failed`);
-               }
-           }
-       }
-       
-       return context.length > 0 ? context.join(', ') : 'Standard execution context';
-   },
-
-   /**
-    * Analyze task execution errors for recovery strategies
-    */
-   _analyzeTaskError(task, error) {
-       const analysis = {
-           canRecover: false,
-           retryCount: 0,
-           recoveryStrategy: 'none',
-           errorType: 'unknown'
-       };
-       
-       // Get retry count from task context
-       if (task.context?.errorHistory) {
-           analysis.retryCount = task.context.errorHistory.length;
-       }
-       
-       const errorMessage = error.message.toLowerCase();
-       
-       // Categorize error types and determine recovery strategies
-       if (errorMessage.includes('file not found') || errorMessage.includes('path does not exist')) {
-           analysis.errorType = 'file_not_found';
-           analysis.canRecover = analysis.retryCount < 2;
-           analysis.recoveryStrategy = 'file_discovery';
-       } else if (errorMessage.includes('permission denied') || errorMessage.includes('access denied')) {
-           analysis.errorType = 'permission_denied';
-           analysis.canRecover = analysis.retryCount < 1;
-           analysis.recoveryStrategy = 'permission_check';
-       } else if (errorMessage.includes('syntax error') || errorMessage.includes('parse error')) {
-           analysis.errorType = 'syntax_error';
-           analysis.canRecover = analysis.retryCount < 2;
-           analysis.recoveryStrategy = 'syntax_validation';
-       } else if (errorMessage.includes('network') || errorMessage.includes('connection')) {
-           analysis.errorType = 'network_error';
-           analysis.canRecover = analysis.retryCount < 3;
-           analysis.recoveryStrategy = 'retry_with_delay';
-       } else if (errorMessage.includes('timeout')) {
-           analysis.errorType = 'timeout';
-           analysis.canRecover = analysis.retryCount < 2;
-           analysis.recoveryStrategy = 'increase_timeout';
-       } else if (errorMessage.includes('dependency') || errorMessage.includes('import') || errorMessage.includes('module')) {
-           analysis.errorType = 'dependency_error';
-           analysis.canRecover = analysis.retryCount < 1;
-           analysis.recoveryStrategy = 'dependency_resolution';
-       }
-       
-       return analysis;
-   },
-
-   /**
-    * Get comprehensive execution metrics and insights
-    */
-   getExecutionInsights() {
-       const metrics = taskManager.getExecutionMetrics();
-       const insights = {
-           ...metrics,
-           recommendations: [],
-           healthScore: 0
-       };
-       
-       // Calculate health score (0-100)
-       let healthScore = 0;
-       
-       // Completion rate contributes 40% to health score
-       healthScore += (metrics.completionRate * 0.4);
-       
-       // Low failure rate contributes 30% to health score
-       healthScore += ((100 - metrics.failureRate) * 0.3);
-       
-       // Adaptive task generation indicates good error handling (20%)
-       const adaptiveRatio = metrics.totalTasks > 0 ? (metrics.adaptiveTasksGenerated / metrics.totalTasks) * 100 : 0;
-       healthScore += Math.min(adaptiveRatio * 2, 20); // Cap at 20%
-       
-       // Pattern effectiveness contributes 10%
-       const avgPatternSuccess = Object.values(metrics.patternEffectiveness)
-           .reduce((sum, pattern) => sum + pattern.successRate, 0) /
-           Object.keys(metrics.patternEffectiveness).length || 0;
-       healthScore += (avgPatternSuccess * 0.1);
-       
-       insights.healthScore = Math.round(Math.min(healthScore, 100));
-       
-       // Generate recommendations
-       if (metrics.failureRate > 20) {
-           insights.recommendations.push('High failure rate detected. Consider reviewing task breakdown patterns.');
-       }
-       
-       if (metrics.completionRate < 70) {
-           insights.recommendations.push('Low completion rate. Tasks may be too complex or poorly defined.');
-       }
-       
-       if (metrics.replanningEvents > metrics.totalTasks * 0.3) {
-           insights.recommendations.push('Frequent re-planning detected. Initial task breakdown may need improvement.');
-       }
-       
-       if (metrics.adaptiveTasksGenerated === 0 && metrics.failureRate > 0) {
-           insights.recommendations.push('No adaptive tasks generated despite failures. Error recovery system may need attention.');
-       }
-       
-       // Pattern-specific recommendations
-       for (const [pattern, stats] of Object.entries(metrics.patternEffectiveness)) {
-           if (stats.failureRate > 30) {
-               insights.recommendations.push(`Pattern "${pattern}" has high failure rate (${stats.failureRate.toFixed(1)}%). Consider refining this pattern.`);
-           }
-       }
-       
-       return insights;
-   }
+   // Task-related methods (_buildTaskContext, _analyzeTaskError, and getExecutionInsights) have been removed
 };

@@ -12,8 +12,7 @@ import * as UI from './ui.js';
 import * as FileSystem from './file_system.js';
 import { initializeEventListeners } from './events.js';
 import { DbManager } from './db.js';
-import { taskManager } from './task_manager.js';
-import { todoListUI } from './todo_list_ui.js';
+// Task management imports removed
 
 // Legacy appState for backward compatibility during migration
 export const appState = {
@@ -44,8 +43,8 @@ async function initializeCoreServices() {
             .registerInstance('StateManager', appStateManager)
             .registerSingleton('Settings', Settings)
             .registerSingleton('DbManager', DbManager)
-            .registerSingleton('ChatService', ChatService)
-            .registerSingleton('TaskManager', taskManager);
+            .registerSingleton('ChatService', ChatService);
+            // Task manager registration removed
 
         // Initialize performance profiling
         performanceProfiler.recordMetric('app', 'coreServicesInit', performance.now() - startTime);
@@ -91,13 +90,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     appState.editor = await Editor.initializeEditor(editorContainer, tabBarContainer, appState);
     UI.initResizablePanels(appState.editor);
     
-    // Initialize task management UI
-    if (window.todoListUI) {
-        window.todoListUI.initialize();
-        console.log('[Main] TodoListUI initialized.');
-    } else {
-        console.error('[Main] TodoListUI not found on window object.');
-    }
+    // Task management UI initialization removed
 
     appState.onFileSelect = async (filePath) => {
         const fileHandle = await FileSystem.getFileHandleFromPath(appState.rootDirectoryHandle, filePath);
