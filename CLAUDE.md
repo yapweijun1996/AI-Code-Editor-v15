@@ -38,7 +38,7 @@ npm start              # Start server via PM2
 npm stop               # Stop PM2 server
 npm restart            # Restart PM2 server
 npm delete             # Delete PM2 process
-npm install            # Install root dependencies (browserify, jest, etc.)
+npm install            # Install root dependencies (jest, etc.)
 ```
 
 ### Application Management
@@ -134,7 +134,7 @@ frontend/
 ├── style.css               # Global styles
 ├── js/
 │   ├── llm/               # LLM provider services
-│   ├── lib/               # Third-party libraries (diff_match_patch, git.umd.js)
+│   ├── lib/               # Third-party libraries (diff_match_patch)
 │   ├── core/              # Core systems (DI, error handling, performance)
 │   ├── workers/           # Web Workers for background tasks
 │   ├── main.js            # Application initialization
