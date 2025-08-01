@@ -29297,6 +29297,7 @@
     "#files-content",
     "#directory-controls",
     "#open-directory-button",
+    "#refresh-folder-button",
     "#reconnect-button",
     "#forget-folder-button",
     "#file-tree",
@@ -29308,8 +29309,6 @@
     "#search-results-container",
     "#tasks-content",
     "#tasks-container",
-    "#task-output-container",
-    "#task-output",
     "#editor-container",
     "#tab-bar",
     "#editor",
@@ -29372,6 +29371,7 @@
     "#tool-logs-modal",
     "#tool-logs-filter",
     "#tool-logs-list",
+    ".overlay",
     ".container",
     ".sidebar",
     ".sidebar-tabs",
@@ -29444,9 +29444,6 @@
   ],
   "frontend\\js\\editor.js": [
     "getLanguageFromExtension"
-  ],
-  "frontend\\js\\task_runner.js": [
-    "TaskRunner"
   ],
   "frontend\\js\\llm\\base_llm_service.js": [
     "BaseLLMService"
@@ -29971,23 +29968,20 @@
   "frontend\\js\\file_streaming.js": [
     "FileInfo"
   ],
-  "frontend\\simplified_todo_demo.html": [
-    "#logs",
-    ".demo-container",
-    ".demo-header",
-    ".demo-title",
-    ".demo-subtitle",
-    ".demo-section",
-    ".demo-buttons",
-    ".btn-modern",
-    ".fas",
-    ".fa-tasks",
-    ".btn-secondary",
-    ".fa-vial",
-    ".logs",
-    ".feature-list-container",
-    ".feature-list",
-    ".fa-check",
-    ".shortcut-table"
+  "Testing\\run_test.html": [
+    "#test-controls",
+    "#query",
+    "#runTest",
+    "#spinner",
+    "#cleanupTasks",
+    "#autoCleanup",
+    "#output",
+    ".spinner"
+  ],
+  "Testing\\run_test.js": [
+    "runTest"
+  ],
+  "frontend\\js\\main.js": [
+    "initializeCoreServices"
   ]
 }
