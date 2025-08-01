@@ -29636,14 +29636,6 @@
   "frontend/js/file_streaming.js": [
     "FileInfo"
   ],
-  "frontend/js/tool_executor.js": [
-    "trackToolPerformance",
-    "getOptimalTool",
-    "analyzeError",
-    "getSuggestedFix",
-    "getCachedResult",
-    "setCachedResult"
-  ],
   "frontend/js/operation_cache.js": [
     "CacheEntry"
   ],
@@ -30038,5 +30030,13 @@
     "#run-test",
     "#clear-logs",
     ".test-section"
+  ],
+  "frontend/js/tool_executor.js": [
+    "trackToolPerformance",
+    "getOptimalTool",
+    "analyzeError",
+    "getSuggestedFix",
+    "getCachedResult",
+    "setCachedResult"
   ]
 }

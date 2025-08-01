@@ -39,7 +39,17 @@ const debuggingState = {
         fileEditingHistory: new Map(), // Track which tools work best for different file types
         errorPatterns: new Map(), // Track common error patterns and solutions
         performanceMetrics: new Map() // Track tool performance by context
-    }
+    },
+    // Enhanced execution control
+    activeOperations: new Map(), // Track active tool operations for cancellation
+    timeoutSettings: {
+        default: 30000, // 30 seconds default timeout
+        fileOperations: 60000, // 60 seconds for file operations
+        networkOperations: 45000, // 45 seconds for network operations
+        analysisOperations: 120000, // 2 minutes for complex analysis
+        batchOperations: 300000 // 5 minutes for batch operations
+    },
+    cancellationTokens: new Map() // Store cancellation tokens for operations
 };
 
 // Import diff_match_patch for diff creation
@@ -270,6 +280,225 @@ function optimizeToolSequence(tools) {
         const priorityB = priorityOrder[b.name] || 999;
         return priorityA - priorityB;
     });
+}
+
+// --- Timeout and Cancellation Support ---
+
+/**
+ * Creates a cancellation token that can be used to cancel long-running operations
+ */
+class CancellationToken {
+    constructor() {
+        this.cancelled = false;
+        this.reason = null;
+        this.callbacks = [];
+    }
+    
+    cancel(reason = 'Operation cancelled') {
+        if (this.cancelled) return;
+        
+        this.cancelled = true;
+        this.reason = reason;
+        
+        // Notify all registered callbacks
+        this.callbacks.forEach(callback => {
+            try {
+                callback(reason);
+            } catch (error) {
+                console.warn('Error in cancellation callback:', error);
+            }
+        });
+        
+        this.callbacks.length = 0; // Clear callbacks
+    }
+    
+    onCancelled(callback) {
+        if (this.cancelled) {
+            callback(this.reason);
+        } else {
+            this.callbacks.push(callback);
+        }
+    }
+    
+    throwIfCancelled() {
+        if (this.cancelled) {
+            throw new Error(`Operation cancelled: ${this.reason}`);
+        }
+    }
+}
+
+/**
+ * Creates a timeout promise that rejects after the specified duration
+ */
+function createTimeoutPromise(timeoutMs, message = 'Operation timed out') {
+    return new Promise((_, reject) => {
+        setTimeout(() => {
+            reject(new Error(`${message} (${timeoutMs}ms)`));
+        }, timeoutMs);
+    });
+}
+
+/**
+ * Wraps a promise with timeout and cancellation support
+ */
+async function withTimeoutAndCancellation(promise, options = {}) {
+    const {
+        timeout = debuggingState.timeoutSettings.default,
+        cancellationToken = null,
+        timeoutMessage = 'Operation timed out',
+        operationId = null
+    } = options;
+    
+    const promises = [promise];
+    
+    // Add timeout promise
+    if (timeout > 0) {
+        promises.push(createTimeoutPromise(timeout, timeoutMessage));
+    }
+    
+    // Add cancellation promise
+    if (cancellationToken) {
+        promises.push(new Promise((_, reject) => {
+            cancellationToken.onCancelled((reason) => {
+                reject(new Error(`Operation cancelled: ${reason}`));
+            });
+        }));
+    }
+    
+    try {
+        const result = await Promise.race(promises);
+        
+        // Clean up operation tracking
+        if (operationId && debuggingState.activeOperations.has(operationId)) {
+            debuggingState.activeOperations.delete(operationId);
+        }
+        
+        return result;
+    } catch (error) {
+        // Clean up operation tracking on error
+        if (operationId && debuggingState.activeOperations.has(operationId)) {
+            debuggingState.activeOperations.delete(operationId);
+        }
+        
+        // Enhance error with timeout/cancellation context
+        if (error.message.includes('timed out')) {
+            error.isTimeout = true;
+            error.timeoutDuration = timeout;
+        } else if (error.message.includes('cancelled')) {
+            error.isCancelled = true;
+        }
+        
+        throw error;
+    }
+}
+
+/**
+ * Gets appropriate timeout for a tool based on its characteristics
+ */
+function getToolTimeout(toolName, parameters = {}) {
+    const settings = debuggingState.timeoutSettings;
+    
+    // Network operations
+    if (['read_url', 'duckduckgo_search', 'perform_research'].includes(toolName)) {
+        return settings.networkOperations;
+    }
+    
+    // Batch operations
+    if (toolName.startsWith('batch_') || toolName.includes('multiple')) {
+        return settings.batchOperations;
+    }
+    
+    // Analysis operations
+    if (['analyze_code_quality', 'debug_systematically', 'solve_engineering_problem',
+         'build_symbol_table', 'trace_data_flow'].includes(toolName)) {
+        return settings.analysisOperations;
+    }
+    
+    // File operations
+    if (['create_file', 'edit_file', 'rewrite_file', 'read_file', 'apply_diff'].includes(toolName)) {
+        // Adjust timeout based on file size if available
+        if (parameters.content && parameters.content.length > 100000) {
+            return settings.fileOperations * 2; // Double timeout for large files
+        }
+        return settings.fileOperations;
+    }
+    
+    return settings.default;
+}
+
+/**
+ * Creates and tracks a cancellation token for an operation
+ */
+function createOperationToken(operationId, toolName) {
+    const token = new CancellationToken();
+    
+    const operationInfo = {
+        id: operationId,
+        toolName,
+        token,
+        startTime: Date.now(),
+        status: 'running'
+    };
+    
+    debuggingState.activeOperations.set(operationId, operationInfo);
+    debuggingState.cancellationTokens.set(operationId, token);
+    
+    return token;
+}
+
+/**
+ * Cancels a specific operation by ID
+ */
+function cancelOperation(operationId, reason = 'User requested cancellation') {
+    const token = debuggingState.cancellationTokens.get(operationId);
+    if (token) {
+        token.cancel(reason);
+        
+        // Update operation status
+        const operation = debuggingState.activeOperations.get(operationId);
+        if (operation) {
+            operation.status = 'cancelled';
+            operation.endTime = Date.now();
+        }
+        
+        console.log(`[Cancellation] Operation ${operationId} cancelled: ${reason}`);
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Cancels all active operations
+ */
+function cancelAllOperations(reason = 'System shutdown or reset') {
+    const cancelledCount = debuggingState.activeOperations.size;
+    
+    for (const [operationId] of debuggingState.activeOperations) {
+        cancelOperation(operationId, reason);
+    }
+    
+    console.log(`[Cancellation] Cancelled ${cancelledCount} active operations`);
+    return cancelledCount;
+}
+
+/**
+ * Gets status of all active operations
+ */
+function getActiveOperationsStatus() {
+    const operations = [];
+    const now = Date.now();
+    
+    for (const [id, operation] of debuggingState.activeOperations) {
+        operations.push({
+            id,
+            toolName: operation.toolName,
+            status: operation.status,
+            duration: now - operation.startTime,
+            startTime: operation.startTime
+        });
+    }
+    
+    return operations;
 }
 
 // --- Helper Functions ---
@@ -942,14 +1171,57 @@ async function _renameFile({ old_path, new_path }, rootHandle) {
 
 // REMOVED: replace_lines function - was causing conflicts and bugs with complex indentation logic
 
+/**
+ * Finds the best match for a block of search lines within a file's content.
+ * @param {string[]} contentLines - The lines of the file content.
+ * @param {string[]} searchLines - The lines to search for.
+ * @param {number} targetLine - The 1-based line number to start searching from.
+ * @returns {{index: number, score: number, strategy: string}|null} - The best match found or null.
+ */
+function findBestMatch(contentLines, searchLines, targetLine) {
+    const targetIndex = targetLine - 1;
+
+    // Strategy 1: Exact match at the specified line
+    let exactMatch = true;
+    for (let i = 0; i < searchLines.length; i++) {
+        if (contentLines[targetIndex + i] !== searchLines[i]) {
+            exactMatch = false;
+            break;
+        }
+    }
+    if (exactMatch) {
+        return { index: targetIndex, score: 1.0, strategy: 'exact' };
+    }
+
+    // Strategy 2: Fuzzy match (trimmed content) nearby
+    const searchRange = 10;
+    for (let i = -searchRange; i <= searchRange; i++) {
+        const currentIndex = targetIndex + i;
+        if (currentIndex < 0 || currentIndex + searchLines.length > contentLines.length) continue;
+
+        let fuzzyMatch = true;
+        for (let j = 0; j < searchLines.length; j++) {
+            if ((contentLines[currentIndex + j] || '').trim() !== (searchLines[j] || '').trim()) {
+                fuzzyMatch = false;
+                break;
+            }
+        }
+        if (fuzzyMatch) {
+            return { index: currentIndex, score: 0.9, strategy: 'fuzzy' };
+        }
+    }
+
+    return null;
+}
+
 // Apply diff tool - safer and more precise than full file rewrites
 async function _applyDiff({ filename, diff }, rootHandle) {
     if (!filename) throw new Error("The 'filename' parameter is required for apply_diff.");
     if (!diff) throw new Error("The 'diff' parameter is required for apply_diff.");
-    
+
     const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
-    
-    // Enhanced permission handling - try to proceed even if permission check fails
+
+    // Enhanced permission handling
     let hasPermission = false;
     try {
         hasPermission = await FileSystem.verifyAndRequestPermission(fileHandle, true);
@@ -957,210 +1229,136 @@ async function _applyDiff({ filename, diff }, rootHandle) {
         console.warn('Permission check failed, attempting to proceed:', permissionError.message);
         hasPermission = true; // Optimistically proceed
     }
-    
+
     if (!hasPermission) {
         throw new Error('Permission to write to the file was denied.');
     }
-    
+
     const file = await fileHandle.getFile();
     const originalContent = await file.text();
     UndoManager.push(filename, originalContent);
-    
+
     const lines = originalContent.split(/\r?\n/);
     const originalLineCount = lines.length;
-    
-    // Parse diff blocks - expecting format like:
-    // <<<<<<< SEARCH
-    // :start_line:10
-    // -------
-    // old content
-    // =======
-    // new content
-    // >>>>>>> REPLACE
-    
-    // Debug: Log the raw diff content to understand the format
-    console.log('Raw diff content:', JSON.stringify(diff));
-    
-    // Split diff into individual blocks first, then parse each one
-    // This approach is more reliable than a single regex for complex content
+
+    // --- New, more robust diff parsing logic ---
     const diffBlocks = [];
-    
-    // Split by the SEARCH markers to get individual blocks
-    const blockSeparator = /<<<<<<< SEARCH/g;
-    const rawBlocks = diff.split(blockSeparator).filter(block => block.trim());
-    
-    for (const rawBlock of rawBlocks) {
-        // Parse each block individually
-        const blockPattern = /^\s*\n:start_line:(\d+)\s*\n-------\s*\n([\s\S]*?)\n=======\s*\n([\s\S]*?)\n>>>>>>> REPLACE/;
-        const match = rawBlock.match(blockPattern);
-        
-        if (match) {
-            const startLine = parseInt(match[1]);
-            const searchContent = match[2];
-            const replaceContent = match[3];
-            
-            diffBlocks.push({
-                startLine,
-                searchContent,
-                replaceContent
-            });
-        } else {
-            // Try to provide more specific error information
-            console.warn('Failed to parse diff block:', rawBlock.substring(0, 200) + '...');
+    const diffLines = diff.split('\n');
+    let currentBlock = null;
+    let state = 'IDLE'; // IDLE, SEARCHING, REPLACING
+
+    for (let i = 0; i < diffLines.length; i++) {
+        const line = diffLines[i];
+
+        switch (state) {
+            case 'IDLE':
+                if (line.startsWith('<<<<<<< SEARCH')) {
+                    currentBlock = { startLine: -1, searchContent: [], replaceContent: [] };
+                    state = 'SEARCHING';
+                }
+                break;
+
+            case 'SEARCHING':
+                if (line.startsWith(':start_line:')) {
+                    const lineNumStr = line.replace(':start_line:', '').trim();
+                    currentBlock.startLine = parseInt(lineNumStr, 10);
+                    if (isNaN(currentBlock.startLine)) {
+                        throw new Error(`Invalid start_line format on line ${i + 1}: "${line}"`);
+                    }
+                } else if (line.startsWith('-------')) {
+                    // This is the separator between start_line and search content, so we do nothing.
+                } else if (line.startsWith('=======')) {
+                    if (currentBlock.startLine === -1) {
+                        throw new Error(`Missing ':start_line:N' before '=======' on line ${i + 1}`);
+                    }
+                    state = 'REPLACING';
+                } else {
+                    currentBlock.searchContent.push(line);
+                }
+                break;
+
+            case 'REPLACING':
+                if (line.startsWith('>>>>>>> REPLACE')) {
+                    // Finalize block
+                    diffBlocks.push({
+                        startLine: currentBlock.startLine,
+                        searchContent: currentBlock.searchContent.join('\n'),
+                        replaceContent: currentBlock.replaceContent.join('\n')
+                    });
+                    state = 'IDLE';
+                    currentBlock = null;
+                } else {
+                    currentBlock.replaceContent.push(line);
+                }
+                break;
         }
     }
-    
-    // If no blocks were parsed successfully, provide detailed debugging
-    if (diffBlocks.length === 0) {
-        // Try to identify what parts of the expected format are present
-        const hasSearchMarker = diff.includes('<<<<<<< SEARCH');
-        const hasReplaceMarker = diff.includes('>>>>>>> REPLACE');
-        const hasStartLine = diff.includes(':start_line:');
-        const hasSeparator = diff.includes('-------');
-        const hasEquals = diff.includes('=======');
-        
-        let debugInfo = `No valid diff blocks found. Debug info:\n`;
-        debugInfo += `- Has SEARCH marker: ${hasSearchMarker}\n`;
-        debugInfo += `- Has REPLACE marker: ${hasReplaceMarker}\n`;
-        debugInfo += `- Has start_line: ${hasStartLine}\n`;
-        debugInfo += `- Has separator (-------): ${hasSeparator}\n`;
-        debugInfo += `- Has equals (=======): ${hasEquals}\n`;
-        debugInfo += `\nExpected format:\n<<<<<<< SEARCH\n:start_line:N\n-------\nold content\n=======\nnew content\n>>>>>>> REPLACE\n`;
-        debugInfo += `\nActual content received:\n${diff}`;
-        
-        throw new Error(debugInfo);
+
+    if (state !== 'IDLE') {
+        throw new Error(`Diff content ended unexpectedly. Current state: ${state}. Make sure all blocks are properly terminated with '>>>>>>> REPLACE'.`);
     }
-    
+
+    if (diffBlocks.length === 0) {
+        throw new Error("No valid diff blocks found. Please ensure the diff format is correct.");
+    }
+
     // Sort diff blocks by start line in descending order to apply from bottom to top
     diffBlocks.sort((a, b) => b.startLine - a.startLine);
-    
+
     let modifiedLines = [...lines];
-    
+
     for (const block of diffBlocks) {
         const { startLine, searchContent, replaceContent } = block;
-        
+
         if (startLine < 1 || startLine > originalLineCount) {
             throw new Error(`Invalid start_line ${startLine}. File has ${originalLineCount} lines.`);
         }
-        
-        // Find the best match for the search content using multiple strategies
+
         const searchLines = searchContent.split(/\r?\n/);
-        let actualStartIndex = startLine - 1;
-        let matches = false;
-        let mismatchDetails = '';
-        
-        // Strategy 1: Try exact match at specified line
-        if (actualStartIndex >= 0 && actualStartIndex < modifiedLines.length) {
-            matches = true;
-            for (let i = 0; i < searchLines.length; i++) {
-                const lineIndex = actualStartIndex + i;
-                if (lineIndex >= modifiedLines.length || modifiedLines[lineIndex] !== searchLines[i]) {
-                    matches = false;
-                    break;
-                }
-            }
-        }
-        
-        // Strategy 2: If exact match fails, try fuzzy search nearby (±10 lines)
-        if (!matches) {
-            const searchRange = 10;
-            const minIndex = Math.max(0, actualStartIndex - searchRange);
-            const maxIndex = Math.min(modifiedLines.length - searchLines.length, actualStartIndex + searchRange);
-            
-            for (let searchIndex = minIndex; searchIndex <= maxIndex; searchIndex++) {
-                let fuzzyMatches = true;
-                for (let i = 0; i < searchLines.length; i++) {
-                    const lineIndex = searchIndex + i;
-                    if (lineIndex >= modifiedLines.length || 
-                        modifiedLines[lineIndex].trim() !== searchLines[i].trim()) {
-                        fuzzyMatches = false;
-                        break;
-                    }
-                }
-                
-                if (fuzzyMatches) {
-                    matches = true;
-                    actualStartIndex = searchIndex;
-                    console.log(`[ApplyDiff] Found fuzzy match at line ${actualStartIndex + 1} instead of ${startLine}`);
-                    break;
-                }
-            }
-        }
-        
-        // Strategy 3: Try partial content match (match first and last lines)
-        if (!matches && searchLines.length > 2) {
-            const firstLine = searchLines[0].trim();
-            const lastLine = searchLines[searchLines.length - 1].trim();
-            
-            for (let searchIndex = Math.max(0, actualStartIndex - 5); 
-                 searchIndex <= Math.min(modifiedLines.length - searchLines.length, actualStartIndex + 5); 
-                 searchIndex++) {
-                
-                if (searchIndex < modifiedLines.length && 
-                    searchIndex + searchLines.length - 1 < modifiedLines.length &&
-                    modifiedLines[searchIndex].trim() === firstLine &&
-                    modifiedLines[searchIndex + searchLines.length - 1].trim() === lastLine) {
-                    
-                    matches = true;
-                    actualStartIndex = searchIndex;
-                    console.log(`[ApplyDiff] Found partial match (first/last lines) at line ${actualStartIndex + 1}`);
-                    break;
-                }
-            }
-        }
-        
-        if (!matches) {
-            // Provide detailed context for debugging
-            const contextStart = Math.max(0, actualStartIndex - 3);
-            const contextEnd = Math.min(modifiedLines.length, actualStartIndex + searchLines.length + 3);
+        const match = findBestMatch(modifiedLines, searchLines, startLine);
+
+        if (!match) {
+            const contextStart = Math.max(0, startLine - 4);
+            const contextEnd = Math.min(modifiedLines.length, startLine + searchLines.length + 3);
             const contextLines = modifiedLines.slice(contextStart, contextEnd);
-            
-            mismatchDetails = `Could not find search content around line ${startLine}.\n`;
+            let mismatchDetails = `Could not find search content around line ${startLine}.\n`;
             mismatchDetails += `Context (lines ${contextStart + 1}-${contextEnd}):\n`;
             contextLines.forEach((line, idx) => {
                 const lineNum = contextStart + idx + 1;
                 const marker = (lineNum === startLine) ? '>>>' : '   ';
                 mismatchDetails += `${marker} ${lineNum}: ${line}\n`;
             });
-            
-            const actualContent = modifiedLines.slice(actualStartIndex, actualStartIndex + searchLines.length).join('\n');
+            const actualContent = modifiedLines.slice(startLine - 1, startLine - 1 + searchLines.length).join('\n');
             throw new Error(`Search content does not match at line ${startLine}.\n\n${mismatchDetails}\nExpected content:\n${searchContent}\n\nActual content:\n${actualContent}`);
         }
-        
-        // Update the search start index to the found position
-        const searchStartIndex = actualStartIndex;
-        
-        // Apply the replacement
+
         const replaceLines = replaceContent.split(/\r?\n/);
-        const before = modifiedLines.slice(0, searchStartIndex);
-        const after = modifiedLines.slice(searchStartIndex + searchLines.length);
+        const before = modifiedLines.slice(0, match.index);
+        const after = modifiedLines.slice(match.index + searchLines.length);
         modifiedLines = [...before, ...replaceLines, ...after];
     }
-    
-    // Preserve original line endings
+
     const lineEnding = originalContent.includes('\r\n') ? '\r\n' : '\n';
     const newContent = modifiedLines.join(lineEnding);
-    
-    // Validate syntax before writing, but do not block
+
     const validationResult = await validateSyntaxBeforeWrite(filename, newContent);
-    
+
     const writable = await fileHandle.createWritable();
     await writable.write(newContent);
     await writable.close();
-    
-    // Update editor if file is open
+
     if (Editor.getOpenFiles().has(filename)) {
         Editor.getOpenFiles().get(filename)?.model.setValue(newContent);
     }
-    
+
     await Editor.openFile(fileHandle, filename, document.getElementById('tab-bar'), false);
     document.getElementById('chat-input').focus();
-    
+
     let message = `Applied ${diffBlocks.length} diff block(s) to '${filename}' successfully.`;
     if (!validationResult.isValid) {
         message += `\n\nWARNING: Syntax errors were detected:\n${validationResult.errors}${validationResult.suggestions}`;
     }
-    
+
     return {
         message,
         details: {

@@ -14,145 +14,167 @@ export const AITodoManager = {
 
     /**
      * Analyzes a user query to determine if it should be approached with a todo list
+     * Uses Claude Code's superior logic: simple, context-aware, proactive
      * @param {string} query - The user's query text
      * @returns {Object} Analysis result with shouldCreateTodoList and reason properties
      */
     analyzeQuery(query) {
-        console.log('[DEBUG] AITodoManager.analyzeQuery called with query:', query);
-        
-        // Keywords that suggest a task-based approach would be beneficial
-        const taskKeywords = [
-            'create', 'make', 'build', 'implement', 'develop', 'setup', 'configure',
-            'organize', 'plan', 'optimize', 'improve', 'refactor', 'update', 'add',
-            'step by step', 'todo', 'task list', 'checklist', 'roadmap'
-        ];
-        
-        // Technical terms that suggest a complex task even if the query is short
-        const technicalTerms = [
-            'sql', 'database', 'query', 'api', 'endpoint', 'algorithm', 'function',
-            'optimization', 'performance', 'schema', 'code', 'logic', 'bug', 'fix',
-            'architecture', 'framework', 'library', 'component', 'module', 'integration'
-        ];
+        if (!query || typeof query !== 'string') {
+            return { shouldCreateTodoList: false, reason: 'Invalid query input' };
+        }
 
-        // Check if query is complex enough for a todo list approach
-        const isComplex = query.length > 100 || query.split(' ').length > 15;
-        console.log('[DEBUG] isComplex:', isComplex, `(length: ${query.length}, words: ${query.split(' ').length})`);
+        const queryLower = query.toLowerCase().trim();
+        const words = queryLower.split(/\s+/);
+        const sentences = query.split(/[.!?]+/).filter(s => s.trim());
         
-        // Check if query contains multiple distinct actions
-        const actionCount = this._countDistinctActions(query);
-        console.log('[DEBUG] actionCount:', actionCount);
+        // 1. Explicit todo requests
+        if (queryLower.match(/\b(todo|task list|checklist|plan|step by step|break.*down)\b/)) {
+            return {
+                shouldCreateTodoList: true,
+                reason: 'User explicitly requested task planning'
+            };
+        }
         
-        // Check if query matches task keywords
-        const containsTaskKeywords = taskKeywords.some(keyword =>
-            query.toLowerCase().includes(keyword)
-        );
-        console.log('[DEBUG] containsTaskKeywords:', containsTaskKeywords);
+        // 2. Multiple tasks pattern (comma-separated or numbered)
+        const hasMultipleTasks = queryLower.match(/\d+[.)]/g) || 
+                                queryLower.includes(' and ') ||
+                                (queryLower.split(',').length > 2);
         
-        // Check if query contains technical terms
-        const containsTechnicalTerms = technicalTerms.some(term =>
-            query.toLowerCase().includes(term)
-        );
-        console.log('[DEBUG] containsTechnicalTerms:', containsTechnicalTerms);
+        if (hasMultipleTasks) {
+            return {
+                shouldCreateTodoList: true,
+                reason: 'Query contains multiple distinct tasks'
+            };
+        }
         
-        // Log which keywords were found
-        const foundKeywords = taskKeywords.filter(keyword =>
-            query.toLowerCase().includes(keyword)
-        );
-        console.log('[DEBUG] Found keywords:', foundKeywords);
+        // 3. Complex multi-step tasks (3+ distinct actions)
+        const actionVerbs = queryLower.match(/\b(create|build|implement|develop|setup|configure|install|deploy|test|optimize|refactor|update|add|remove|fix|improve|analyze|design|integrate)\b/g) || [];
+        const uniqueActions = [...new Set(actionVerbs)];
         
-        // Log which technical terms were found
-        const foundTechnicalTerms = technicalTerms.filter(term =>
-            query.toLowerCase().includes(term)
-        );
-        console.log('[DEBUG] Found technical terms:', foundTechnicalTerms);
+        if (uniqueActions.length >= 3) {
+            return {
+                shouldCreateTodoList: true,
+                reason: `Query contains ${uniqueActions.length} distinct actions requiring systematic approach`
+            };
+        }
         
-        // MODIFIED LOGIC: Make it more inclusive of shorter technical tasks
-        // 1. Technical tasks with keywords are eligible regardless of length
-        // 2. Lower the action count threshold for technical queries
-        // 3. Keep the existing conditions as fallbacks
-        const shouldCreateTodoList =
-            // Technical tasks with task keywords (regardless of complexity)
-            (containsTaskKeywords && containsTechnicalTerms) ||
-            // Original complexity-based condition
-            (isComplex && containsTaskKeywords) ||
-            // Reduced action threshold for technical tasks
-            (containsTechnicalTerms && actionCount >= 2) ||
-            // Original action count threshold
-            (actionCount >= 3) ||
-            // Explicit todo mention
-            query.toLowerCase().includes('todo');
+        // 4. Non-trivial technical tasks
+        const technicalIndicators = queryLower.match(/\b(api|database|component|module|system|architecture|algorithm|framework|library|schema|endpoint|integration|performance|security|testing|deployment)\b/g) || [];
+        const complexityIndicators = words.length > 20 || sentences.length > 2;
         
-        console.log('[DEBUG] shouldCreateTodoList decision:', shouldCreateTodoList);
-        console.log('[DEBUG] Decision factors:');
-        console.log('[DEBUG] - (containsTaskKeywords && containsTechnicalTerms)=', (containsTaskKeywords && containsTechnicalTerms));
-        console.log('[DEBUG] - (isComplex && containsTaskKeywords)=', (isComplex && containsTaskKeywords));
-        console.log('[DEBUG] - (containsTechnicalTerms && actionCount >= 2)=', (containsTechnicalTerms && actionCount >= 2));
-        console.log('[DEBUG] - (actionCount >= 3)=', (actionCount >= 3));
-        console.log('[DEBUG] - includes("todo")=', query.toLowerCase().includes('todo'));
+        if (technicalIndicators.length >= 2 && (complexityIndicators || uniqueActions.length >= 2)) {
+            return {
+                shouldCreateTodoList: true,
+                reason: 'Complex technical task requiring systematic breakdown'
+            };
+        }
         
-        const result = {
-            shouldCreateTodoList,
-            reason: shouldCreateTodoList
-                ? `Query ${containsTechnicalTerms ? 'is technical' : ''} ${isComplex ? 'and complex' : ''} with ${actionCount} actions and ${containsTaskKeywords ? 'contains' : 'lacks'} task keywords.`
-                : 'Query is simple and direct, not requiring a todo list approach.'
+        // 5. Feature implementation requests
+        const featurePatterns = [
+            /implement.*feature/,
+            /build.*(application|app|system)/,
+            /create.*(application|app|system|website|web)/,
+            /develop.*(solution|application|app|system)/,
+            /add.*functionality/,
+            /(create|build|develop|implement).*(web|mobile|desktop).*(app|application)/
+        ];
+        
+        if (featurePatterns.some(pattern => pattern.test(queryLower))) {
+            return {
+                shouldCreateTodoList: true,
+                reason: 'Feature implementation requires structured approach'
+            };
+        }
+        
+        // Default: simple, direct tasks don't need todo lists
+        return {
+            shouldCreateTodoList: false,
+            reason: 'Query is straightforward and can be handled directly'
         };
-        
-        console.log('[DEBUG] analyzeQuery result:', result);
-        return result;
     },
 
     /**
-     * Count the number of distinct actions/verbs in a query
-     * This is a simple heuristic - a more sophisticated approach would use NLP
+     * Intelligently break down a query into actionable tasks
+     * Based on Claude Code's approach: context-aware, specific, manageable
      * @param {string} query - The user query
-     * @returns {number} Estimated number of distinct actions
+     * @param {string} aiResponse - Optional AI analysis to extract tasks from
+     * @returns {Array<string>} Array of specific, actionable tasks
      */
-    _countDistinctActions(query) {
-        console.log('[DEBUG] _countDistinctActions called with query:', query);
-        
-        // This is a simple heuristic - look for common verbs and action phrases
-        const commonVerbs = [
-            'create', 'make', 'build', 'implement', 'develop', 'update', 'add',
-            'remove', 'delete', 'modify', 'change', 'fix', 'improve', 'optimize',
-            'refactor', 'restructure', 'organize', 'configure', 'setup'
-        ];
-        
-        let count = 0;
+    _intelligentTaskBreakdown(query, aiResponse = '') {
+        const tasks = [];
         const queryLower = query.toLowerCase();
-        const sentences = queryLower.split(/[.!?]+/);
         
-        // Count sentences as potential actions
-        const sentenceCount = sentences.filter(s => s.trim().length > 0).length;
-        count += sentenceCount;
-        console.log('[DEBUG] Sentence count:', sentenceCount, 'sentences:', sentences.filter(s => s.trim().length > 0));
+        // 1. Extract from explicit numbered/bulleted lists in query or AI response
+        const textToAnalyze = (aiResponse + ' ' + query).replace(/\n/g, ' ');
+        const numberedTasks = textToAnalyze.match(/\d+[.)][^\d.]+/g) || [];
+        const bulletedTasks = textToAnalyze.match(/[•\-*][^•\-*\n]+/g) || [];
         
-        // Count verbs as potential actions
-        let verbsFound = [];
-        commonVerbs.forEach(verb => {
-            if (queryLower.includes(verb)) {
-                count++;
-                verbsFound.push(verb);
+        [...numberedTasks, ...bulletedTasks].forEach(task => {
+            const cleanTask = task.replace(/^[\d.)•\-*\s]+/, '').trim();
+            if (cleanTask.length > 10) {
+                tasks.push(cleanTask);
             }
         });
-        console.log('[DEBUG] Verbs found:', verbsFound, 'verb count:', verbsFound.length);
         
-        // Normalize the count to avoid overestimation
-        const rawCount = count;
-        const normalizedCount = Math.min(Math.ceil(count / 2), 10); // Cap at 10 to prevent extremes
-        console.log('[DEBUG] Raw action count:', rawCount, 'normalized count:', normalizedCount);
+        // 2. If no structured tasks found, create logical breakdown
+        if (tasks.length === 0) {
+            // Feature implementation pattern
+            if (queryLower.match(/\b(build|create|implement|develop)\b.*\b(app|application|system|feature|component)\b/)) {
+                const subject = queryLower.match(/\b(build|create|implement|develop)\s+(?:a\s+)?([^,.\n]+)/)?.[2] || 'the feature';
+                tasks.push(`Plan and design ${subject}`);
+                tasks.push(`Implement core functionality`);
+                tasks.push(`Add styling and user interface`);
+                tasks.push(`Test and validate implementation`);
+            }
+            // API/Integration pattern
+            else if (queryLower.match(/\b(api|endpoint|integration|database)\b/)) {
+                tasks.push('Design data structure and API endpoints');
+                tasks.push('Implement backend/database logic');
+                tasks.push('Create frontend interaction');
+                tasks.push('Test integration and error handling');
+            }
+            // Bug fix pattern
+            else if (queryLower.match(/\b(fix|debug|resolve|solve)\b/)) {
+                tasks.push('Analyze and reproduce the issue');
+                tasks.push('Identify root cause');
+                tasks.push('Implement fix');
+                tasks.push('Test and verify solution');
+            }
+            // Optimization pattern
+            else if (queryLower.match(/\b(optimize|improve|enhance|refactor)\b/)) {
+                tasks.push('Analyze current implementation');
+                tasks.push('Identify improvement opportunities');
+                tasks.push('Implement optimizations');
+                tasks.push('Measure and validate improvements');
+            }
+            // Generic multi-action pattern
+            else {
+                const actions = queryLower.match(/\b(create|build|implement|develop|setup|configure|install|deploy|test|optimize|refactor|update|add|remove|fix|improve|analyze|design|integrate)\b/g) || [];
+                if (actions.length >= 2) {
+                    actions.forEach(action => {
+                        tasks.push(`${action.charAt(0).toUpperCase() + action.slice(1)} the required components`);
+                    });
+                } else {
+                    // Fallback: single comprehensive task
+                    tasks.push(`Complete the requested task: ${query}`);
+                }
+            }
+        }
         
-        return normalizedCount;
+        // 3. Ensure tasks are specific and actionable
+        return tasks.filter(task => task.length > 5).slice(0, 8); // Limit to 8 tasks max
     },
 
     /**
      * Generate a todo list plan based on user query
+     * Uses intelligent task breakdown for better planning
      * @param {string} query - The user's query
      * @param {string} aiResponse - The AI's initial analysis of the query
      * @returns {Promise<Array>} Array of generated todo items
      */
     async generateTodoList(query, aiResponse) {
-        // Extract key goals and tasks from the AI response
-        const tasks = this._extractTasksFromResponse(aiResponse);
+        // Use intelligent task breakdown instead of simple extraction
+        const tasks = this._intelligentTaskBreakdown(query, aiResponse);
         
         // Create todo items for each task
         const todoItems = [];
@@ -241,7 +263,29 @@ export const AITodoManager = {
     },
 
     /**
+     * Ensure only one task is in progress at a time (Claude Code pattern)
+     * @param {number} newInProgressId - ID of task to set as in progress
+     * @returns {Promise<void>}
+     */
+    async _ensureSingleInProgressTask(newInProgressId) {
+        if (!this.activePlan?.todoItems) return;
+        
+        const allTodos = todoManager.getAllTodos();
+        const planTodos = allTodos.filter(todo => 
+            this.activePlan.todoItems.includes(todo.id) && 
+            todo.id !== newInProgressId &&
+            todo.status === TodoStatus.IN_PROGRESS
+        );
+        
+        // Set other in-progress tasks back to pending
+        for (const todo of planTodos) {
+            await todoManager.aiUpdateTodoStatus(todo.id, TodoStatus.PENDING);
+        }
+    },
+
+    /**
      * Update the status of a todo item and the active plan
+     * Follows Claude Code pattern: only one task in progress at a time
      * @param {number} todoId - The ID of the todo item
      * @param {string} newStatus - The new status (from TodoStatus enum)
      * @param {string} aiComment - Optional AI comment about the update
@@ -262,6 +306,11 @@ export const AITodoManager = {
             // Validate the newStatus
             if (!Object.values(TodoStatus).includes(newStatus)) {
                 throw new Error(`Invalid status: ${newStatus}`);
+            }
+            
+            // Ensure only one task is in progress at a time
+            if (newStatus === TodoStatus.IN_PROGRESS) {
+                await this._ensureSingleInProgressTask(todoId);
             }
             
             // Update the todo item status

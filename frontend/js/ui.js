@@ -1,5 +1,6 @@
 import { buildTree, getIgnorePatterns } from './file_system.js';
 import { Settings, dispatchLLMSettingsUpdated } from './settings.js';
+import { TodoStatus, todoManager } from './todo_manager.js';
 
 export function initResizablePanels(editor) {
     window.splitInstance = Split(['#file-tree-container', '#editor-container', '#chat-panel'], {
