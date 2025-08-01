@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Enhancements Test Suite</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #fafafa;
+        }
+        .test-section h2 {
+            color: #34495e;
+            margin-top: 0;
+        }
+        .test-case {
+            margin: 15px 0;
+            padding: 15px;
+            border-left: 4px solid #3498db;
+            background-color: white;
+        }
+        .test-case.passed {
+            border-left-color: #27ae60;
+        }
+        .test-case.failed {
+            border-left-color: #e74c3c;
+        }
+        .test-case.warning {
+            border-left-color: #f39c12;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+        .results {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            background-color: #ecf0f1;
+        }
+        .log {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .stat {
+            padding: 15px;
+            border-radius: 8px;
+            background-color: white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        .stat-label {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #ecf0f1;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #3498db;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 Security Enhancements Test Suite</h1>
+        
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-number" id="totalTests">0</div>
+                <div class="stat-label">Total Tests</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number" id="passedTests">0</div>
+                <div class="stat-label">Passed</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number" id="failedTests">0</div>
+                <div class="stat-label">Failed</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number" id="warningTests">0</div>
+                <div class="stat-label">Warnings</div>
+            </div>
+        </div>
+
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>🛡️ Input Sanitization Tests</h2>
+            <button onclick="runSanitizationTests()">Run Sanitization Tests</button>
+            <div id="sanitizationResults" class="results"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>🚫 Path Traversal Protection Tests</h2>
+            <button onclick="runPathTraversalTests()">Run Path Traversal Tests</button>
+            <div id="pathTraversalResults" class="results"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>🌐 URL Validation Tests</h2>
+            <button onclick="runUrlValidationTests()">Run URL Validation Tests</button>
+            <div id="urlValidationResults" class="results"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>⚡ Rate Limiting Tests</h2>
+            <button onclick="runRateLimitingTests()">Run Rate Limiting Tests</button>
+            <div id="rateLimitingResults" class="results"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>📁 File Permission Tests</h2>
+            <button onclick="runFilePermissionTests()">Run File Permission Tests</button>
+            <div id="filePermissionResults" class="results"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>💾 Resource Usage Tests</h2>
+            <button onclick="runResourceUsageTests()">Run Resource Usage Tests</button>
+            <div id="resourceUsageResults" class="results"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>🔍 Comprehensive Security Tests</h2>
+            <button onclick="runAllTests()">Run All Security Tests</button>
+            <button onclick="clearResults()">Clear Results</button>
+            <div id="comprehensiveResults" class="results"></div>
+        </div>
+
+        <div class="log" id="testLog"></div>
+    </div>
+
+    <script type="module">
+        // Import security utilities
+        import { 
+            getSecurityValidator, 
+            getResourceLimiter, 
+            getPermissionValidator,
+            sanitizeFilePath,
+            sanitizeContent,
+            sanitizeUrl,
+            validateParameters,
+            checkRateLimit,
+            recordOperation,
+            validateFilePermission,
+            validateDirectoryPermission,
+            performSecurityValidation
+        } from '../frontend/js/tools/utils/shared_utils.js';
+
+        // Test statistics
+        let testStats = {
+            total: 0,
+            passed: 0,
+            failed: 0,
+            warnings: 0
+        };
+
+        // Test logging
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logElement = document.getElementById('testLog');
+            const typePrefix = {
+                'info': '📝',
+                'success': '✅',
+                'error': '❌',
+                'warning': '⚠️'
+            }[type] || '📝';
+            
+            logElement.innerHTML += `[${timestamp}] ${typePrefix} ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        // Update statistics
+        function updateStats() {
+            document.getElementById('totalTests').textContent = testStats.total;
+            document.getElementById('passedTests').textContent = testStats.passed;
+            document.getElementById('failedTests').textContent = testStats.failed;
+            document.getElementById('warningTests').textContent = testStats.warnings;
+            
+            const progress = testStats.total > 0 ? ((testStats.passed + testStats.warnings) / testStats.total) * 100 : 0;
+            document.getElementById('progressFill').style.width = `${progress}%`;
+        }
+
+        // Test case runner
+        function runTestCase(name, testFunction, resultsContainer) {
+            testStats.total++;
+            log(`Running test: ${name}`);
+            
+            try {
+                const result = testFunction();
+                const testCase = document.createElement('div');
+                testCase.className = 'test-case';
+                
+                if (result.passed) {
+                    testCase.classList.add('passed');
+                    testStats.passed++;
+                    log(`✅ ${name}: PASSED`, 'success');
+                } else if (result.warning) {
+                    testCase.classList.add('warning');
+                    testStats.warnings++;
+                    log(`⚠️ ${name}: WARNING - ${result.message}`, 'warning');
+                } else {
+                    testCase.classList.add('failed');
+                    testStats.failed++;
+                    log(`❌ ${name}: FAILED - ${result.message}`, 'error');
+                }
+                
+                testCase.innerHTML = `
+                    <strong>${name}</strong><br>
+                    <small>${result.message}</small>
+                `;
+                
+                resultsContainer.appendChild(testCase);
+                updateStats();
+                
+            } catch (error) {
+                testStats.failed++;
+                log(`❌ ${name}: ERROR - ${error.message}`, 'error');
+                
+                const testCase = document.createElement('div');
+                testCase.className = 'test-case failed';
+                testCase.innerHTML = `
+                    <strong>${name}</strong><br>
+                    <small>Error: ${error.message}</small>
+                `;
+                resultsContainer.appendChild(testCase);
+                updateStats();
+            }
+        }
+
+        // Input Sanitization Tests
+        window.runSanitizationTests = function() {
+            const container = document.getElementById('sanitizationResults');
+            container.innerHTML = '';
+            log('Starting Input Sanitization Tests', 'info');
+
+            // Test XSS prevention
+            runTestCase('XSS Script Tag Prevention', () => {
+                const maliciousContent = '<script>alert("XSS")</script>Hello World';
+                const sanitized = sanitizeContent(maliciousContent);
+                return {
+                    passed: !sanitized.includes('<script>'),
+                    message: sanitized.includes('<script>') ? 'Script tags not removed' : 'Script tags successfully removed'
+                };
+            }, container);
+
+            // Test HTML entity escaping
+            runTestCase('HTML Entity Escaping', () => {
+                const htmlContent = '<div>Hello & "World"</div>';
+                const sanitized = sanitizeContent(htmlContent);
+                return {
+                    passed: sanitized.includes('&lt;') && sanitized.includes('&gt;') && sanitized.includes('&quot;'),
+                    message: 'HTML entities properly escaped'
+                };
+            }, container);
+
+            // Test null byte removal
+            runTestCase('Null Byte Removal', () => {
+                const maliciousContent = 'Hello\x00World';
+                const sanitized = sanitizeContent(maliciousContent);
+                return {
+                    passed: !sanitized.includes('\x00'),
+                    message: 'Null bytes successfully removed'
+                };
+            }, container);
+
+            // Test content length limits
+            runTestCase('Content Length Limits', () => {
+                const longContent = 'A'.repeat(2000000); // 2MB
+                try {
+                    sanitizeContent(longContent);
+                    return { passed: false, message: 'Content length limit not enforced' };
+                } catch (error) {
+                    return { passed: true, message: 'Content length limit properly enforced' };
+                }
+            }, container);
+        };
+
+        // Path Traversal Tests
+        window.runPathTraversalTests = function() {
+            const container = document.getElementById('pathTraversalResults');
+            container.innerHTML = '';
+            log('Starting Path Traversal Tests', 'info');
+
+            // Test basic path traversal
+            runTestCase('Basic Path Traversal Prevention', () => {
+                try {
+                    sanitizeFilePath('../../../etc/passwd');
+                    return { passed: false, message: 'Path traversal not prevented' };
+                } catch (error) {
+                    return { passed: true, message: 'Path traversal properly blocked' };
+                }
+            }, container);
+
+            // Test Windows path traversal
+            runTestCase('Windows Path Traversal Prevention', () => {
+                try {
+                    sanitizeFilePath('..\\..\\windows\\system32\\config\\sam');
+                    return { passed: false, message: 'Windows path traversal not prevented' };
+                } catch (error) {
+                    return { passed: true, message: 'Windows path traversal properly blocked' };
+                }
+            }, container);
+
+            // Test null byte in path
+            runTestCase('Null Byte in Path Prevention', () => {
+                try {
+                    sanitizeFilePath('file.txt\x00.exe');
+                    return { passed: false, message: 'Null byte in path not prevented' };
+                } catch (error) {
+                    return { passed: true, message: 'Null byte in path properly blocked' };
+                }
+            }, container);
+
+            // Test valid path
+            runTestCase('Valid Path Acceptance', () => {
+                try {
+                    const result = sanitizeFilePath('src/components/Button.js');
+                    return { passed: result === 'src/components/Button.js', message: 'Valid path properly accepted' };
+                } catch (error) {
+                    return { passed: false, message: `Valid path rejected: ${error.message}` };
+                }
+            }, container);
+        };
+
+        // URL Validation Tests
+        window.runUrlValidationTests = function() {
+            const container = document.getElementById('urlValidationResults');
+            container.innerHTML = '';
+            log('Starting URL Validation Tests', 'info');
+
+            // Test valid HTTPS URL
+            runTestCase('Valid HTTPS URL', () => {
+                try {
+                    const result = sanitizeUrl('https://example.com/api/data');
+                    return { passed: result.startsWith('https://'), message: 'Valid HTTPS URL accepted' };
+                } catch (error) {
+                    return { passed: false, message: `Valid URL rejected: ${error.message}` };
+                }
+            }, container);
+
+            // Test dangerous protocol
+            runTestCase('Dangerous Protocol Prevention', () => {
+                try {
+                    sanitizeUrl('javascript:alert("XSS")');
+                    return { passed: false, message: 'Dangerous protocol not blocked' };
+                } catch (error) {
+                    return { passed: true, message: 'Dangerous protocol properly blocked' };
+                }
+            }, container);
+
+            // Test localhost prevention
+            runTestCase('Localhost Access Prevention', () => {
+                try {
+                    sanitizeUrl('http://localhost:8080/admin');
+                    return { passed: false, message: 'Localhost access not prevented' };
+                } catch (error) {
+                    return { passed: true, message: 'Localhost access properly blocked' };
+                }
+            }, container);
+
+            // Test private IP prevention
+            runTestCase('Private IP Prevention', () => {
+                try {
+                    sanitizeUrl('http://192.168.1.1/router');
+                    return { passed: false, message: 'Private IP access not prevented' };
+                } catch (error) {
+                    return { passed: true, message: 'Private IP access properly blocked' };
+                }
+            }, container);
+        };
+
+        // Rate Limiting Tests
+        window.runRateLimitingTests = function() {
+            const container = document.getElementById('rateLimitingResults');
+            container.innerHTML = '';
+            log('Starting Rate Limiting Tests', 'info');
+
+            const resourceLimiter = getResourceLimiter();
+
+            // Test normal operation allowance
+            runTestCase('Normal Operation Allowance', () => {
+                try {
+                    const allowed = resourceLimiter.checkRateLimit('file_read');
+                    return { passed: allowed, message: 'Normal operations properly allowed' };
+                } catch (error) {
+                    return { passed: false, message: `Normal operation blocked: ${error.message}` };
+                }
+            }, container);
+
+            // Test rate limit enforcement
+            runTestCase('Rate Limit Enforcement', () => {
+                try {
+                    // Simulate many operations
+                    for (let i = 0; i < 70; i++) {
+                        resourceLimiter.recordOperation('file_read');
+                    }
+                    resourceLimiter.checkRateLimit('file_read');
+                    return { passed: false, message: 'Rate limit not enforced' };
+                } catch (error) {
+                    return { passed: true, message: 'Rate limit properly enforced' };
+                }
+            }, container);
+
+            // Test resource usage tracking
+            runTestCase('Resource Usage Tracking', () => {
+                const stats = resourceLimiter.getResourceStats();
+                return { 
+                    passed: stats.current && typeof stats.current.fileOperations === 'number',
+                    message: 'Resource usage properly tracked'
+                };
+            }, container);
+        };
+
+        // File Permission Tests
+        window.runFilePermissionTests = function() {
+            const container = document.getElementById('filePermissionResults');
+            container.innerHTML = '';
+            log('Starting File Permission Tests', 'info');
+
+            const permissionValidator = getPermissionValidator();
+
+            // Test valid file operation
+            runTestCase('Valid File Operation', async () => {
+                try {
+                    await permissionValidator.validateFilePermission('src/test.js', 'read');
+                    return { passed: true, message: 'Valid file operation allowed' };
+                } catch (error) {
+                    return { passed: false, message: `Valid operation blocked: ${error.message}` };
+                }
+            }, container);
+
+            // Test dangerous file extension
+            runTestCase('Dangerous File Extension', async () => {
+                try {
+                    await permissionValidator.validateFilePermission('malware.exe', 'write');
+                    return { warning: true, message: 'Dangerous file extension allowed with warning' };
+                } catch (error) {
+                    return { passed: true, message: 'Dangerous file extension properly blocked' };
+                }
+            }, container);
+
+            // Test system directory protection
+            runTestCase('System Directory Protection', () => {
+                try {
+                    permissionValidator.validateDirectoryPermission('/etc/passwd', 'write');
+                    return { passed: false, message: 'System directory access not prevented' };
+                } catch (error) {
+                    return { passed: true, message: 'System directory properly protected' };
+                }
+            }, container);
+        };
+
+        // Resource Usage Tests
+        window.runResourceUsageTests = function() {
+            const container = document.getElementById('resourceUsageResults');
+            container.innerHTML = '';
+            log('Starting Resource Usage Tests', 'info');
+
+            const resourceLimiter = getResourceLimiter();
+
+            // Test memory limit checking
+            runTestCase('Memory Limit Checking', () => {
+                try {
+                    resourceLimiter.checkResourceLimits('test', 600, 0); // 600MB
+                    return { passed: false, message: 'Memory limit not enforced' };
+                } catch (error) {
+                    return { passed: true, message: 'Memory limit properly enforced' };
+                }
+            }, container);
+
+            // Test CPU time limit checking
+            runTestCase('CPU Time Limit Checking', () => {
+                try {
+                    resourceLimiter.checkResourceLimits('test', 0, 35000); // 35 seconds
+                    return { passed: false, message: 'CPU time limit not enforced' };
+                } catch (error) {
+                    return { passed: true, message: 'CPU time limit properly enforced' };
+                }
+            }, container);
+
+            // Test resource statistics
+            runTestCase('Resource Statistics', () => {
+                const stats = resourceLimiter.getResourceStats();
+                const hasRequiredFields = stats.current && stats.limits && stats.utilizationPercent;
+                return { 
+                    passed: hasRequiredFields,
+                    message: hasRequiredFields ? 'Resource statistics properly provided' : 'Resource statistics incomplete'
+                };
+            }, container);
+        };
+
+        // Run all tests
+        window.runAllTests = function() {
+            log('Starting Comprehensive Security Test Suite', 'info');
+            testStats = { total: 0, passed: 0, failed: 0, warnings: 0 };
+            
+            runSanitizationTests();
+            runPathTraversalTests();
+            runUrlValidationTests();
+            runRateLimitingTests();
+            runFilePermissionTests();
+            runResourceUsageTests();
+            
+            setTimeout(() => {
+                log(`Test Suite Complete: ${testStats.passed} passed, ${testStats.failed} failed, ${testStats.warnings} warnings`, 'info');
+                
+                const container = document.getElementById('comprehensiveResults');
+                container.innerHTML = `
+                    <h3>Test Suite Summary</h3>
+                    <p><strong>Total Tests:</strong> ${testStats.total}</p>
+                    <p><strong>Passed:</strong> ${testStats.passed}</p>
+                    <p><strong>Failed:</strong> ${testStats.failed}</p>
+                    <p><strong>Warnings:</strong> ${testStats.warnings}</p>
+                    <p><strong>Success Rate:</strong> ${((testStats.passed + testStats.warnings) / testStats.total * 100).toFixed(1)}%</p>
+                `;
+            }, 1000);
+        };
+
+        // Clear results
+        window.clearResults = function() {
+            const containers = [
+                'sanitizationResults', 'pathTraversalResults', 'urlValidationResults',
+                'rateLimitingResults', 'filePermissionResults', 'resourceUsageResults',
+                'comprehensiveResults'
+            ];
+            
+            containers.forEach(id => {
+                document.getElementById(id).innerHTML = '';
+            });
+            
+            document.getElementById('testLog').innerHTML = '';
+            testStats = { total: 0, passed: 0, failed: 0, warnings: 0 };
+            updateStats();
+            log('Test results cleared', 'info');
+        };
+
+        // Initialize
+        log('Security Test Suite Initialized', 'info');
+        updateStats();
+    </script>
+</body>
+</html>

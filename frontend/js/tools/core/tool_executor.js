@@ -1,6 +1,31 @@
 /**
- * Streamlined Tool Executor - Main orchestrator for the modular tool system
- * This replaces the monolithic tool_executor.js with a clean, modular architecture
+ * @fileoverview Streamlined Tool Executor - Main orchestrator for the modular tool system
+ *
+ * This module provides the main ToolExecutor class that orchestrates tool execution across
+ * the entire AI Code Editor system. It replaces the monolithic tool_executor.js with a
+ * clean, modular architecture that supports advanced features like dependency management,
+ * performance monitoring, retry logic, and sophisticated error handling.
+ *
+ * Key Features:
+ * - Single tool and tool chain execution
+ * - Performance monitoring and timeout management
+ * - Operation tracking and cancellation support
+ * - Dependency graph integration for optimized execution
+ * - Sophisticated retry logic with exponential backoff
+ * - Fallback mechanisms for failed operations
+ * - Checkpoint management for file operations
+ * - Memory and resource optimization
+ *
+ * Architecture:
+ * - ToolExecutor class: Main orchestrator
+ * - Performance monitoring: Execution timing and optimization
+ * - Operation management: Tracking, cancellation, and lifecycle
+ * - Dependency management: Graph-based execution planning
+ * - Error handling: Analysis, retry, and recovery
+ *
+ * @author AI Code Editor Team
+ * @version 1.0.0
+ * @since 2024
  */
 
 import { toolRegistry } from './tool_registry.js';
@@ -11,19 +36,90 @@ import { dependencyGraphManager } from '../system/dependency_graph.js';
 import { analyzeError, withRetry, withProgressiveTimeout, buildErrorContext } from '../utils/shared_utils.js';
 
 /**
- * Main ToolExecutor class - orchestrates tool execution with performance monitoring,
- * operation tracking, and dependency management
+ * Main ToolExecutor class - orchestrates tool execution with advanced features
+ *
+ * The ToolExecutor is the central orchestrator for all tool operations in the AI Code Editor.
+ * It provides sophisticated execution capabilities including performance monitoring,
+ * operation tracking, dependency management, and intelligent error handling with recovery.
+ *
+ * Features:
+ * - Single tool execution with retry logic and fallbacks
+ * - Tool chain execution with dependency management
+ * - Performance monitoring and adaptive optimization
+ * - Operation lifecycle management and cancellation
+ * - Checkpoint system for undo/redo operations
+ * - Memory and resource usage optimization
+ * - Comprehensive error analysis and recovery
+ *
+ * @class ToolExecutor
+ * @example
+ * // Initialize and use the tool executor
+ * import { toolExecutor } from './tool_executor.js';
+ *
+ * // Initialize with project context
+ * await toolExecutor.initialize(projectHandle);
+ *
+ * // Execute a single tool
+ * const result = await toolExecutor.executeTool('read_file', {
+ *   filename: 'src/app.js',
+ *   include_line_numbers: true
+ * });
+ *
+ * // Execute a tool chain
+ * const chainResult = await toolExecutor.executeToolChain([
+ *   { name: 'read_file', parameters: { filename: 'input.js' } },
+ *   { name: 'analyze_code', parameters: { filename: 'input.js' } },
+ *   { name: 'create_file', parameters: { filename: 'output.js', content: '...' } }
+ * ]);
  */
 export class ToolExecutor {
+    /**
+     * Creates a new ToolExecutor instance
+     *
+     * Initializes the executor with default settings. The executor must be
+     * initialized with a project handle before it can execute project-dependent tools.
+     *
+     * @constructor
+     */
     constructor() {
+        /** @type {boolean} Whether the executor has been initialized */
         this.isInitialized = false;
+        
+        /** @type {*} Project handle for file system operations */
         this.projectHandle = null;
+        
+        /** @type {Map<string, Object>} Checkpoint storage for undo operations */
         this.checkpoints = new Map();
+        
+        /** @type {number} Maximum number of checkpoints to maintain */
         this.maxCheckpoints = 10;
     }
 
     /**
      * Initialize the tool executor with project context
+     *
+     * Sets up the executor with project context and initializes performance monitoring.
+     * Must be called before executing any project-dependent tools.
+     *
+     * @async
+     * @param {*} [projectHandle=null] - Project handle for file system operations
+     * @returns {Promise<Object>} Initialization result
+     * @returns {boolean} returns.success - Whether initialization succeeded
+     * @returns {string} returns.message - Initialization status message
+     * @returns {Object} [returns.data] - Additional initialization data
+     * @returns {boolean} returns.data.hasProject - Whether project handle was provided
+     * @returns {number} returns.data.availableTools - Number of available tools
+     *
+     * @example
+     * // Initialize without project (for non-project tools only)
+     * const result = await toolExecutor.initialize();
+     *
+     * @example
+     * // Initialize with project handle
+     * const result = await toolExecutor.initialize(projectHandle);
+     * if (result.success) {
+     *   console.log(`Initialized with ${result.data.availableTools} tools`);
+     * }
      */
     async initialize(projectHandle = null) {
         try {
@@ -46,6 +142,70 @@ export class ToolExecutor {
 
     /**
      * Execute a single tool with enhanced error handling, retry logic, and fallback mechanisms
+     *
+     * This is the primary method for executing individual tools. It provides comprehensive
+     * error handling, automatic retry logic, performance monitoring, and fallback mechanisms
+     * to ensure reliable tool execution even in challenging conditions.
+     *
+     * @async
+     * @param {string} toolName - Name of the tool to execute
+     * @param {Object} [parameters={}] - Parameters to pass to the tool
+     * @param {Object} [options={}] - Execution options
+     * @param {number} [options.timeout] - Custom timeout in milliseconds
+     * @param {boolean} [options.disableRetry=false] - Whether to disable retry logic
+     * @param {Function} [options.progressCallback] - Progress callback for long operations
+     * @param {Function} [options.onRetry] - Callback called on each retry attempt
+     * @param {number} [options.chainIndex] - Index in tool chain (for chain execution)
+     * @param {number} [options.totalChainLength] - Total length of tool chain
+     * @returns {Promise<Object>} Tool execution result
+     * @returns {boolean} returns.success - Whether execution succeeded
+     * @returns {string} returns.message - Result or error message
+     * @returns {Object} [returns.data] - Tool-specific result data
+     * @returns {number} returns.executionTime - Execution time in milliseconds
+     * @returns {string} returns.operationId - Unique operation identifier
+     * @returns {string} [returns.checkpointId] - Checkpoint ID (if checkpoint was created)
+     * @returns {Object} returns.enhancedHandling - Information about enhanced handling used
+     * @returns {boolean} returns.enhancedHandling.usedRetry - Whether retry logic was used
+     * @returns {boolean} returns.enhancedHandling.usedProgressiveTimeout - Whether progressive timeout was used
+     * @returns {boolean} [returns.usedFallback] - Whether fallback mechanism was used
+     * @returns {Object} [returns.errorAnalysis] - Error analysis (if execution failed)
+     *
+     * @throws {Error} If tool name is invalid or critical validation fails
+     *
+     * @example
+     * // Simple tool execution
+     * const result = await toolExecutor.executeTool('read_file', {
+     *   filename: 'src/app.js'
+     * });
+     *
+     * @example
+     * // Tool execution with options
+     * const result = await toolExecutor.executeTool('perform_research', {
+     *   query: 'JavaScript best practices'
+     * }, {
+     *   timeout: 60000,
+     *   progressCallback: (progress) => console.log(`Progress: ${progress.message}`),
+     *   onRetry: (error, attempt) => console.log(`Retry ${attempt}: ${error.message}`)
+     * });
+     *
+     * @example
+     * // Handle execution result
+     * const result = await toolExecutor.executeTool('create_file', {
+     *   filename: 'new-component.jsx',
+     *   content: 'export default function Component() { return <div>Hello</div>; }'
+     * });
+     *
+     * if (result.success) {
+     *   console.log(`File created in ${result.executionTime}ms`);
+     *   if (result.checkpointId) {
+     *     console.log(`Checkpoint created: ${result.checkpointId}`);
+     *   }
+     * } else {
+     *   console.error('Creation failed:', result.message);
+     *   if (result.errorAnalysis) {
+     *     console.log('Recovery suggestions:', result.errorAnalysis.recoverySuggestions);
+     *   }
+     * }
      */
     async executeTool(toolName, parameters = {}, options = {}) {
         const startTime = performance.now();
@@ -225,7 +385,22 @@ export class ToolExecutor {
     }
 
     /**
-     * Determines if a tool should use retry logic
+     * Determines if a tool should use retry logic based on tool type and options
+     *
+     * Analyzes the tool name and options to determine whether retry logic would be
+     * beneficial for this particular tool execution.
+     *
+     * @param {string} toolName - Name of the tool to check
+     * @param {Object} [options={}] - Execution options
+     * @param {boolean} [options.disableRetry=false] - Whether retry is explicitly disabled
+     * @returns {boolean} Whether the tool should use retry logic
+     *
+     * @example
+     * const shouldRetry = toolExecutor.shouldRetryTool('read_url');
+     * console.log('Should retry network operation:', shouldRetry); // true
+     *
+     * const noRetry = toolExecutor.shouldRetryTool('read_url', { disableRetry: true });
+     * console.log('Retry disabled:', noRetry); // false
      */
     shouldRetryTool(toolName, options = {}) {
         if (options.disableRetry) return false;
@@ -241,7 +416,23 @@ export class ToolExecutor {
     }
 
     /**
-     * Determines if a tool should use progressive timeout
+     * Determines if a tool should use progressive timeout with progress feedback
+     *
+     * Analyzes the tool name and parameters to determine whether progressive timeout
+     * (with progress callbacks and warnings) would be beneficial for this operation.
+     *
+     * @param {string} toolName - Name of the tool to check
+     * @param {Object} [parameters={}] - Tool parameters
+     * @returns {boolean} Whether the tool should use progressive timeout
+     *
+     * @example
+     * const useProgressive = toolExecutor.shouldUseProgressiveTimeout('perform_research');
+     * console.log('Use progressive timeout:', useProgressive); // true
+     *
+     * const largeFile = toolExecutor.shouldUseProgressiveTimeout('read_file', {
+     *   content: 'very large content...'
+     * });
+     * console.log('Large file needs progressive timeout:', largeFile); // true
      */
     shouldUseProgressiveTimeout(toolName, parameters = {}) {
         // Tools that typically take longer and benefit from progress feedback
@@ -259,7 +450,20 @@ export class ToolExecutor {
     }
 
     /**
-     * Gets maximum retry attempts for a tool
+     * Gets maximum retry attempts for a tool based on its type and characteristics
+     *
+     * Different tool types have different optimal retry counts based on their
+     * failure patterns and recovery likelihood.
+     *
+     * @param {string} toolName - Name of the tool
+     * @returns {number} Maximum number of retry attempts
+     *
+     * @example
+     * const maxRetries = toolExecutor.getMaxRetries('read_url');
+     * console.log('Network operations max retries:', maxRetries); // 3
+     *
+     * const fileRetries = toolExecutor.getMaxRetries('read_file');
+     * console.log('File operations max retries:', fileRetries); // 2
      */
     getMaxRetries(toolName) {
         if (toolName.includes('research') || toolName.includes('url')) {
@@ -272,7 +476,21 @@ export class ToolExecutor {
     }
 
     /**
-     * Gets backoff strategy for a tool
+     * Gets the optimal backoff strategy for retry attempts based on tool type
+     *
+     * Different tool types benefit from different backoff strategies:
+     * - Exponential: For network operations (handles server load)
+     * - Linear: For file operations (consistent retry intervals)
+     *
+     * @param {string} toolName - Name of the tool
+     * @returns {string} Backoff strategy ('exponential', 'linear', or 'progressive')
+     *
+     * @example
+     * const strategy = toolExecutor.getBackoffStrategy('perform_research');
+     * console.log('Research backoff strategy:', strategy); // 'exponential'
+     *
+     * const fileStrategy = toolExecutor.getBackoffStrategy('create_file');
+     * console.log('File operation strategy:', fileStrategy); // 'linear'
      */
     getBackoffStrategy(toolName) {
         if (toolName.includes('research') || toolName.includes('url')) {
@@ -285,7 +503,23 @@ export class ToolExecutor {
     }
 
     /**
-     * Gets appropriate timeout for a tool
+     * Gets appropriate timeout for a tool based on its type and parameters
+     *
+     * Calculates optimal timeout values based on tool characteristics and
+     * parameter analysis (e.g., content size for file operations).
+     *
+     * @param {string} toolName - Name of the tool
+     * @param {Object} [parameters={}] - Tool parameters for timeout calculation
+     * @returns {number} Timeout in milliseconds
+     *
+     * @example
+     * const timeout = toolExecutor.getToolTimeout('read_url');
+     * console.log('Network operation timeout:', timeout); // 45000 (45 seconds)
+     *
+     * const fileTimeout = toolExecutor.getToolTimeout('create_file', {
+     *   content: 'large file content...'
+     * });
+     * console.log('Large file timeout:', fileTimeout); // 90000 (90 seconds)
      */
     getToolTimeout(toolName, parameters = {}) {
         // Network operations
@@ -311,6 +545,30 @@ export class ToolExecutor {
 
     /**
      * Attempts fallback mechanisms for failed operations
+     *
+     * When a tool operation fails, this method attempts various fallback strategies
+     * based on the error type and tool characteristics. Fallbacks include reduced
+     * scope operations, alternative approaches, and graceful degradation.
+     *
+     * @async
+     * @param {string} toolName - Name of the tool that failed
+     * @param {Object} parameters - Original tool parameters
+     * @param {Error} error - The error that occurred
+     * @param {Object} [options={}] - Execution options
+     * @returns {Promise<Object|null>} Fallback result or null if no fallback available
+     *
+     * @example
+     * // This is typically called internally by executeTool
+     * const fallbackResult = await toolExecutor.tryFallbackMechanisms(
+     *   'perform_research',
+     *   { query: 'complex query', max_results: 10 },
+     *   new Error('Request timeout'),
+     *   { timeout: 30000 }
+     * );
+     *
+     * if (fallbackResult) {
+     *   console.log('Fallback succeeded with reduced scope');
+     * }
      */
     async tryFallbackMechanisms(toolName, parameters, error, options = {}) {
         const errorAnalysis = analyzeError(error, `fallback_${toolName}`, toolName);
@@ -347,6 +605,17 @@ export class ToolExecutor {
 
     /**
      * File operation fallback mechanisms
+     *
+     * Implements specific fallback strategies for file operations, including
+     * streaming approaches for large files and permission error handling.
+     *
+     * @async
+     * @private
+     * @param {string} toolName - Name of the file operation tool
+     * @param {Object} parameters - Original tool parameters
+     * @param {Error} error - The error that occurred
+     * @param {Object} options - Execution options
+     * @returns {Promise<Object|null>} Fallback result or null
      */
     async tryFileOperationFallbacks(toolName, parameters, error, options) {
         // For large file operations, try streaming approach
@@ -369,6 +638,17 @@ export class ToolExecutor {
 
     /**
      * Research operation fallback mechanisms
+     *
+     * Implements fallback strategies for research operations, including
+     * reduced scope searches and alternative search strategies.
+     *
+     * @async
+     * @private
+     * @param {string} toolName - Name of the research tool
+     * @param {Object} parameters - Original tool parameters
+     * @param {Error} error - The error that occurred
+     * @param {Object} options - Execution options
+     * @returns {Promise<Object|null>} Fallback result or null
      */
     async tryResearchFallbacks(toolName, parameters, error, options) {
         // For research failures, try with reduced scope
@@ -393,6 +673,17 @@ export class ToolExecutor {
 
     /**
      * Code analysis fallback mechanisms
+     *
+     * Implements fallback strategies for code analysis operations, including
+     * reduced scope analysis and alternative parsing approaches.
+     *
+     * @async
+     * @private
+     * @param {string} toolName - Name of the analysis tool
+     * @param {Object} parameters - Original tool parameters
+     * @param {Error} error - The error that occurred
+     * @param {Object} options - Execution options
+     * @returns {Promise<Object|null>} Fallback result or null
      */
     async tryAnalysisFallbacks(toolName, parameters, error, options) {
         // For analysis operations that timeout, try with smaller scope
@@ -406,7 +697,53 @@ export class ToolExecutor {
     }
 
     /**
-     * Execute multiple tools with dependency management
+     * Execute multiple tools with dependency management and optimization
+     *
+     * Executes a sequence of tools with optional dependency graph optimization.
+     * Can run tools sequentially or in parallel based on dependencies and system capabilities.
+     *
+     * @async
+     * @param {Array<Object>} tools - Array of tool definitions
+     * @param {string} tools[].name - Tool name
+     * @param {Object} [tools[].parameters={}] - Tool parameters
+     * @param {number} [tools[].priority=1] - Tool priority for execution order
+     * @param {number} [tools[].estimatedDuration=5000] - Estimated execution time in ms
+     * @param {Object} [tools[].metadata={}] - Additional tool metadata
+     * @param {number[]} [tools[].dependencies=[]] - Array of dependency indices
+     * @param {Object} [options={}] - Execution options
+     * @param {boolean} [options.useDependencyGraph=false] - Whether to use dependency graph optimization
+     * @param {boolean} [options.continueOnError=false] - Whether to continue execution after errors
+     * @returns {Promise<Object>} Tool chain execution result
+     * @returns {boolean} returns.success - Whether chain execution succeeded
+     * @returns {string} returns.message - Summary message
+     * @returns {Array<Object>} returns.results - Results from each tool execution
+     * @returns {Object} returns.summary - Execution summary statistics
+     * @returns {number} returns.summary.total - Total number of tools
+     * @returns {number} returns.summary.succeeded - Number of successful executions
+     * @returns {number} returns.summary.failed - Number of failed executions
+     * @returns {number} returns.summary.executionTime - Total execution time in ms
+     *
+     * @example
+     * // Simple sequential tool chain
+     * const result = await toolExecutor.executeToolChain([
+     *   { name: 'read_file', parameters: { filename: 'input.js' } },
+     *   { name: 'analyze_code', parameters: { filename: 'input.js' } },
+     *   { name: 'create_file', parameters: { filename: 'output.js', content: '...' } }
+     * ]);
+     *
+     * @example
+     * // Tool chain with dependency optimization
+     * const result = await toolExecutor.executeToolChain([
+     *   { name: 'read_file', parameters: { filename: 'a.js' } },
+     *   { name: 'read_file', parameters: { filename: 'b.js' } },
+     *   { name: 'analyze_code', parameters: { filename: 'a.js' }, dependencies: [0] },
+     *   { name: 'analyze_code', parameters: { filename: 'b.js' }, dependencies: [1] }
+     * ], {
+     *   useDependencyGraph: true,
+     *   continueOnError: true
+     * });
+     *
+     * console.log(`Chain completed: ${result.summary.succeeded}/${result.summary.total} tools succeeded`);
      */
     async executeToolChain(tools, options = {}) {
         const startTime = performance.now();
@@ -487,7 +824,38 @@ export class ToolExecutor {
     }
 
     /**
-     * Execute tools according to dependency graph plan
+     * Execute tools according to dependency graph plan with parallel optimization
+     *
+     * Executes tools based on a pre-computed dependency graph plan, enabling
+     * parallel execution where possible and respecting dependency constraints.
+     *
+     * @async
+     * @param {Object} plan - Dependency graph execution plan
+     * @param {Array<Object>} plan.phases - Execution phases
+     * @param {Array<Object>} plan.phases[].tools - Tools in each phase
+     * @param {boolean} plan.phases[].canRunInParallel - Whether phase tools can run in parallel
+     * @param {number} plan.totalEstimatedTime - Total estimated execution time
+     * @param {Array<Object>} plan.criticalPath - Critical path through the graph
+     * @param {Array<Object>} plan.parallelGroups - Groups that can run in parallel
+     * @param {Object} [options={}] - Execution options
+     * @param {boolean} [options.continueOnError=false] - Whether to continue after errors
+     * @returns {Promise<Object>} Dependency-based execution result
+     * @returns {boolean} returns.success - Whether execution succeeded
+     * @returns {string} returns.message - Summary message
+     * @returns {Array<Object>} returns.results - Results from each tool execution
+     * @returns {Object} returns.executionPlan - The execution plan that was used
+     * @returns {Object} returns.summary - Execution summary with performance metrics
+     * @returns {number} returns.summary.phasesCompleted - Number of phases completed
+     *
+     * @example
+     * // This is typically called internally by executeToolChain
+     * const plan = await toolExecutor.executeTool('get_execution_plan');
+     * const result = await toolExecutor.executeByDependencyPlan(plan.data.plan, {
+     *   continueOnError: false
+     * });
+     *
+     * console.log(`Executed ${result.summary.phasesCompleted} phases`);
+     * console.log(`Parallel optimization saved time: ${plan.totalEstimatedTime - result.summary.executionTime}ms`);
      */
     async executeByDependencyPlan(plan, options = {}) {
         const results = new Map();
@@ -586,7 +954,30 @@ export class ToolExecutor {
     }
 
     /**
-     * Get available tools with their metadata
+     * Get available tools with their metadata and categorization
+     *
+     * Returns information about all available tools including their requirements,
+     * capabilities, and categorization for discovery and planning purposes.
+     *
+     * @returns {Object<string, Object>} Available tools with metadata
+     * @returns {boolean} returns.toolName.requiresProject - Whether tool needs project context
+     * @returns {boolean} returns.toolName.createsCheckpoint - Whether tool creates checkpoints
+     * @returns {string} returns.toolName.category - Tool category classification
+     *
+     * @example
+     * const tools = toolExecutor.getAvailableTools();
+     *
+     * // Find all file operation tools
+     * const fileTools = Object.entries(tools)
+     *   .filter(([name, info]) => info.category === 'file_operations')
+     *   .map(([name]) => name);
+     *
+     * console.log('File operation tools:', fileTools);
+     *
+     * // Check if a tool requires a project
+     * if (tools['read_file']?.requiresProject) {
+     *   console.log('read_file requires a project to be loaded');
+     * }
      */
     getAvailableTools() {
         const tools = {};
@@ -603,7 +994,20 @@ export class ToolExecutor {
     }
 
     /**
-     * Get tool category based on name patterns
+     * Get tool category based on name patterns and functionality
+     *
+     * Analyzes tool names to automatically categorize them for organization
+     * and discovery purposes.
+     *
+     * @param {string} toolName - Name of the tool to categorize
+     * @returns {string} Tool category ('file_operations', 'code_analysis', 'research', 'engineering', 'system', 'core')
+     *
+     * @example
+     * const category = toolExecutor.getToolCategory('read_file');
+     * console.log('Category:', category); // 'file_operations'
+     *
+     * const researchCategory = toolExecutor.getToolCategory('perform_research');
+     * console.log('Category:', researchCategory); // 'research'
      */
     getToolCategory(toolName) {
         if (toolName.includes('file') || toolName.includes('read') || toolName.includes('write') || toolName.includes('create') || toolName.includes('delete')) {
@@ -625,7 +1029,21 @@ export class ToolExecutor {
     }
 
     /**
-     * Create a checkpoint for file operations
+     * Create a checkpoint for file operations to enable undo functionality
+     *
+     * Creates a checkpoint that can be used to undo file modifications.
+     * Automatically manages checkpoint storage and cleanup.
+     *
+     * @async
+     * @param {string} toolName - Name of the tool creating the checkpoint
+     * @returns {Promise<string>} Unique checkpoint identifier
+     *
+     * @example
+     * // This is typically called internally by executeTool
+     * const checkpointId = await toolExecutor.createCheckpoint('create_file');
+     * console.log('Created checkpoint:', checkpointId);
+     *
+     * // Checkpoints are automatically managed and cleaned up
      */
     async createCheckpoint(toolName) {
         const checkpointId = `checkpoint_${Date.now()}_${toolName}`;
@@ -649,14 +1067,41 @@ export class ToolExecutor {
     }
 
     /**
-     * Get performance statistics
+     * Get performance statistics for monitoring and optimization
+     *
+     * Returns comprehensive performance metrics collected during tool execution
+     * for monitoring, debugging, and optimization purposes.
+     *
+     * @returns {Object} Performance statistics from the performance monitor
+     *
+     * @example
+     * const stats = toolExecutor.getPerformanceStats();
+     * console.log('Average execution time:', stats.averageExecutionTime);
+     * console.log('Total operations:', stats.totalOperations);
+     * console.log('Error rate:', stats.errorRate);
+     *
+     * // Use stats for optimization decisions
+     * if (stats.errorRate > 0.1) {
+     *   console.warn('High error rate detected, consider adjusting retry settings');
+     * }
      */
     getPerformanceStats() {
         return performanceMonitor.getStatistics();
     }
 
     /**
-     * Clean up resources
+     * Clean up resources and reset executor state
+     *
+     * Performs cleanup of all resources including checkpoints, performance monitors,
+     * dependency graphs, and resets the executor to uninitialized state.
+     *
+     * @example
+     * // Clean up when shutting down or switching projects
+     * toolExecutor.cleanup();
+     * console.log('Tool executor cleaned up and reset');
+     *
+     * // Re-initialize for new project
+     * await toolExecutor.initialize(newProjectHandle);
      */
     cleanup() {
         this.checkpoints.clear();
@@ -666,8 +1111,24 @@ export class ToolExecutor {
     }
 }
 
-// Export singleton instance
+/**
+ * Singleton instance of ToolExecutor for global use
+ *
+ * This is the main instance used throughout the application. It provides
+ * a consistent interface for tool execution across all components.
+ *
+ * @type {ToolExecutor}
+ * @example
+ * import { toolExecutor } from './tool_executor.js';
+ *
+ * // Initialize and use the global instance
+ * await toolExecutor.initialize(projectHandle);
+ * const result = await toolExecutor.executeTool('read_file', { filename: 'app.js' });
+ */
 export const toolExecutor = new ToolExecutor();
 
-// Export for backward compatibility
+/**
+ * Default export for backward compatibility
+ * @type {ToolExecutor}
+ */
 export default toolExecutor;

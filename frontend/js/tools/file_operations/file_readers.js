@@ -1,5 +1,20 @@
 /**
- * File reading operations
+ * @fileoverview File reading operations for the AI Code Editor tool system.
+ *
+ * This module provides comprehensive file reading capabilities including:
+ * - Single file reading with adaptive performance optimization
+ * - Line-specific reading for large files
+ * - Multiple file batch reading with parallel processing
+ * - File search and pattern matching
+ * - Editor integration for file content access
+ * - Project structure analysis
+ *
+ * All functions implement security validation, error handling, caching,
+ * and performance optimization strategies.
+ *
+ * @author AI Code Editor Team
+ * @version 2.0.0
+ * @since 1.0.0
  */
 
 import { createSuccessResponse, createErrorResponse, createEnhancedErrorResponse, validateRequiredParams, validateParameterTypes, validateToolSecurity, validateSecureFilePath } from '../core/tool_interfaces.js';
@@ -7,6 +22,27 @@ import { unescapeHtmlEntities, analyzeError, withRetry, buildErrorContext, getAd
 import * as FileSystem from '../../../file_system.js';
 import * as Editor from '../../../editor.js';
 
+/**
+ * Retrieves the project directory structure as a formatted tree string.
+ *
+ * This function analyzes the project directory structure, respects ignore patterns
+ * (like .gitignore), and returns a hierarchical view of the project files and folders.
+ *
+ * @async
+ * @function _getProjectStructure
+ * @param {Object} params - Parameters object (currently unused but maintained for consistency)
+ * @param {FileSystemDirectoryHandle} rootHandle - The root directory handle for the project
+ * @returns {Promise<Object>} Success response with project structure or error response
+ *
+ * @example
+ * const result = await _getProjectStructure({}, rootHandle);
+ * if (result.success) {
+ *   console.log('Project structure:');
+ *   console.log(result.data.structure);
+ * }
+ *
+ * @throws {Error} When unable to access the project directory or build structure tree
+ */
 export async function _getProjectStructure(params, rootHandle) {
     try {
         const ignorePatterns = await FileSystem.getIgnorePatterns(rootHandle);

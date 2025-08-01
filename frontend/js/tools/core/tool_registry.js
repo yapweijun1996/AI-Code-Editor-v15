@@ -1,5 +1,27 @@
 /**
- * Tool registry that imports and organizes all tools from various modules
+ * @fileoverview Central Tool Registry - Imports and organizes all tools from various modules
+ *
+ * This module serves as the central registry for all available tools in the AI Code Editor.
+ * It imports tools from all specialized modules and provides a unified interface for
+ * tool discovery, execution, and management.
+ *
+ * Key Features:
+ * - Central registry mapping tool names to handlers
+ * - Tool metadata management (requirements, checkpoints, categories)
+ * - System operation management (timeouts, cancellation, dependency graphs)
+ * - Tool categorization and organization
+ * - Operation tracking and performance monitoring
+ *
+ * Tool Categories:
+ * - File Operations: Reading, writing, and managing files
+ * - Code Analysis: AST parsing, symbol analysis, quality checks
+ * - Research Tools: Web research and search engine integration
+ * - Engineering Tools: Advanced AI capabilities and debugging
+ * - System Management: Operation tracking, performance, dependencies
+ *
+ * @author AI Code Editor Team
+ * @version 1.0.0
+ * @since 2024
  */
 
 // Import file operation tools
@@ -99,7 +121,32 @@ import {
     dependencyGraphManager
 } from '../system/dependency_graph.js';
 
-// Tool registry with all tools organized by category
+/**
+ * Central tool registry containing all available tools organized by category
+ *
+ * Each tool entry contains:
+ * - handler: Function that implements the tool's functionality
+ * - requiresProject: Whether the tool needs a project to be loaded
+ * - createsCheckpoint: Whether the tool creates an undo checkpoint
+ *
+ * @type {Object<string, Object>}
+ * @property {Function} handler - The tool's implementation function
+ * @property {boolean} requiresProject - Whether tool requires project context
+ * @property {boolean} createsCheckpoint - Whether tool creates undo checkpoint
+ *
+ * @example
+ * // Access a tool from the registry
+ * const readFileTool = toolRegistry['read_file'];
+ * if (readFileTool) {
+ *   const result = await readFileTool.handler(params, options);
+ * }
+ *
+ * @example
+ * // Check tool requirements
+ * const tool = toolRegistry['create_file'];
+ * console.log('Requires project:', tool.requiresProject); // true
+ * console.log('Creates checkpoint:', tool.createsCheckpoint); // true
+ */
 export const toolRegistry = {
     // List tools
     list_tools: { handler: _listTools, requiresProject: false, createsCheckpoint: false },
@@ -189,7 +236,28 @@ export const toolRegistry = {
     test_research: { handler: _testResearch, requiresProject: false, createsCheckpoint: false },
 };
 
-// System operation management tools
+/**
+ * Retrieves information about currently active operations
+ *
+ * Provides detailed information about all operations currently running in the system,
+ * including their status, duration, and summary statistics.
+ *
+ * @async
+ * @function _getActiveOperations
+ * @returns {Promise<Object>} Active operations information
+ * @returns {string} returns.message - Summary message about active operations
+ * @returns {Array<Object>} returns.operations - Array of active operation objects
+ * @returns {Object} returns.summary - Summary statistics
+ * @returns {number} returns.summary.total - Total number of active operations
+ * @returns {number} returns.summary.running - Number of currently running operations
+ * @returns {number} returns.summary.cancelled - Number of cancelled operations
+ * @returns {number} returns.summary.longestRunning - Duration of longest running operation (ms)
+ *
+ * @example
+ * const activeOps = await _getActiveOperations();
+ * console.log(`Found ${activeOps.operations.length} active operations`);
+ * console.log(`Longest running: ${activeOps.summary.longestRunning}ms`);
+ */
 async function _getActiveOperations() {
     const operations = getActiveOperationsStatus();
     return {
@@ -204,6 +272,34 @@ async function _getActiveOperations() {
     };
 }
 
+/**
+ * Cancels a specific operation by its ID
+ *
+ * Attempts to cancel a running operation and provides feedback on whether
+ * the cancellation was successful.
+ *
+ * @async
+ * @function _cancelOperation
+ * @param {Object} params - Cancellation parameters
+ * @param {string} params.operation_id - Unique identifier of the operation to cancel
+ * @param {string} [params.reason='User requested cancellation'] - Reason for cancellation
+ * @returns {Promise<Object>} Cancellation result
+ * @returns {string} returns.message - Result message
+ * @returns {boolean} returns.success - Whether cancellation was successful
+ * @returns {string} returns.reason - Reason for cancellation
+ * @throws {Error} If operation_id parameter is missing
+ *
+ * @example
+ * // Cancel a specific operation
+ * const result = await _cancelOperation({
+ *   operation_id: 'op_12345',
+ *   reason: 'User cancelled via UI'
+ * });
+ *
+ * @example
+ * // Cancel with default reason
+ * const result = await _cancelOperation({ operation_id: 'op_67890' });
+ */
 async function _cancelOperation({ operation_id, reason = 'User requested cancellation' }) {
     if (!operation_id) throw new Error("The 'operation_id' parameter is required.");
     
@@ -217,6 +313,28 @@ async function _cancelOperation({ operation_id, reason = 'User requested cancell
     };
 }
 
+/**
+ * Cancels all currently active operations
+ *
+ * Cancels all running operations in the system and returns the count of
+ * operations that were cancelled.
+ *
+ * @async
+ * @function _cancelAllOperations
+ * @param {Object} [params={}] - Cancellation parameters
+ * @param {string} [params.reason='User requested cancellation of all operations'] - Reason for cancellation
+ * @returns {Promise<Object>} Cancellation result
+ * @returns {string} returns.message - Result message with count
+ * @returns {number} returns.cancelledCount - Number of operations cancelled
+ * @returns {string} returns.reason - Reason for cancellation
+ *
+ * @example
+ * // Cancel all operations
+ * const result = await _cancelAllOperations({
+ *   reason: 'System shutdown requested'
+ * });
+ * console.log(`Cancelled ${result.cancelledCount} operations`);
+ */
 async function _cancelAllOperations({ reason = 'User requested cancellation of all operations' }) {
     const cancelledCount = cancelAllOperations(reason);
     return {
@@ -226,6 +344,24 @@ async function _cancelAllOperations({ reason = 'User requested cancellation of a
     };
 }
 
+/**
+ * Retrieves current timeout settings for different tool types
+ *
+ * Returns the current timeout configuration for various tool categories,
+ * along with information about active operations.
+ *
+ * @async
+ * @function _getTimeoutSettings
+ * @returns {Promise<Object>} Timeout settings information
+ * @returns {string} returns.message - Description message
+ * @returns {Object} returns.settings - Current timeout settings by tool type
+ * @returns {number} returns.activeOperations - Number of currently active operations
+ *
+ * @example
+ * const timeouts = await _getTimeoutSettings();
+ * console.log('File operation timeout:', timeouts.settings.file_operations);
+ * console.log('Active operations:', timeouts.activeOperations);
+ */
 async function _getTimeoutSettings() {
     return {
         message: 'Current timeout settings',
@@ -234,6 +370,32 @@ async function _getTimeoutSettings() {
     };
 }
 
+/**
+ * Updates timeout settings for a specific tool type
+ *
+ * Modifies the timeout configuration for a specific category of tools.
+ * Useful for adjusting performance based on system capabilities or user preferences.
+ *
+ * @async
+ * @function _updateTimeoutSettings
+ * @param {Object} params - Timeout update parameters
+ * @param {string} params.tool_type - Type of tool to update timeout for
+ * @param {number} params.timeout_ms - New timeout value in milliseconds
+ * @returns {Promise<Object>} Update result
+ * @returns {string} returns.message - Result message
+ * @returns {string} returns.tool_type - Tool type that was updated
+ * @returns {number} returns.old_timeout - Previous timeout value
+ * @returns {number} returns.new_timeout - New timeout value
+ * @throws {Error} If tool_type or timeout_ms parameters are missing or invalid
+ *
+ * @example
+ * // Increase timeout for file operations
+ * const result = await _updateTimeoutSettings({
+ *   tool_type: 'file_operations',
+ *   timeout_ms: 60000
+ * });
+ * console.log(`Updated ${result.tool_type} timeout from ${result.old_timeout}ms to ${result.new_timeout}ms`);
+ */
 async function _updateTimeoutSettings({ tool_type, timeout_ms }) {
     if (!tool_type || typeof timeout_ms !== 'number') {
         throw new Error("Both 'tool_type' and 'timeout_ms' parameters are required.");
@@ -254,7 +416,43 @@ async function _updateTimeoutSettings({ tool_type, timeout_ms }) {
     };
 }
 
-// Dependency graph management tools
+/**
+ * Creates a dependency graph for tool execution planning
+ *
+ * Creates a dependency graph that can be used to optimize tool execution order,
+ * enable parallel processing, and manage complex tool chains efficiently.
+ *
+ * @async
+ * @function _createDependencyGraph
+ * @param {Object} params - Dependency graph parameters
+ * @param {Array<Object>} params.tools - Array of tool definitions
+ * @param {string} params.tools[].name - Tool name
+ * @param {Object} [params.tools[].parameters={}] - Tool parameters
+ * @param {Object} [params.tools[].metadata={}] - Tool metadata (priority, duration, etc.)
+ * @param {number[]} [params.tools[].dependencies=[]] - Array of dependency indices
+ * @param {boolean} [params.auto_detect_dependencies=true] - Whether to auto-detect dependencies
+ * @returns {Promise<Object>} Dependency graph creation result
+ * @returns {string} returns.message - Result message
+ * @returns {string[]} returns.nodeIds - Array of created node IDs
+ * @returns {Object} returns.executionPlan - Generated execution plan summary
+ * @returns {number} returns.executionPlan.phases - Number of execution phases
+ * @returns {number} returns.executionPlan.totalEstimatedTime - Total estimated execution time
+ * @returns {number} returns.executionPlan.parallelGroups - Number of parallel execution groups
+ * @returns {number} returns.executionPlan.criticalPathLength - Length of critical path
+ * @returns {string[]} returns.executionPlan.warnings - Any warnings about the plan
+ * @returns {Object} returns.statistics - Graph statistics
+ * @throws {Error} If tools parameter is missing or invalid
+ *
+ * @example
+ * // Create dependency graph for file processing chain
+ * const result = await _createDependencyGraph({
+ *   tools: [
+ *     { name: 'read_file', parameters: { filename: 'input.js' } },
+ *     { name: 'analyze_code', parameters: { filename: 'input.js' }, dependencies: [0] },
+ *     { name: 'create_file', parameters: { filename: 'output.js' }, dependencies: [1] }
+ *   ]
+ * });
+ */
 async function _createDependencyGraph({ tools, auto_detect_dependencies = true }) {
     if (!tools || !Array.isArray(tools) || tools.length === 0) {
         throw new Error("The 'tools' parameter is required and must be a non-empty array of tool definitions.");
@@ -308,6 +506,36 @@ async function _createDependencyGraph({ tools, auto_detect_dependencies = true }
     };
 }
 
+/**
+ * Retrieves the current execution plan from the dependency graph
+ *
+ * Returns detailed information about how tools will be executed based on
+ * the current dependency graph, including phases, parallel groups, and timing estimates.
+ *
+ * @async
+ * @function _getExecutionPlan
+ * @returns {Promise<Object>} Execution plan information
+ * @returns {string} returns.message - Summary message
+ * @returns {Object} returns.plan - Detailed execution plan
+ * @returns {Array<Object>} returns.plan.phases - Execution phases
+ * @returns {number} returns.plan.phases[].phaseIndex - Phase number
+ * @returns {number} returns.plan.phases[].toolCount - Number of tools in phase
+ * @returns {Array<Object>} returns.plan.phases[].tools - Tools in this phase
+ * @returns {boolean} returns.plan.phases[].canRunInParallel - Whether tools can run in parallel
+ * @returns {number} returns.plan.totalEstimatedTime - Total estimated execution time
+ * @returns {Array<Object>} returns.plan.criticalPath - Critical path through the graph
+ * @returns {Array<Object>} returns.plan.parallelGroups - Groups that can run in parallel
+ * @returns {string[]} returns.plan.warnings - Execution warnings
+ * @returns {Object} returns.statistics - Graph statistics
+ *
+ * @example
+ * const plan = await _getExecutionPlan();
+ * console.log(`Execution will take ${plan.plan.phases.length} phases`);
+ * console.log(`Estimated time: ${plan.plan.totalEstimatedTime}ms`);
+ * plan.plan.phases.forEach((phase, i) => {
+ *   console.log(`Phase ${i}: ${phase.toolCount} tools, parallel: ${phase.canRunInParallel}`);
+ * });
+ */
 async function _getExecutionPlan() {
     const plan = dependencyGraphManager.generateExecutionPlan();
     const stats = dependencyGraphManager.getStatistics();
@@ -345,6 +573,39 @@ async function _getExecutionPlan() {
     };
 }
 
+/**
+ * Retrieves current status of the dependency graph
+ *
+ * Provides comprehensive information about the current state of the dependency graph,
+ * including statistics, ready tools, and overall graph health.
+ *
+ * @async
+ * @function _getDependencyGraphStatus
+ * @returns {Promise<Object>} Dependency graph status
+ * @returns {string} returns.message - Status summary message
+ * @returns {Object} returns.statistics - Graph statistics
+ * @returns {Array<Object>} returns.readyTools - Tools ready for execution
+ * @returns {string} returns.readyTools[].id - Tool node ID
+ * @returns {string} returns.readyTools[].toolName - Tool name
+ * @returns {number} returns.readyTools[].priority - Tool priority
+ * @returns {number} returns.readyTools[].estimatedDuration - Estimated execution time
+ * @returns {string[]} returns.readyTools[].dependencies - Tool dependencies
+ * @returns {boolean} returns.readyTools[].canRunInParallel - Whether tool can run in parallel
+ * @returns {Object} returns.graphSummary - Graph summary statistics
+ * @returns {number} returns.graphSummary.totalNodes - Total number of nodes
+ * @returns {number} returns.graphSummary.totalEdges - Total number of edges
+ * @returns {number} returns.graphSummary.completedTools - Number of completed tools
+ * @returns {number} returns.graphSummary.failedTools - Number of failed tools
+ * @returns {number} returns.graphSummary.blockedTools - Number of blocked tools
+ *
+ * @example
+ * const status = await _getDependencyGraphStatus();
+ * console.log(`Graph has ${status.statistics.totalTools} tools`);
+ * console.log(`${status.readyTools.length} tools ready to execute`);
+ * status.readyTools.forEach(tool => {
+ *   console.log(`Ready: ${tool.toolName} (priority: ${tool.priority})`);
+ * });
+ */
 async function _getDependencyGraphStatus() {
     const stats = dependencyGraphManager.getStatistics();
     const readyTools = dependencyGraphManager.getReadyTools();
@@ -371,6 +632,41 @@ async function _getDependencyGraphStatus() {
     };
 }
 
+/**
+ * Adds a new tool to the existing dependency graph
+ *
+ * Dynamically adds a tool to the current dependency graph and establishes
+ * its relationships with existing tools.
+ *
+ * @async
+ * @function _addToolToDependencyGraph
+ * @param {Object} params - Tool addition parameters
+ * @param {string} params.tool_name - Name of the tool to add
+ * @param {Object} [params.parameters={}] - Tool parameters
+ * @param {Object} [params.metadata={}] - Tool metadata (priority, duration, etc.)
+ * @param {string[]} [params.dependencies=[]] - Array of node IDs this tool depends on
+ * @returns {Promise<Object>} Tool addition result
+ * @returns {string} returns.message - Result message
+ * @returns {string} returns.nodeId - ID of the newly created node
+ * @returns {Object} returns.toolInfo - Information about the added tool
+ * @returns {string} returns.toolInfo.id - Tool node ID
+ * @returns {string} returns.toolInfo.toolName - Tool name
+ * @returns {string} returns.toolInfo.status - Tool status
+ * @returns {string[]} returns.toolInfo.dependencies - Tool dependencies
+ * @returns {string[]} returns.toolInfo.dependents - Tools that depend on this tool
+ * @returns {Object} returns.toolInfo.metadata - Tool metadata
+ * @throws {Error} If tool_name parameter is missing
+ *
+ * @example
+ * // Add a new tool to existing graph
+ * const result = await _addToolToDependencyGraph({
+ *   tool_name: 'format_code',
+ *   parameters: { filename: 'src/app.js' },
+ *   metadata: { priority: 2, estimatedDuration: 3000 },
+ *   dependencies: ['node_123'] // depends on another tool
+ * });
+ * console.log(`Added tool with ID: ${result.nodeId}`);
+ */
 async function _addToolToDependencyGraph({ tool_name, parameters = {}, metadata = {}, dependencies = [] }) {
     if (!tool_name) {
         throw new Error("The 'tool_name' parameter is required.");
@@ -401,6 +697,23 @@ async function _addToolToDependencyGraph({ tool_name, parameters = {}, metadata 
     };
 }
 
+/**
+ * Clears the current dependency graph
+ *
+ * Removes all tools and dependencies from the current graph, returning
+ * statistics about what was cleared.
+ *
+ * @async
+ * @function _clearDependencyGraph
+ * @returns {Promise<Object>} Clear operation result
+ * @returns {string} returns.message - Result message
+ * @returns {Object} returns.previousStatistics - Statistics before clearing
+ *
+ * @example
+ * const result = await _clearDependencyGraph();
+ * console.log('Cleared dependency graph');
+ * console.log(`Previous graph had ${result.previousStatistics.totalTools} tools`);
+ */
 async function _clearDependencyGraph() {
     const stats = dependencyGraphManager.getStatistics();
     dependencyGraphManager.clear();
@@ -411,6 +724,25 @@ async function _clearDependencyGraph() {
     };
 }
 
+/**
+ * Exports the current dependency graph data
+ *
+ * Exports the complete dependency graph structure for backup, analysis,
+ * or transfer to another system.
+ *
+ * @async
+ * @function _exportDependencyGraph
+ * @returns {Promise<Object>} Export result
+ * @returns {string} returns.message - Export summary message
+ * @returns {Object} returns.graphData - Complete graph data structure
+ * @returns {string} returns.exportTimestamp - ISO timestamp of export
+ *
+ * @example
+ * const exported = await _exportDependencyGraph();
+ * console.log(`Exported graph with ${exported.graphData.nodes.length} nodes`);
+ * // Save to file or send to another system
+ * localStorage.setItem('dependency_graph_backup', JSON.stringify(exported.graphData));
+ */
 async function _exportDependencyGraph() {
     const exportData = dependencyGraphManager.exportGraph();
     
@@ -421,6 +753,27 @@ async function _exportDependencyGraph() {
     };
 }
 
+/**
+ * Lists all available tools in the registry
+ *
+ * Returns a simple list of all tool names currently registered in the system.
+ * Useful for discovery and debugging purposes.
+ *
+ * @async
+ * @function _listTools
+ * @returns {Promise<Object>} List of available tools
+ * @returns {string[]} returns.tools - Array of tool names
+ *
+ * @example
+ * const result = await _listTools();
+ * console.log(`Available tools: ${result.tools.join(', ')}`);
+ *
+ * @example
+ * // Check if a specific tool is available
+ * const result = await _listTools();
+ * const hasReadFile = result.tools.includes('read_file');
+ * console.log('Read file tool available:', hasReadFile);
+ */
 async function _listTools() {
    const toolNames = Object.keys(toolRegistry);
    return { tools: toolNames };
