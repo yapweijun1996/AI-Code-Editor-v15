@@ -13,6 +13,7 @@ import { contextAnalyzer } from './context_analyzer.js';
 import { contextBuilder } from './context_builder.js';
 import { todoManager, TodoStatus } from './todo_manager.js';
 import { AITodoManager } from './ai_todo_manager.js';
+import { errorHandler, ErrorCategory, ErrorSeverity, logAIServiceError } from './core/error_handler.js';
 
 export const ChatService = {
     isSending: false,
@@ -525,6 +526,13 @@ export const ChatService = {
                         }
                     }
                     console.log(`[DEBUG] sendPrompt: Stream processing complete, total chunks: ${chunkCount}, final response length: ${fullResponse.length}`);
+                    console.log(`[DEBUG] sendPrompt: Response content type: ${typeof fullResponse}, empty: ${!fullResponse}, null: ${fullResponse === null}, undefined: ${fullResponse === undefined}`);
+                    // Log a sample of the response for debugging
+                    if (fullResponse) {
+                        console.log(`[DEBUG] sendPrompt: Response sample (first 100 chars): "${fullResponse.substring(0, 100)}"`);
+                    } else {
+                        console.log(`[DEBUG] sendPrompt: WARNING - Response is empty or null`);
+                    }
                     resolve(fullResponse);
                 } catch (error) {
                     console.error(`[ERROR] sendPrompt: Stream processing error:`, error);
@@ -542,19 +550,44 @@ export const ChatService = {
                 // Race the stream processing against a timeout
                 fullResponse = await Promise.race([streamPromise, timeoutPromise]);
                 console.log(`[DEBUG] sendPrompt: Stream processing completed within timeout`);
+                console.log(`[DEBUG] sendPrompt: After Promise.race - Response type: ${typeof fullResponse}, empty: ${!fullResponse}, length: ${fullResponse?.length || 0}`);
+                
+                // Ensure we never return empty content
+                if (!fullResponse || fullResponse.trim() === '') {
+                    console.log(`[DEBUG] sendPrompt: Empty response detected, using fallback content`);
+                    fullResponse = "I'm sorry, but I couldn't generate a complete response. Let me try a simpler approach.";
+                }
             } catch (error) {
                 console.error(`[ERROR] sendPrompt: ${error.message}`);
+                console.error(`[ERROR] sendPrompt: Error stack:`, error.stack);
+                console.log(`[DEBUG] sendPrompt: Setting fallback response due to error`);
                 fullResponse = "I apologize, but I'm having trouble generating a response right now. The operation timed out.";
             } finally {
                 // Clear the timeout to prevent memory leaks
                 if (timeoutId) clearTimeout(timeoutId);
             }
-
-            console.log(`[DEBUG] sendPrompt: Returning response`);
+    
+            console.log(`[DEBUG] sendPrompt: Returning response of type: ${typeof fullResponse}, length: ${fullResponse?.length || 0}`);
+            
+            // Always return a valid string, never null or undefined
+            if (!fullResponse || fullResponse.trim() === '') {
+                console.log(`[DEBUG] sendPrompt: Final safety check - empty response detected, using fallback content`);
+                return "I apologize, but I couldn't generate a complete response. Please try a different approach or rephrase your request.";
+            }
+            
             return fullResponse.trim();
         } catch (error) {
             console.error('[ERROR] sendPrompt failed:', error);
             console.error('[ERROR] sendPrompt stack trace:', error.stack);
+            
+            // Log to central error handling system
+            logAIServiceError(error, {
+                context: 'sendPrompt',
+                provider: this.currentProvider,
+                promptLength: prompt?.length || 0,
+                timestamp: new Date().toISOString()
+            });
+            
             // Return a fallback response instead of throwing to avoid hanging the system
             return "I apologize, but I encountered an error while processing your request. Please try again.";
         }
@@ -934,6 +967,7 @@ export const ChatService = {
        
        // Add a timeout mechanism for the entire task execution
        const TASK_EXECUTION_TIMEOUT_MS = 60000; // 60 seconds timeout
+       const MAX_RETRIES = 2; // Maximum number of retry attempts
        
        const executionPromise = new Promise(async (resolve, reject) => {
            try {
@@ -952,16 +986,61 @@ export const ChatService = {
                // Show thinking indicator
                UI.showThinkingIndicator(chatMessages, `Working on task: ${todoItem.text}...`);
                
-               console.log(`[DEBUG] _executeTodoTask: About to call sendPrompt`);
-               // Get AI response for this task
-               const taskResponsePromise = this.sendPrompt(taskPrompt);
-               console.log(`[DEBUG] _executeTodoTask: sendPrompt called, waiting for response`);
+               let taskResponse = null;
+               let retryCount = 0;
+               let success = false;
                
-               const taskResponse = await taskResponsePromise;
-               console.log(`[DEBUG] _executeTodoTask: Received response from sendPrompt, length: ${taskResponse?.length || 0}`);
+               // Implement retry with exponential backoff
+               while (retryCount <= MAX_RETRIES && !success) {
+                   try {
+                       if (retryCount > 0) {
+                           const backoffTime = Math.pow(2, retryCount) * 1000; // Exponential backoff: 2s, 4s
+                           console.log(`[DEBUG] _executeTodoTask: Retry attempt ${retryCount}/${MAX_RETRIES} after ${backoffTime}ms backoff`);
+                           UI.showThinkingIndicator(chatMessages, `Retrying task (attempt ${retryCount+1})...`);
+                           await new Promise(resolve => setTimeout(resolve, backoffTime));
+                       }
+                       
+                       console.log(`[DEBUG] _executeTodoTask: About to call sendPrompt (attempt ${retryCount+1})`);
+                       // Get AI response for this task
+                       taskResponse = await this.sendPrompt(taskPrompt);
+                       console.log(`[DEBUG] _executeTodoTask: Received response from sendPrompt, type: ${typeof taskResponse}, length: ${taskResponse?.length || 0}`);
+                       
+                       // Validate response
+                       if (taskResponse && taskResponse.trim() !== '') {
+                           console.log(`[DEBUG] _executeTodoTask: Valid response received on attempt ${retryCount+1}`);
+                           success = true;
+                       } else {
+                           console.error(`[ERROR] _executeTodoTask: Empty response on attempt ${retryCount+1}`);
+                           
+                           // Log to central error handling system
+                           logAIServiceError(new Error("No response received from AI service"), {
+                               context: '_executeTodoTask',
+                               todoId: todoItem.id,
+                               todoText: todoItem.text,
+                               retryAttempt: retryCount + 1,
+                               provider: this.currentProvider,
+                               severity: ErrorSeverity.HIGH
+                           });
+                           
+                           retryCount++;
+                       }
+                   } catch (retryError) {
+                       console.error(`[ERROR] _executeTodoTask: Error on attempt ${retryCount+1}:`, retryError);
+                       retryCount++;
+                       // Continue to next retry attempt
+                   }
+               }
                
-               if (!taskResponse) {
-                   throw new Error("No response received from AI service");
+               // If all retries failed, use a fallback response
+               if (!success) {
+                   console.log(`[DEBUG] _executeTodoTask: All retry attempts failed, using fallback response`);
+                   taskResponse = `I encountered difficulty completing the task "${todoItem.text}". Here are some suggestions:
+                   
+1. This task might require breaking down into smaller steps
+2. Try a different approach to this specific task
+3. Consider skipping this task if it's not critical
+                   
+Would you like to continue with the next task or try a different approach for this one?`;
                }
                
                // Show task response to user
@@ -979,7 +1058,40 @@ export const ChatService = {
            } catch (error) {
                console.error(`[ERROR] _executeTodoTask: Error executing todo task "${todoItem.text}":`, error);
                console.error(`[ERROR] _executeTodoTask: Stack trace:`, error.stack);
-               UI.appendMessage(chatMessages, `I encountered an error while working on the task "${todoItem.text}". Let me know if you'd like to continue or try a different approach.`, 'ai');
+               
+               // Log to central error handling system with rich context
+               logAIServiceError(error, {
+                   context: '_executeTodoTask',
+                   todoId: todoItem.id,
+                   todoText: todoItem.text,
+                   query: this.lastUserQuery,
+                   provider: this.currentProvider,
+                   severity: ErrorSeverity.HIGH
+               });
+               
+               // Provide more detailed error information in the UI
+               const errorMessage = `I encountered an error while working on the task "${todoItem.text}": ${error.message}.
+               
+This could be due to:
+- Connection issues with the AI service
+- Complex task requirements
+- Temporary service limitations
+               
+Would you like me to:
+1. Retry this task
+2. Skip to the next task
+3. Try a different approach`;
+               
+               UI.appendMessage(chatMessages, errorMessage, 'ai');
+               
+               // Mark the task as having issues
+               try {
+                   console.log(`[DEBUG] _executeTodoTask: Marking todo as having issues`);
+                   await AITodoManager.updateTodoStatus(todoItem.id, TodoStatus.ERROR);
+               } catch (e) {
+                   console.error(`[ERROR] _executeTodoTask: Error updating todo status:`, e);
+               }
+               
                resolve(false); // Resolve with failure rather than rejecting to ensure promise completes
            }
        });
@@ -995,11 +1107,29 @@ export const ChatService = {
            return await Promise.race([executionPromise, timeoutPromise]);
        } catch (error) {
            console.error(`[ERROR] _executeTodoTask: ${error.message}`);
-           UI.appendMessage(chatMessages, `I'm sorry, but the task "${todoItem.text}" is taking longer than expected. Let me know if you'd like to try again or move to the next task.`, 'ai');
+           
+           // Log timeout error to central error handling system
+           logAIServiceError(error, {
+               context: '_executeTodoTask_timeout',
+               todoId: todoItem.id,
+               todoText: todoItem.text,
+               timeoutDuration: TASK_EXECUTION_TIMEOUT_MS,
+               provider: this.currentProvider,
+               severity: ErrorSeverity.HIGH
+           });
+           const timeoutMessage = `I'm sorry, but the task "${todoItem.text}" is taking longer than expected (timed out after ${TASK_EXECUTION_TIMEOUT_MS/1000} seconds).
+           
+Would you like me to:
+1. Retry with a simpler approach
+2. Skip to the next task
+3. Break this task into smaller steps`;
+           
+           UI.appendMessage(chatMessages, timeoutMessage, 'ai');
            
            // Mark the current task as having issues
            try {
-               console.log(`[DEBUG] _executeTodoTask: Updating UI due to timeout`);
+               console.log(`[DEBUG] _executeTodoTask: Marking todo as timed out`);
+               await AITodoManager.updateTodoStatus(todoItem.id, TodoStatus.ERROR);
                const allTodos = await todoManager.getAllTodos();
                UI.updateTodoList(allTodos);
            } catch (e) {

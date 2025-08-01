@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diagnose Todo Error</title>
+    <style>
+        body {
+            font-family: monospace;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        #log-container {
+            background-color: #111;
+            color: #eee;
+            padding: 15px;
+            border-radius: 5px;
+            height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin-bottom: 20px;
+        }
+        .error {
+            color: #ff6b6b;
+            font-weight: bold;
+        }
+        .success {
+            color: #69db7c;
+            font-weight: bold;
+        }
+        .info {
+            color: #4dabf7;
+        }
+        .warning {
+            color: #ffd43b;
+        }
+        button {
+            padding: 10px 15px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4dabf7;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #339af0;
+        }
+        h1 {
+            color: #333;
+        }
+        .test-section {
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Todo Error Diagnosis</h1>
+    
+    <div class="test-section">
+        <h2>Diagnostic Logs</h2>
+        <div id="log-container"></div>
+        
+        <button id="run-test">Run Diagnostic Test</button>
+        <button id="clear-logs">Clear Logs</button>
+    </div>
+
+    <script type="module">
+        // Override console methods to display in our log container
+        const logContainer = document.getElementById('log-container');
+        
+        // Store original console methods
+        const originalConsole = {
+            log: console.log,
+            error: console.error,
+            warn: console.warn,
+            info: console.info
+        };
+        
+        // Override console methods
+        console.log = function(...args) {
+            const message = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+            ).join(' ');
+            appendToLog(message);
+            originalConsole.log.apply(console, args);
+        };
+        
+        console.error = function(...args) {
+            const message = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+            ).join(' ');
+            appendToLog(message, 'error');
+            originalConsole.error.apply(console, args);
+        };
+        
+        console.warn = function(...args) {
+            const message = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+            ).join(' ');
+            appendToLog(message, 'warning');
+            originalConsole.warn.apply(console, args);
+        };
+        
+        console.info = function(...args) {
+            const message = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+            ).join(' ');
+            appendToLog(message, 'info');
+            originalConsole.info.apply(console, args);
+        };
+        
+        function appendToLog(message, type = '') {
+            const line = document.createElement('div');
+            line.textContent = message;
+            if (type) {
+                line.classList.add(type);
+            }
+            logContainer.appendChild(line);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        // Clear logs button
+        document.getElementById('clear-logs').addEventListener('click', () => {
+            logContainer.innerHTML = '';
+            appendToLog('Logs cleared', 'info');
+        });
+        
+        // Run test button
+        document.getElementById('run-test').addEventListener('click', async () => {
+            logContainer.innerHTML = '';
+            appendToLog('Starting diagnostic test...', 'info');
+            
+            try {
+                // Import and run the test script
+                await import('./todo_execution_test.js');
+                appendToLog('Test script loaded and running', 'info');
+            } catch (error) {
+                appendToLog(`Error loading test script: ${error.message}`, 'error');
+                console.error(error);
+            }
+        });
+        
+        // Initial message
+        appendToLog('Diagnostic page loaded. Click "Run Diagnostic Test" to start.', 'info');
+    </script>
+</body>
+</html>

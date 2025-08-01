@@ -1,6 +1,7 @@
 // AI Todo Manager - Handles integration between AI and Todo functionality
 import { todoManager, TodoStatus } from './todo_manager.js';
 import * as UI from './ui.js';
+import { errorHandler, ErrorCategory, ErrorSeverity, logAIServiceError } from './core/error_handler.js';
 
 /**
  * AI Todo Manager - Provides functionality for AI to create and manage todo lists
@@ -162,6 +163,11 @@ export const AITodoManager = {
                 todoItems.push(newTodo);
             } catch (error) {
                 console.error('Failed to create todo item:', error);
+                logAIServiceError(error, {
+                    context: 'generateTodoList',
+                    task: task,
+                    severity: ErrorSeverity.MEDIUM
+                });
             }
         }
         
@@ -223,6 +229,11 @@ export const AITodoManager = {
             }
         } catch (error) {
             console.error('Error extracting tasks from AI response:', error);
+            logAIServiceError(error, {
+                context: '_extractTasksFromResponse',
+                responseLength: response?.length || 0,
+                severity: ErrorSeverity.MEDIUM
+            });
             tasks.push('Review and implement solution');
         }
         
@@ -284,6 +295,11 @@ export const AITodoManager = {
                         }
                     } catch (error) {
                         console.error('Error advancing to next task:', error);
+                        logAIServiceError(error, {
+                            context: 'updateTodoStatus_nextTask',
+                            todoId: todoId,
+                            severity: ErrorSeverity.MEDIUM
+                        });
                         // Continue anyway to return the updated todo
                     }
                 }
@@ -294,6 +310,27 @@ export const AITodoManager = {
             return updatedTodo;
         } catch (error) {
             console.error('Error updating todo status:', error);
+            // Log detailed error information to console
+            console.error(`[ERROR] updateTodoStatus details:`, {
+                todoId,
+                requestedStatus: newStatus,
+                errorMessage: error.message,
+                errorStack: error.stack,
+                activePlan: this.activePlan ? {
+                    todoItems: this.activePlan.todoItems,
+                    status: this.activePlan.status
+                } : 'No active plan'
+            });
+            
+            // Log to central error handling system
+            logAIServiceError(error, {
+                context: 'updateTodoStatus',
+                todoId: todoId,
+                requestedStatus: newStatus,
+                hasPlan: !!this.activePlan,
+                severity: ErrorSeverity.HIGH
+            });
+            
             throw error;
         }
     },
@@ -327,6 +364,12 @@ export const AITodoManager = {
             return planTodos.every(todo => todo.status === TodoStatus.COMPLETED);
         } catch (error) {
             console.error('Error checking plan completion:', error);
+            logAIServiceError(error, {
+                context: 'isPlanComplete',
+                planStatus: this.activePlan?.status || 'No plan',
+                todoItems: this.activePlan?.todoItems?.length || 0,
+                severity: ErrorSeverity.MEDIUM
+            });
             return false;
         }
     },
@@ -383,6 +426,12 @@ export const AITodoManager = {
             return summary;
         } catch (error) {
             console.error('Error generating plan summary:', error);
+            logAIServiceError(error, {
+                context: 'generatePlanSummary',
+                planStatus: this.activePlan?.status || 'No plan',
+                todoCount: this.activePlan?.todoItems?.length || 0,
+                severity: ErrorSeverity.MEDIUM
+            });
             this.activePlan = null; // Reset on error too
             return 'An error occurred while generating the plan summary.';
         }
@@ -416,6 +465,7 @@ export const AITodoManager = {
                 const pendingTasks = todoItems.filter(todo => todo.status === TodoStatus.PENDING);
                 const inProgressTasks = todoItems.filter(todo => todo.status === TodoStatus.IN_PROGRESS);
                 const completedTasks = todoItems.filter(todo => todo.status === TodoStatus.COMPLETED);
+                const errorTasks = todoItems.filter(todo => todo.status === TodoStatus.ERROR);
                 
                 if (completedTasks.length > 0) {
                     response += `## Completed:\n`;
@@ -426,6 +476,12 @@ export const AITodoManager = {
                 if (inProgressTasks.length > 0) {
                     response += `## In Progress:\n`;
                     inProgressTasks.forEach(todo => response += `⏳ ${todo.text}\n`);
+                    response += `\n`;
+                }
+                
+                if (errorTasks.length > 0) {
+                    response += `## Failed Tasks:\n`;
+                    errorTasks.forEach(todo => response += `❌ ${todo.text} (Click retry in the sidebar)\n`);
                     response += `\n`;
                 }
                 
@@ -442,6 +498,22 @@ export const AITodoManager = {
                 response = customMessage || '# All Tasks Completed\n\nAll planned tasks have been successfully completed.';
                 break;
                 
+            case 'error':
+                response = `# Task Execution Error\n\n`;
+                response += `I encountered an error while executing the current task. ${customMessage}\n\n`;
+                response += `You can:\n`;
+                response += `1. Retry the current task\n`;
+                response += `2. Skip to the next task\n`;
+                response += `3. Provide more details to help me complete this task\n\n`;
+                
+                // Add current progress summary if we have todo items
+                if (todoItems && todoItems.length > 0) {
+                    const completedTasks = todoItems.filter(todo => todo.status === TodoStatus.COMPLETED);
+                    const totalTasks = todoItems.length;
+                    response += `Current progress: ${completedTasks.length}/${totalTasks} tasks completed.`;
+                }
+                break;
+                
             default:
                 response = customMessage;
         }
@@ -454,5 +526,104 @@ export const AITodoManager = {
      */
     reset() {
         this.activePlan = null;
+    },
+    
+    /**
+     * Retry a failed todo task
+     * @param {number} todoId - The ID of the failed todo item to retry
+     * @returns {Promise<boolean>} Success status of the retry operation
+     */
+    async retryFailedTask(todoId) {
+        try {
+            console.log(`[DEBUG] Retrying failed task: ${todoId}`);
+            
+            // Validate the todoId exists
+            const allTodos = await todoManager.getAllTodos();
+            const todoItem = allTodos.find(todo => todo.id === todoId);
+            
+            if (!todoItem) {
+                console.error(`Todo item with ID ${todoId} not found for retry`);
+                return false;
+            }
+            
+            // Only retry tasks that are in ERROR status
+            if (todoItem.status !== TodoStatus.ERROR) {
+                console.warn(`Cannot retry task ${todoId} because it's not in ERROR status (current: ${todoItem.status})`);
+                return false;
+            }
+            
+            // Update status to IN_PROGRESS to retry
+            await this.updateTodoStatus(todoId, TodoStatus.IN_PROGRESS, "Retrying task after failure");
+            
+            // Return success
+            return true;
+        } catch (error) {
+            console.error(`[ERROR] Failed to retry task ${todoId}:`, error);
+            console.error(`[ERROR] Stack trace:`, error.stack);
+            
+            logAIServiceError(error, {
+                context: 'retryFailedTask',
+                todoId: todoId,
+                severity: ErrorSeverity.HIGH
+            });
+            
+            return false;
+        }
+    },
+    
+    /**
+     * Skip a failed todo task and move to the next task
+     * @param {number} todoId - The ID of the failed todo item to skip
+     * @returns {Promise<boolean>} Success status of the skip operation
+     */
+    async skipFailedTask(todoId) {
+        try {
+            console.log(`[DEBUG] Skipping failed task: ${todoId}`);
+            
+            // Validate the todoId exists
+            const allTodos = await todoManager.getAllTodos();
+            const todoItem = allTodos.find(todo => todo.id === todoId);
+            
+            if (!todoItem) {
+                console.error(`Todo item with ID ${todoId} not found for skipping`);
+                return false;
+            }
+            
+            // Update the active plan to mark the task as skipped
+            if (this.activePlan && this.activePlan.todoItems) {
+                // Find the next pending task
+                const planTodos = allTodos.filter(todo =>
+                    this.activePlan.todoItems.includes(todo.id) &&
+                    todo.status === TodoStatus.PENDING
+                );
+                
+                if (planTodos.length > 0) {
+                    // Move to the next task
+                    const nextTask = planTodos[0];
+                    await todoManager.aiUpdateTodoStatus(nextTask.id, TodoStatus.IN_PROGRESS);
+                    console.log(`[DEBUG] Moving to next task: ${nextTask.id} - ${nextTask.text}`);
+                    
+                    // Maintain the error status on the skipped task for reference
+                    return true;
+                } else {
+                    console.warn(`No pending tasks available to move to after skipping ${todoId}`);
+                    return false;
+                }
+            } else {
+                console.warn(`No active plan to update when skipping task ${todoId}`);
+                return false;
+            }
+        } catch (error) {
+            console.error(`[ERROR] Failed to skip task ${todoId}:`, error);
+            console.error(`[ERROR] Stack trace:`, error.stack);
+            
+            logAIServiceError(error, {
+                context: 'skipFailedTask',
+                todoId: todoId,
+                severity: ErrorSeverity.MEDIUM
+            });
+            
+            return false;
+        }
     }
 };

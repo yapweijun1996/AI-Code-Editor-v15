@@ -7,7 +7,8 @@ import { DbManager } from './db.js';
 export const TodoStatus = {
     PENDING: 'pending',
     IN_PROGRESS: 'in_progress',
-    COMPLETED: 'completed'
+    COMPLETED: 'completed',
+    ERROR: 'error'
 };
 
 /**
@@ -145,6 +146,8 @@ export class TodoManager {
                 return TodoStatus.COMPLETED;
             case TodoStatus.COMPLETED:
                 return TodoStatus.PENDING;
+            case TodoStatus.ERROR:
+                return TodoStatus.PENDING; // Reset error tasks to pending
             default:
                 return TodoStatus.PENDING;
         }

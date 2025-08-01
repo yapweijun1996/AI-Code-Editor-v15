@@ -6,6 +6,10 @@ import * as UI from './ui.js';
 import * as FileSystem from './file_system.js';
 import { todoManager, TodoStatus } from './todo_manager.js';
 import { toolLogger } from './tool_logger.js';
+import { AITodoManager } from './ai_todo_manager.js';
+
+// Expose AITodoManager to the window for UI interactions
+window.AITodoManager = AITodoManager;
 
 export function initializeEventListeners(appState) {
     const {

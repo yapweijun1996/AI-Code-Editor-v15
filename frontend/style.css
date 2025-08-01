@@ -1326,6 +1326,62 @@ button:hover {
     font-weight: bold;
 }
 
+.todo-item.status-error .status-icon {
+    border: 2px solid #dc3545;
+    background-color: #dc3545;
+}
+
+.todo-item.status-error .status-icon::after {
+    content: '❌';
+    color: white;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.todo-item.status-error {
+    background-color: rgba(220, 53, 69, 0.05);
+}
+
+.todo-item.status-error .todo-text {
+    color: #dc3545;
+}
+
+.todo-error-actions {
+    display: flex;
+    gap: 8px;
+    margin: 0 8px;
+}
+
+.todo-retry-button, .todo-skip-button {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.8em;
+    cursor: pointer;
+    border: 1px solid var(--border);
+}
+
+.todo-retry-button {
+    background-color: #28a745;
+    color: white;
+}
+
+.todo-retry-button:hover {
+    background-color: #218838;
+}
+
+.todo-skip-button {
+    background-color: #6c757d;
+    color: white;
+}
+
+.todo-skip-button:hover {
+    background-color: #5a6268;
+}
+
 .overlay {
     display: none;
 }
@@ -2161,6 +2217,11 @@ button:hover {
 
 .task-status.status-completed {
     background: #00b894;
+    color: white;
+}
+
+.task-status.status-error {
+    background: #e17055;
     color: white;
 }
 

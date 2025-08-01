@@ -707,6 +707,47 @@ function renderTodoItems(todoItems, listElement) {
         // Append all elements to the list item
         listItem.appendChild(statusIcon);
         listItem.appendChild(textSpan);
+        
+        // Add action buttons for error state
+        if (item.status === TodoStatus.ERROR) {
+            // Retry button
+            const retryButton = document.createElement('button');
+            retryButton.className = 'todo-retry-button';
+            retryButton.textContent = 'Retry';
+            retryButton.dataset.id = item.id;
+            retryButton.title = 'Retry this failed task';
+            retryButton.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (window.AITodoManager) {
+                    window.AITodoManager.retryFailedTask(parseInt(item.id));
+                    // Update UI
+                    updateTodoList(todoManager.getAllTodos());
+                }
+            });
+            
+            // Skip button
+            const skipButton = document.createElement('button');
+            skipButton.className = 'todo-skip-button';
+            skipButton.textContent = 'Skip';
+            skipButton.dataset.id = item.id;
+            skipButton.title = 'Skip this failed task';
+            skipButton.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (window.AITodoManager) {
+                    window.AITodoManager.skipFailedTask(parseInt(item.id));
+                    // Update UI
+                    updateTodoList(todoManager.getAllTodos());
+                }
+            });
+            
+            // Add error action buttons
+            const actionContainer = document.createElement('div');
+            actionContainer.className = 'todo-error-actions';
+            actionContainer.appendChild(retryButton);
+            actionContainer.appendChild(skipButton);
+            listItem.appendChild(actionContainer);
+        }
+        
         listItem.appendChild(deleteButton);
         listItem.appendChild(timestamp);
         

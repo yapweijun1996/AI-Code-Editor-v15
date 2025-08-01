@@ -61,6 +61,23 @@ const mockLLMService = {
     }
 };
 
+// Create a problematic mock LLM service that can return empty responses
+const emptyResponseMockLLMService = {
+    isConfigured: async () => true,
+    sendMessageStream: async function* () {
+        console.log("[EmptyResponseMockLLM] Starting stream generation");
+        
+        // Simulate a response that starts but then becomes empty
+        yield { text: "Starting to generate a response" };
+        
+        // Simulate delay
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // No more chunks are yielded - simulating an interrupted or empty response
+        console.log("[EmptyResponseMockLLM] Stream ended without completing response");
+    }
+};
+
 // Override LLMServiceFactory
 LLMServiceFactory.create = () => mockLLMService;
 
@@ -129,7 +146,26 @@ async function runTest() {
         console.log("\n=== Phase 4: Testing timeout handling ===");
         // Create a slow mock LLM service to test timeout
         const originalSendPrompt = ChatService.sendPrompt;
+        const originalLLMService = ChatService.llmService;
         
+        console.log("\n=== Phase 4a: Testing empty response handling ===");
+        // Test with the empty response mock
+        ChatService.llmService = emptyResponseMockLLMService;
+        
+        try {
+            console.log("Starting task with empty response LLM...");
+            const emptyResponseStart = Date.now();
+            const emptyResult = await ChatService._executeTodoTask(mockTodo, mockChatContainer);
+            console.log(`Task with empty response completed in ${Date.now() - emptyResponseStart}ms with result:`, emptyResult);
+        } catch (error) {
+            console.log(`Empty response test error caught: ${error.message}`);
+            console.log(`This is expected if it's the "No response received from AI service" error`);
+        }
+        
+        // Restore original LLM service
+        ChatService.llmService = originalLLMService;
+        
+        console.log("\n=== Phase 4b: Testing timeout handling ===");
         ChatService.sendPrompt = async () => {
             console.log("[SlowMockLLM] Starting slow response generation");
             // Simulate a very long operation that should trigger timeout
