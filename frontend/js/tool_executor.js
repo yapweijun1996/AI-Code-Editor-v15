@@ -563,6 +563,9 @@ async function _readFileLines({ filename, start_line, end_line }, rootHandle) {
     // Use streaming file reader for better performance with large files
     const { readFileWithStrategy, FileInfo } = await import('./file_streaming.js');
     
+    // Declare variables in the correct scope
+    let content, lines, clampedStart, clampedEnd;
+    
     try {
         const file = await fileHandle.getFile();
         const fileInfo = new FileInfo(file, fileHandle);
@@ -576,8 +579,6 @@ async function _readFileLines({ filename, start_line, end_line }, rootHandle) {
         
         // Enhanced type checking to handle various content types (binary files, null content, etc.)
         // This fixes the "content.split is not a function" error for files misclassified as text
-        let content, lines, clampedStart, clampedEnd;
-        
         if (typeof streamResult.content !== 'string') {
             console.warn(`Warning: File content for ${filename} is not a string, it is a ${typeof streamResult.content}.`);
             console.warn(`Strategy used: ${streamResult.strategy}, Content truncated: ${streamResult.truncated}`);
