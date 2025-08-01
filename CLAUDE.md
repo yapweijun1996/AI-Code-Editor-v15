@@ -55,7 +55,7 @@ No formal test framework is currently configured. The project uses manual testin
 
 ### Tool Execution System
 The heart of the AI functionality is in `frontend/js/tool_executor.js`, which:
-- Implements 30+ specialized tools for file operations, code analysis, and AI assistance
+- Implements 40+ specialized tools for file operations, code analysis, and AI assistance
 - Manages performance tracking and optimization
 - Handles Senior Engineer AI capabilities (symbol resolution, data flow analysis, debugging)
 - Provides smart tool selection based on context

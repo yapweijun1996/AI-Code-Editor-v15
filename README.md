@@ -53,7 +53,7 @@ The editor's architecture has been streamlined to use a local Node.js server, si
     *   **Task Sessions**: Start focused work sessions for specific tasks
     *   **Session History**: Track time spent on each task with session records
 
-*   **Comprehensive Tool Suite**: The AI has access to 30+ specialized tools organized by category:
+*   **Comprehensive Tool Suite**: The AI has access to 40+ specialized tools organized by category:
     
     **🧠 Senior Engineer AI Tools:**
     *   `build_symbol_table` - Build comprehensive symbol tables for advanced code analysis
@@ -67,10 +67,13 @@ The editor's architecture has been streamlined to use a local Node.js server, si
     **File Operations:**
     *   `create_file` - Create new files with content
     *   `read_file` - Read complete files or specific line ranges
-    *   `rewrite_file` - Replace entire file contents
-    *   `insert_content` - Insert content at specific line numbers
-    *   `replace_lines` - Replace specific line ranges
-    *   `create_and_apply_diff` - Efficient line-based file updates
+    *   `edit_file` - Primary tool for all file modifications (replaces rewrite_file)
+    *   `apply_diff` - Apply precise, surgical changes using diff blocks
+    *   `find_and_replace` - Simple and reliable text replacement
+    *   `insert_at_line` - Insert content at specific line numbers
+    *   `replace_lines` - Replace line ranges with new content
+    *   `smart_replace` - Fuzzy matching replacement for similar content
+    *   `append_to_file` - Fast append content to end of file
     *   `rename_file` - Rename files and update references
     *   `delete_file` - Remove files from project
     
@@ -85,6 +88,11 @@ The editor's architecture has been streamlined to use a local Node.js server, si
     *   `search_in_file` - Search within specific files
     *   `query_codebase` - Semantic code search using AI indexing
     *   `build_or_update_codebase_index` - Maintain searchable code index
+    *   `perform_research` - Enhanced recursive web research with AI-driven decision making
+    *   `duckduckgo_search` - Perform web searches
+    *   `read_url` - Read and extract content from URLs
+    *   `analyze_code` - Analyze JavaScript file structure
+    *   `format_code` - Format files with Prettier
     
     **Editor Integration:**
     *   `get_open_file_content` - Access currently open file
@@ -93,9 +101,13 @@ The editor's architecture has been streamlined to use a local Node.js server, si
     *   `get_file_history` - View file modification history
     
     **Task Management:**
-    *   `start_task_session` - Begin a focused work session on a specific task
-    *   `update_task_status` - Update task progress and status
-    *   `get_task_history` - View history of task sessions and updates
+    *   `task_create` - Create new tasks with priorities and descriptions
+    *   `task_update` - Update existing tasks with new status or information
+    *   `task_delete` - Delete tasks and their subtasks
+    *   `task_breakdown` - Break down high-level tasks into actionable subtasks
+    *   `task_get_next` - Get the next logical task to work on
+    *   `task_get_status` - Get task status and statistics
+    *   `start_task_session` - Begin focused work sessions for specific tasks
 *   **🤖 Intelligent Auto-Context Injection**: The AI automatically detects when your questions relate to the currently opened file and provides relevant context without manual intervention:
     *   **Smart Query Analysis**: Uses natural language processing to determine when file context would be helpful
     *   **Context Types**: Provides cursor context, selection context, error context, or smart file overview based on your query
@@ -227,4 +239,8 @@ Our **[Contributing Guide](./docs/CONTRIBUTING.md)** contains all the informatio
 *   Our coding standards and best practices.
 
 We recommend reading the guide to understand the project's design and how to contribute effectively.
+
+### 📚 Complete Documentation
+
+For comprehensive documentation including tool references, architecture details, and feature guides, see our **[Documentation Overview](./docs/DOCS_OVERVIEW.md)** which provides organized access to all project documentation.
 
