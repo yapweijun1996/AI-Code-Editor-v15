@@ -30032,5 +30032,11 @@
   "Testing\\todo_execution_test.html": [
     "#runTest",
     "#output"
+  ],
+  "Testing\\diagnose_todo_error.html": [
+    "#log-container",
+    "#run-test",
+    "#clear-logs",
+    ".test-section"
   ]
 }
