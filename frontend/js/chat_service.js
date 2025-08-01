@@ -18,6 +18,8 @@ export const ChatService = {
     llmService: null,
     rootDirectoryHandle: null,
     activePlan: null,
+    haltExecution: false, // Add this line
+    executionError: null, // Add this line
     errorTracker: {
         filePath: null,
         errorSignature: null,
@@ -499,6 +501,8 @@ Return ONLY "true" or "false" (no quotes, no explanation).`;
 
         this.isSending = true;
         this.isCancelled = false;
+        this.haltExecution = false;
+        this.executionError = null;
         
         // Only update UI if we have DOM elements
         if (chatSendButton && chatCancelButton) {
@@ -533,7 +537,7 @@ Return ONLY "true" or "false" (no quotes, no explanation).`;
             let executionAttempts = 0;
             const maxExecutionAttempts = 10; // Prevent infinite loops
             
-            while (nextTask && !this.isCancelled && executionAttempts < maxExecutionAttempts) {
+            while (nextTask && !this.isCancelled && !this.haltExecution && executionAttempts < maxExecutionAttempts) {
                 executionAttempts++;
                 
                 UI.appendMessage(chatMessages, `Executing subtask ${executionAttempts}: "${nextTask.title}"`, 'ai');
@@ -607,6 +611,8 @@ Execute this task step by step. When completed, call the task_update tool to mar
                         await taskManager.replanBasedOnResults(nextTask.id, executionResult);
                         
                     } else {
+                       this.haltExecution = true;
+                       this.executionError = error;
                         // Mark as failed after exhausting recovery options
                         await taskManager.updateTask(nextTask.id, {
                             status: 'failed',
@@ -650,20 +656,21 @@ Execute this task step by step. When completed, call the task_update tool to mar
                 const completedSubtasks = allSubtasks.filter(t => t.status === 'completed');
                 const failedSubtasks = allSubtasks.filter(t => t.status === 'failed');
                 
-                if (failedSubtasks.length > 0) {
-                    await taskManager.updateTask(mainTask.id, { 
+                if (failedSubtasks.length > 0 || this.haltExecution) {
+                    await taskManager.updateTask(mainTask.id, {
                         status: 'failed',
-                        results: { 
+                        results: {
                             completedSubtasks: completedSubtasks.length,
                             failedSubtasks: failedSubtasks.length,
-                            timestamp: Date.now()
+                            timestamp: Date.now(),
+                            error: this.executionError ? this.executionError.message : "Execution halted."
                         }
                     });
-                    UI.appendMessage(chatMessages, `Main task "${mainTask.title}" partially completed. ${completedSubtasks.length}/${allSubtasks.length} subtasks successful.`, 'ai');
+                    UI.appendMessage(chatMessages, `Main task "${mainTask.title}" failed. ${completedSubtasks.length}/${allSubtasks.length} subtasks successful.`, 'ai');
                 } else {
-                    await taskManager.updateTask(mainTask.id, { 
+                    await taskManager.updateTask(mainTask.id, {
                         status: 'completed',
-                        results: { 
+                        results: {
                             completedSubtasks: completedSubtasks.length,
                             timestamp: Date.now()
                         }
@@ -687,6 +694,7 @@ Execute this task step by step. When completed, call the task_update tool to mar
     cancelMessage() {
         if (this.isSending) {
             this.isCancelled = true;
+            this.haltExecution = true;
         }
     },
 
