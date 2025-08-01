@@ -29967,5 +29967,8 @@
     "🔄 Keeping Documentation Updated",
     "When to Update",
     "Update Process"
+  ],
+  "frontend\\js\\file_streaming.js": [
+    "FileInfo"
   ]
 }
