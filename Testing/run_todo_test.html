@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Todo Integration Test Runner</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 10px;
+        }
+        button {
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 20px 0;
+        }
+        #output {
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            height: 400px;
+            overflow: auto;
+        }
+        .spinner {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(0, 0, 0, 0.1);
+            border-radius: 50%;
+            border-top-color: #4285f4;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+            display: none;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        #todo-list-container {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        .todo-item {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .status-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+        .status-pending {
+            background-color: #fdd835;
+        }
+        .status-in_progress {
+            background-color: #42a5f5;
+        }
+        .status-completed {
+            background-color: #66bb6a;
+        }
+        #test-cases-container {
+            margin-top: 20px;
+        }
+        .test-case {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+        .test-case-header {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>AI Todo Integration Test Runner</h1>
+    <p>This page runs tests for the AI Todo List integration functionality.</p>
+    
+    <div id="test-controls">
+        <label for="query">Test Query:</label>
+        <select id="test-case-selector" style="width: 80%; padding: 8px; margin: 10px 0;">
+            <option value="0">Build a simple website with HTML, CSS and JavaScript</option>
+            <option value="1">Help me process a CSV file, extract emails, and send a report</option>
+            <option value="custom">Custom query...</option>
+        </select>
+        
+        <input type="text" id="custom-query" value="" style="width: 80%; padding: 8px; margin: 10px 0; display: none;" placeholder="Enter a custom query...">
+        
+        <div style="margin-top: 10px;">
+            <button id="runTest"><span class="spinner" id="spinner"></span>Run Todo Test</button>
+            <button id="viewTodos" style="background-color: #34a853; margin-left: 10px;">View Current Todos</button>
+        </div>
+    </div>
+    
+    <h2>Todo List:</h2>
+    <div id="todo-list-container">No todos available yet.</div>
+    
+    <h2>Output:</h2>
+    <div id="output">Results will appear here...</div>
+    
+    <div id="test-cases-container">
+        <h2>Test Cases:</h2>
+        <div class="test-case">
+            <div class="test-case-header">Test Case 1: Build a website</div>
+            <p>Query: "Create a simple website with an HTML page, CSS styling, and a JavaScript file that displays the current time."</p>
+            <p>Expected tasks: 
+                <ul>
+                    <li>Create basic HTML structure</li>
+                    <li>Design CSS styling</li>
+                    <li>Implement JavaScript for time display</li>
+                    <li>Link all files and test</li>
+                </ul>
+            </p>
+        </div>
+        <div class="test-case">
+            <div class="test-case-header">Test Case 2: Data processing</div>
+            <p>Query: "Help me process a CSV file, extract the email addresses, and send a report with the total count."</p>
+            <p>Expected tasks:
+                <ul>
+                    <li>Parse the CSV file data</li>
+                    <li>Extract email addresses using regex</li>
+                    <li>Count unique email addresses</li>
+                    <li>Generate a summary report</li>
+                </ul>
+            </p>
+        </div>
+    </div>
+    
+    <script type="module">
+        import { execute } from '../frontend/js/tool_executor.js';
+        import { todoManager, TodoStatus } from '../frontend/js/todo_manager.js';
+        import { AITodoManager } from '../frontend/js/ai_todo_manager.js';
+        
+        // Initialize the DOM elements
+        const runTestBtn = document.getElementById('runTest');
+        const viewTodosBtn = document.getElementById('viewTodos');
+        const testCaseSelector = document.getElementById('test-case-selector');
+        const customQueryInput = document.getElementById('custom-query');
+        const outputDiv = document.getElementById('output');
+        const spinner = document.getElementById('spinner');
+        const todoListContainer = document.getElementById('todo-list-container');
+        
+        // Test cases from test_ai_todo.js
+        const testCases = [
+            {
+                name: "Build a simple website",
+                query: "Create a simple website with an HTML page, CSS styling, and a JavaScript file that displays the current time.",
+                expectedTasks: [
+                    "Create basic HTML structure with necessary elements",
+                    "Design CSS styling for the website",
+                    "Implement JavaScript to display current time",
+                    "Link all files together and test functionality"
+                ]
+            },
+            {
+                name: "Data processing task",
+                query: "Help me process a CSV file, extract the email addresses, and send a report with the total count.",
+                expectedTasks: [
+                    "Parse the CSV file data",
+                    "Extract email addresses using regex",
+                    "Count unique email addresses",
+                    "Generate a summary report"
+                ]
+            }
+        ];
+        
+        // Setup event handlers
+        testCaseSelector.addEventListener('change', () => {
+            if (testCaseSelector.value === 'custom') {
+                customQueryInput.style.display = 'block';
+            } else {
+                customQueryInput.style.display = 'none';
+            }
+        });
+        
+        // Custom console.log implementation to capture logs
+        const originalConsoleLog = console.log;
+        const originalConsoleError = console.error;
+        
+        console.log = function(...args) {
+            originalConsoleLog.apply(console, args);
+            
+            const message = args.map(arg => {
+                if (typeof arg === 'object') {
+                    try {
+                        return JSON.stringify(arg, null, 2);
+                    } catch (e) {
+                        return String(arg);
+                    }
+                } else {
+                    return String(arg);
+                }
+            }).join(' ');
+            
+            outputDiv.textContent += message + '\n';
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+        };
+        
+        console.error = function(...args) {
+            originalConsoleError.apply(console, args);
+            
+            const message = args.map(arg => {
+                if (typeof arg === 'object') {
+                    try {
+                        return JSON.stringify(arg, null, 2);
+                    } catch (e) {
+                        return String(arg);
+                    }
+                } else {
+                    return String(arg);
+                }
+            }).join(' ');
+            
+            outputDiv.textContent += '❌ ERROR: ' + message + '\n';
+            outputDiv.scrollTop = outputDiv.scrollHeight;
+        };
+        
+        // Function to render todo items
+        function renderTodos(todos) {
+            if (!todos || todos.length === 0) {
+                todoListContainer.innerHTML = '<p>No todos available.</p>';
+                return;
+            }
+            
+            let html = '<ul style="list-style-type: none; padding: 0;">';
+            
+            todos.forEach(todo => {
+                html += `
+                <li class="todo-item">
+                    <div class="status-icon status-${todo.status}"></div>
+                    <div>
+                        <div>${todo.text}</div>
+                        <div style="font-size: 0.8em; color: #666;">Status: ${todo.status} | Created: ${new Date(todo.timestamp).toLocaleString()}</div>
+                    </div>
+                </li>`;
+            });
+            
+            html += '</ul>';
+            todoListContainer.innerHTML = html;
+        }
+        
+        // Function to run the test
+        async function runTodoTest() {
+            outputDiv.textContent = ''; // Clear previous output
+            spinner.style.display = 'inline-block';
+            runTestBtn.disabled = true;
+            
+            try {
+                let query;
+                if (testCaseSelector.value === 'custom') {
+                    query = customQueryInput.value.trim();
+                    if (!query) {
+                        throw new Error('Please enter a custom query');
+                    }
+                } else {
+                    const testCase = testCases[parseInt(testCaseSelector.value)];
+                    query = testCase.query;
+                }
+                
+                console.log(`🧪 Running AI Todo test with query: "${query}"`);
+                
+                // Step 1: Analyze the query
+                const analysis = AITodoManager.analyzeQuery(query);
+                console.log(`Query analysis:`, analysis);
+                
+                if (!analysis.shouldCreateTodoList) {
+                    console.log(`This query is not suitable for todo list approach: ${analysis.reason}`);
+                    return;
+                }
+                
+                // Step 2: Generate an AI response for task planning
+                console.log(`Generating AI response for task planning...`);
+                const initialResponse = `# Task Planning\n\nI'll help you accomplish this by breaking it down into manageable tasks:\n\n`;
+                
+                // Get the expected tasks based on test case or generate generic ones for custom query
+                let tasks;
+                if (testCaseSelector.value === 'custom') {
+                    tasks = [
+                        "Research and analyze requirements",
+                        "Design solution architecture",
+                        "Implement core functionality",
+                        "Test and validate results"
+                    ];
+                } else {
+                    tasks = testCases[parseInt(testCaseSelector.value)].expectedTasks;
+                }
+                
+                const tasksText = tasks.map((task, idx) => `${idx + 1}. ${task}`).join('\n');
+                const aiResponse = initialResponse + tasksText + '\n\nLet\'s start with the first task.';
+                
+                console.log('AI Task Planning Response:');
+                console.log(aiResponse);
+                
+                // Step 3: Generate todo items from the AI response
+                console.log('Generating todo items from AI response...');
+                
+                // Initialize todo manager
+                await todoManager.initialize();
+                
+                // Generate todo list
+                const todoItems = await AITodoManager.generateTodoList(query, aiResponse);
+                console.log(`Created ${todoItems.length} todo items:`, todoItems);
+                
+                // Render the todos
+                renderTodos(todoItems);
+                
+                // Step 4: Simulate working through tasks
+                console.log('\n--- Simulating task progression ---');
+                
+                // Set first task to in progress
+                if (todoItems.length > 0) {
+                    const firstTask = todoItems[0];
+                    await AITodoManager.updateTodoStatus(firstTask.id, TodoStatus.IN_PROGRESS);
+                    console.log(`Set first task to IN_PROGRESS: ${firstTask.text}`);
+                    renderTodos(await todoManager.getAllTodos());
+                    
+                    // Simulate completing the first task
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await AITodoManager.updateTodoStatus(firstTask.id, TodoStatus.COMPLETED);
+                    console.log(`Completed first task: ${firstTask.text}`);
+                    renderTodos(await todoManager.getAllTodos());
+                }
+                
+                // Set second task to in progress (if it exists)
+                if (todoItems.length > 1) {
+                    const secondTask = todoItems[1];
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await AITodoManager.updateTodoStatus(secondTask.id, TodoStatus.IN_PROGRESS);
+                    console.log(`Set second task to IN_PROGRESS: ${secondTask.text}`);
+                    renderTodos(await todoManager.getAllTodos());
+                    
+                    // Simulate completing the second task
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await AITodoManager.updateTodoStatus(secondTask.id, TodoStatus.COMPLETED);
+                    console.log(`Completed second task: ${secondTask.text}`);
+                    renderTodos(await todoManager.getAllTodos());
+                }
+                
+                // Complete all remaining tasks
+                for (let i = 2; i < todoItems.length; i++) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await AITodoManager.updateTodoStatus(todoItems[i].id, TodoStatus.IN_PROGRESS);
+                    console.log(`Set task ${i+1} to IN_PROGRESS: ${todoItems[i].text}`);
+                    renderTodos(await todoManager.getAllTodos());
+                    
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await AITodoManager.updateTodoStatus(todoItems[i].id, TodoStatus.COMPLETED);
+                    console.log(`Completed task ${i+1}: ${todoItems[i].text}`);
+                    renderTodos(await todoManager.getAllTodos());
+                }
+                
+                // Step 5: Check if plan is complete
+                const isPlanComplete = await AITodoManager.isPlanComplete();
+                console.log(`Is plan complete? ${isPlanComplete}`);
+                
+                // Step 6: Generate summary
+                if (isPlanComplete) {
+                    const summary = await AITodoManager.generatePlanSummary();
+                    console.log('\n--- Final Plan Summary ---');
+                    console.log(summary);
+                }
+                
+                console.log('✅ Test completed successfully!');
+                
+            } catch (error) {
+                console.error('Test failed:', error);
+            } finally {
+                spinner.style.display = 'none';
+                runTestBtn.disabled = false;
+            }
+        }
+        
+        async function viewCurrentTodos() {
+            try {
+                await todoManager.initialize();
+                const todos = await todoManager.getAllTodos();
+                console.log(`Found ${todos.length} todo items:`);
+                renderTodos(todos);
+            } catch (error) {
+                console.error('Error loading todos:', error);
+            }
+        }
+        
+        // Add event listeners
+        runTestBtn.addEventListener('click', runTodoTest);
+        viewTodosBtn.addEventListener('click', viewCurrentTodos);
+        
+        // Initialize
+        (async function() {
+            await todoManager.initialize();
+            const todos = await todoManager.getAllTodos();
+            if (todos.length > 0) {
+                renderTodos(todos);
+            }
+            console.log('Todo test runner initialized. Use the interface to run tests.');
+        })();
+    </script>
+</body>
+</html>

@@ -11,6 +11,8 @@ import { providerOptimizer } from './provider_optimizer.js';
 // taskManager import removed
 import { contextAnalyzer } from './context_analyzer.js';
 import { contextBuilder } from './context_builder.js';
+import { todoManager, TodoStatus } from './todo_manager.js';
+import { AITodoManager } from './ai_todo_manager.js';
 
 export const ChatService = {
     isSending: false,
@@ -18,6 +20,8 @@ export const ChatService = {
     llmService: null,
     rootDirectoryHandle: null,
     activePlan: null,
+    todoMode: false,
+    lastUserQuery: '',
     errorTracker: {
         filePath: null,
         errorSignature: null,
@@ -462,22 +466,38 @@ export const ChatService = {
             this._updateUiState(true);
         }
         this.resetErrorTracker();
+        
+        // Store the original user query for todo management
+        this.lastUserQuery = userPrompt;
 
         try {
-            // Prepare user message with intelligent context injection
-            const messageParts = this._prepareAndRenderUserMessage(chatInput, chatMessages, uploadedImage, clearImagePreview);
-            
-            // Process the message directly (task management functionality has been removed)
-            const history = await DbManager.getChatHistory();
-            
-            // Use the enhanced message parts that may include auto-context
-            history.push({ role: 'user', parts: messageParts });
-            
-            // Process the request with a single API call
-            await this._performApiCall(history, chatMessages, false); // singleTurn = false to allow tool chains
-            
-            await DbManager.saveChatHistory(history);
-
+            // Check if todo mode is active and this is a follow-up query
+            if (this.todoMode && AITodoManager.activePlan) {
+                await this._handleTodoModeMessage(userPrompt, chatMessages);
+            } else {
+                // Analyze if this query should use todo list approach
+                const todoAnalysis = AITodoManager.analyzeQuery(userPrompt);
+                
+                if (todoAnalysis.shouldCreateTodoList) {
+                    // Handle as a todo list task
+                    await this._handleTodoListQuery(userPrompt, chatMessages);
+                } else {
+                    // Regular message handling
+                    // Prepare user message with intelligent context injection
+                    const messageParts = this._prepareAndRenderUserMessage(chatInput, chatMessages, uploadedImage, clearImagePreview);
+                    
+                    // Process the message directly (task management functionality has been removed)
+                    const history = await DbManager.getChatHistory();
+                    
+                    // Use the enhanced message parts that may include auto-context
+                    history.push({ role: 'user', parts: messageParts });
+                    
+                    // Process the request with a single API call
+                    await this._performApiCall(history, chatMessages, false); // singleTurn = false to allow tool chains
+                    
+                    await DbManager.saveChatHistory(history);
+                }
+            }
         } catch (error) {
             UI.showError(`An error occurred: ${error.message}`);
             console.error('Chat Error:', error);
@@ -617,4 +637,185 @@ export const ChatService = {
    },
 
    // Task-related methods (_buildTaskContext, _analyzeTaskError, and getExecutionInsights) have been removed
+   
+   /**
+    * Handle a user query that should be processed as a todo list
+    * @param {string} userQuery - The user's query
+    * @param {HTMLElement} chatMessages - The chat messages container
+    */
+   async _handleTodoListQuery(userQuery, chatMessages) {
+       try {
+           // Append user message to the UI
+           UI.appendMessage(chatMessages, userQuery, 'user');
+           
+           // Get initial AI analysis of the query for task planning
+           UI.showThinkingIndicator(chatMessages, 'Analyzing your request and creating a plan...');
+           
+           const initialPrompt = `
+               Analyze the following user request and break it down into a clear, sequential task list.
+               For each task, provide a brief, actionable description.
+               Present your response as a numbered list of tasks, with 3-7 specific steps.
+               
+               User request: ${userQuery}
+               
+               Response format:
+               # Task Analysis
+               
+               Here's a plan to accomplish this:
+               
+               1. First task
+               2. Second task
+               ...
+           `;
+           
+           const initialResponse = await this.sendPrompt(initialPrompt, {
+               customRules: 'You are a task planning assistant that breaks down complex requests into clear, actionable steps.'
+           });
+           
+           // Generate todo items from the AI response
+           const todoItems = await AITodoManager.generateTodoList(userQuery, initialResponse);
+           
+           // Update the UI with todo list
+           UI.updateTodoList(todoItems);
+           
+           // Format and display the initial plan response
+           const formattedResponse = AITodoManager.formatAIResponse('initial', todoItems);
+           UI.appendMessage(chatMessages, formattedResponse, 'ai');
+           
+           // Set todo mode active
+           this.todoMode = true;
+           
+           // Start working on the first task
+           if (todoItems.length > 0) {
+               const firstTask = todoItems[0];
+               await AITodoManager.updateTodoStatus(firstTask.id, TodoStatus.IN_PROGRESS);
+               
+               // Execute the first task
+               await this._executeTodoTask(firstTask, chatMessages);
+           }
+       } catch (error) {
+           console.error('Error handling todo list query:', error);
+           UI.appendMessage(chatMessages, 'Sorry, I encountered an error while creating your todo list plan.', 'ai');
+           this.todoMode = false;
+       }
+   },
+   
+   /**
+    * Handle a message when todo mode is active
+    * @param {string} userMessage - The user's message
+    * @param {HTMLElement} chatMessages - The chat messages container
+    */
+   async _handleTodoModeMessage(userMessage, chatMessages) {
+       // Display user message
+       UI.appendMessage(chatMessages, userMessage, 'user');
+       
+       // Check for plan termination commands
+       if (userMessage.toLowerCase().match(/cancel|stop|abort|quit|exit/)) {
+           AITodoManager.reset();
+           this.todoMode = false;
+           UI.appendMessage(chatMessages, "Todo plan has been canceled. Is there anything else I can help you with?", 'ai');
+           return;
+       }
+       
+       try {
+           // Get all current todos
+           const allTodos = await todoManager.getAllTodos();
+           const planTodos = allTodos.filter(todo =>
+               AITodoManager.activePlan &&
+               AITodoManager.activePlan.todoItems.includes(todo.id)
+           );
+           
+           // Process user feedback on current task
+           const inProgressTasks = planTodos.filter(todo => todo.status === TodoStatus.IN_PROGRESS);
+           
+           if (inProgressTasks.length > 0) {
+               const currentTask = inProgressTasks[0];
+               
+               // Check if user message indicates task completion
+               const completionIndicators = /done|complete|finished|next|proceed|continue|good|completed/i;
+               if (completionIndicators.test(userMessage)) {
+                   // Mark current task as completed
+                   await AITodoManager.updateTodoStatus(currentTask.id, TodoStatus.COMPLETED);
+                   
+                   // Update the todo list UI
+                   UI.updateTodoList(await todoManager.getAllTodos());
+                   
+                   // Check if plan is complete
+                   if (await AITodoManager.isPlanComplete()) {
+                       const summary = await AITodoManager.generatePlanSummary();
+                       UI.appendMessage(chatMessages, summary, 'ai');
+                       this.todoMode = false;
+                   } else {
+                       // Find the next task and execute it
+                       const pendingTasks = planTodos.filter(todo => todo.status === TodoStatus.PENDING);
+                       if (pendingTasks.length > 0) {
+                           const nextTask = pendingTasks[0];
+                           await AITodoManager.updateTodoStatus(nextTask.id, TodoStatus.IN_PROGRESS);
+                           
+                           // Update UI with progress
+                           const progressResponse = AITodoManager.formatAIResponse(
+                               'progress',
+                               await todoManager.getAllTodos(),
+                               "Moving to the next task..."
+                           );
+                           UI.appendMessage(chatMessages, progressResponse, 'ai');
+                           
+                           // Execute the next task
+                           await this._executeTodoTask(nextTask, chatMessages);
+                       }
+                   }
+               } else {
+                   // User provided feedback but not completion - incorporate feedback into current task
+                   const taskPrompt = `
+                       I'm currently working on this task: "${currentTask.text}"
+                       
+                       The user has provided this feedback: "${userMessage}"
+                       
+                       Please incorporate this feedback and continue with the task.
+                   `;
+                   
+                   const response = await this.sendPrompt(taskPrompt);
+                   UI.appendMessage(chatMessages, response, 'ai');
+               }
+           }
+       } catch (error) {
+           console.error('Error handling todo mode message:', error);
+           UI.appendMessage(chatMessages, 'Sorry, I encountered an error while processing your feedback.', 'ai');
+       }
+   },
+   
+   /**
+    * Execute a single todo task
+    * @param {Object} todoItem - The todo item to execute
+    * @param {HTMLElement} chatMessages - The chat messages container
+    */
+   async _executeTodoTask(todoItem, chatMessages) {
+       try {
+           // Generate a detailed prompt based on the task
+           const taskPrompt = `
+               I'm helping the user with this overall goal: "${this.lastUserQuery}"
+               
+               I'm now working on this specific task: "${todoItem.text}"
+               
+               Please provide a detailed response addressing this specific task.
+               Be thorough but focused only on this particular step.
+           `;
+           
+           // Show thinking indicator
+           UI.showThinkingIndicator(chatMessages, `Working on task: ${todoItem.text}...`);
+           
+           // Get AI response for this task
+           const taskResponse = await this.sendPrompt(taskPrompt);
+           
+           // Show task response to user
+           UI.appendMessage(chatMessages, taskResponse, 'ai');
+           
+           // Update the todo list UI
+           UI.updateTodoList(await todoManager.getAllTodos());
+           
+       } catch (error) {
+           console.error(`Error executing todo task "${todoItem.text}":`, error);
+           UI.appendMessage(chatMessages, `I encountered an error while working on the task "${todoItem.text}". Let me know if you'd like to continue or try a different approach.`, 'ai');
+       }
+   }
 };

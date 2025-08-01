@@ -12,7 +12,7 @@ import * as UI from './ui.js';
 import * as FileSystem from './file_system.js';
 import { initializeEventListeners } from './events.js';
 import { DbManager } from './db.js';
-// Task management imports removed
+import { todoManager } from './todo_manager.js';
 
 // Legacy appState for backward compatibility during migration
 export const appState = {
@@ -29,6 +29,7 @@ export const appState = {
     handleCreateFolder: null,
     handleRenameEntry: null,
     handleDeleteEntry: null,
+    todoManager: null,
 };
 
 // Initialize core systems
@@ -43,8 +44,8 @@ async function initializeCoreServices() {
             .registerInstance('StateManager', appStateManager)
             .registerSingleton('Settings', Settings)
             .registerSingleton('DbManager', DbManager)
-            .registerSingleton('ChatService', ChatService);
-            // Task manager registration removed
+            .registerSingleton('ChatService', ChatService)
+            .registerSingleton('TodoManager', todoManager);
 
         // Initialize performance profiling
         performanceProfiler.recordMetric('app', 'coreServicesInit', performance.now() - startTime);
@@ -90,7 +91,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     appState.editor = await Editor.initializeEditor(editorContainer, tabBarContainer, appState);
     UI.initResizablePanels(appState.editor);
     
-    // Task management UI initialization removed
+    // Initialize Todo Manager
+    appState.todoManager = todoManager;
+    
+    // Add todo list change listener
+    todoManager.addChangeListener((todos) => {
+        UI.updateTodoList(todos);
+    });
+    
+    // Initialize the todo manager
+    await todoManager.initialize();
+    
+    // Render initial todo list
+    UI.createTodoList(todoManager.getAllTodos());
 
     appState.onFileSelect = async (filePath) => {
         const fileHandle = await FileSystem.getFileHandleFromPath(appState.rootDirectoryHandle, filePath);

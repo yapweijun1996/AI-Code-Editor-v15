@@ -4,9 +4,8 @@ import { ChatService } from './chat_service.js';
 import * as Editor from './editor.js';
 import * as UI from './ui.js';
 import * as FileSystem from './file_system.js';
-// Task management imports removed
+import { todoManager, TodoStatus } from './todo_manager.js';
 import { toolLogger } from './tool_logger.js';
-// todoListUI and taskManager imports removed
 
 export function initializeEventListeners(appState) {
     const {
@@ -69,10 +68,10 @@ export function initializeEventListeners(appState) {
     const searchTab = document.getElementById('search-tab');
     const filesContent = document.getElementById('files-content');
     const searchContent = document.getElementById('search-content');
-    // Task management tabs/content elements removed
+    const tasksTab = document.getElementById('tasks-tab');
+    const tasksContent = document.getElementById('tasks-content');
     const searchInput = document.getElementById('search-input');
     const tasksContainer = document.getElementById('tasks-container');
-    const taskOutput = document.getElementById('task-output');
     const searchRegex = document.getElementById('search-regex');
     const searchCaseSensitive = document.getElementById('search-case-sensitive');
     const searchButton = document.getElementById('search-button');
@@ -451,13 +450,119 @@ export function initializeEventListeners(appState) {
         });
     }
 
-    if (searchTab && filesTab && searchContent && filesContent) {
+    if (searchTab && filesTab && searchContent && filesContent && tasksTab && tasksContent) {
         searchTab.addEventListener('click', () => {
             searchTab.classList.add('active');
             filesTab.classList.remove('active');
+            tasksTab.classList.remove('active');
             searchContent.style.display = 'block';
             filesContent.style.display = 'none';
+            tasksContent.style.display = 'none';
         });
+        
+        tasksTab.addEventListener('click', () => {
+            tasksTab.classList.add('active');
+            filesTab.classList.remove('active');
+            searchTab.classList.remove('active');
+            tasksContent.style.display = 'block';
+            filesContent.style.display = 'none';
+            searchContent.style.display = 'none';
+        });
+    }
+
+    // Handle Todo item interactions
+    function initializeTodoEventListeners() {
+        // Delegation for todo list interactions
+        if (tasksContainer) {
+            tasksContainer.addEventListener('click', async (e) => {
+                const target = e.target;
+                
+                // Handle status icon click
+                if (target.classList.contains('status-icon')) {
+                    const todoId = parseInt(target.dataset.id, 10);
+                    try {
+                        await todoManager.toggleTodoStatus(todoId);
+                    } catch (error) {
+                        console.error('Error toggling todo status:', error);
+                        UI.showError('Failed to update todo status');
+                    }
+                }
+                
+                // Handle delete button click
+                else if (target.classList.contains('todo-delete-button')) {
+                    const todoId = parseInt(target.dataset.id, 10);
+                    if (confirm('Are you sure you want to delete this todo item?')) {
+                        try {
+                            await todoManager.deleteTodo(todoId);
+                        } catch (error) {
+                            console.error('Error deleting todo:', error);
+                            UI.showError('Failed to delete todo item');
+                        }
+                    }
+                }
+                
+                // Handle add todo button click
+                else if (target.id === 'add-todo-button') {
+                    const input = document.getElementById('new-todo-input');
+                    const text = input.value.trim();
+                    if (text) {
+                        try {
+                            await todoManager.createTodo(text);
+                            input.value = '';
+                        } catch (error) {
+                            console.error('Error creating todo:', error);
+                            UI.showError('Failed to create todo item');
+                        }
+                    }
+                }
+            });
+            
+            // Handle double-click to edit text
+            tasksContainer.addEventListener('dblclick', (e) => {
+                const target = e.target;
+                if (target.classList.contains('todo-text')) {
+                    const todoId = parseInt(target.dataset.id, 10);
+                    const currentText = target.textContent;
+                    
+                    // Create and add edit input
+                    const editInput = UI.createTodoEditInput(target, currentText, todoId);
+                    target.parentNode.replaceChild(editInput, target);
+                    editInput.focus();
+                    
+                    // Setup save on blur
+                    editInput.addEventListener('blur', async () => {
+                        const newText = editInput.value.trim();
+                        if (newText && newText !== currentText) {
+                            try {
+                                await todoManager.updateTodo(todoId, { text: newText });
+                            } catch (error) {
+                                console.error('Error updating todo text:', error);
+                                UI.showError('Failed to update todo text');
+                            }
+                        } else {
+                            // If no changes or empty, just re-render the list
+                            UI.updateTodoList(todoManager.getAllTodos());
+                        }
+                    });
+                }
+            });
+            
+            // Handle new todo input form submission
+            tasksContainer.addEventListener('keydown', async (e) => {
+                if (e.target.id === 'new-todo-input' && e.key === 'Enter') {
+                    const text = e.target.value.trim();
+                    if (text) {
+                        try {
+                            await todoManager.createTodo(text);
+                            e.target.value = '';
+                        } catch (error) {
+                            console.error('Error creating todo:', error);
+                            UI.showError('Failed to create todo item');
+                        }
+                    }
+                }
+            });
+        }
     }
 
     searchButton.addEventListener('click', () => handleSearch(appState));
@@ -519,7 +624,8 @@ export function initializeEventListeners(appState) {
             });
         });
     }
-    // Task management tab section and related functions removed
+    // Initialize the Todo event listeners
+    initializeTodoEventListeners();
 
     const btnCollapse = document.getElementById('toggle-files-button');
     const sidebar = document.getElementById('file-tree-container');

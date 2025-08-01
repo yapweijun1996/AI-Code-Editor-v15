@@ -620,19 +620,26 @@ export function initializeUI() {
 export function createTodoList(todoItems) {
     const tasksContainer = document.getElementById('tasks-container');
     tasksContainer.innerHTML = ''; // Clear previous content
+    
+    // Add todo input form
+    const todoInputForm = document.createElement('div');
+    todoInputForm.className = 'todo-input-form';
+    todoInputForm.innerHTML = `
+        <input type="text" id="new-todo-input" placeholder="Add a new todo item...">
+        <button id="add-todo-button">Add</button>
+    `;
+    tasksContainer.appendChild(todoInputForm);
+    
+    // Create todo list container
     const todoListContainer = document.createElement('div');
     todoListContainer.className = 'todo-list-container';
     todoListContainer.id = 'autonomous-plan-todolist';
 
     const list = document.createElement('ul');
     list.className = 'todo-list';
-
-    todoItems.forEach(item => {
-        const listItem = document.createElement('li');
-        listItem.className = `todo-item status-${item.status}`;
-        listItem.innerHTML = `<span class="status-icon"></span> ${item.task}`;
-        list.appendChild(listItem);
-    });
+    
+    // Render todo items
+    renderTodoItems(todoItems, list);
 
     todoListContainer.appendChild(list);
     tasksContainer.appendChild(todoListContainer);
@@ -656,11 +663,81 @@ export function updateTodoList(todoItems) {
     const list = todoListContainer.querySelector('.todo-list');
     if (list) {
         list.innerHTML = ''; // Clear and re-render
-        todoItems.forEach(item => {
-            const listItem = document.createElement('li');
-            listItem.className = `todo-item status-${item.status}`;
-            listItem.innerHTML = `<span class="status-icon"></span> ${item.task}`;
-            list.appendChild(listItem);
-        });
+        renderTodoItems(todoItems, list);
     }
+}
+
+/**
+ * Render individual todo items in the list
+ * @param {Array} todoItems - Array of todo items
+ * @param {HTMLElement} listElement - The list element to append items to
+ */
+function renderTodoItems(todoItems, listElement) {
+    todoItems.forEach(item => {
+        const listItem = document.createElement('li');
+        listItem.className = `todo-item status-${item.status}`;
+        listItem.dataset.id = item.id;
+        
+        // Status icon that can be clicked to toggle status
+        const statusIcon = document.createElement('span');
+        statusIcon.className = 'status-icon';
+        statusIcon.dataset.id = item.id;
+        statusIcon.title = `Status: ${item.status}. Click to change.`;
+        
+        // Text content with edit functionality
+        const textSpan = document.createElement('span');
+        textSpan.className = 'todo-text';
+        textSpan.textContent = item.text || '';
+        textSpan.dataset.id = item.id;
+        textSpan.title = 'Double-click to edit';
+        
+        // Delete button
+        const deleteButton = document.createElement('button');
+        deleteButton.className = 'todo-delete-button';
+        deleteButton.innerHTML = '&times;';
+        deleteButton.dataset.id = item.id;
+        deleteButton.title = 'Delete todo';
+        
+        // Timestamp
+        const timestamp = document.createElement('span');
+        timestamp.className = 'todo-timestamp';
+        timestamp.textContent = new Date(item.timestamp).toLocaleString();
+        timestamp.title = 'Created: ' + new Date(item.timestamp).toLocaleString();
+        
+        // Append all elements to the list item
+        listItem.appendChild(statusIcon);
+        listItem.appendChild(textSpan);
+        listItem.appendChild(deleteButton);
+        listItem.appendChild(timestamp);
+        
+        listElement.appendChild(listItem);
+    });
+}
+
+/**
+ * Create an input field for editing a todo item
+ * @param {HTMLElement} element - The element to replace with an input
+ * @param {string} currentText - The current text value
+ * @param {number} todoId - The ID of the todo item
+ * @returns {HTMLElement} The input element
+ */
+export function createTodoEditInput(element, currentText, todoId) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'todo-edit-input';
+    input.value = currentText;
+    input.dataset.id = todoId;
+    
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            input.blur(); // Trigger the blur event to save
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            input.value = currentText; // Restore original value
+            input.blur();
+        }
+    });
+    
+    return input;
 }

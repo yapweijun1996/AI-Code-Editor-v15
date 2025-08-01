@@ -12,11 +12,12 @@ export const DbManager = {
         customRules: 'customRules',
         chatHistory: 'chatHistory',
         toolLogs: 'tool_logs',
+        todos: 'todos',
     },
     async openDb() {
         return new Promise((resolve, reject) => {
             if (this.db) return resolve(this.db);
-            const request = indexedDB.open(this.dbName, 11);
+            const request = indexedDB.open(this.dbName, 12); // Increased version to 12 for the new todos store
             request.onerror = () => reject('Error opening IndexedDB.');
             request.onsuccess = (event) => {
                 this.db = event.target.result;
@@ -53,6 +54,11 @@ export const DbManager = {
                     const logStore = db.createObjectStore(this.stores.toolLogs, { autoIncrement: true, keyPath: 'id' });
                     logStore.createIndex('timestamp', 'timestamp', { unique: false });
                     logStore.createIndex('toolName', 'toolName', { unique: false });
+                }
+                if (!db.objectStoreNames.contains(this.stores.todos)) {
+                    const todoStore = db.createObjectStore(this.stores.todos, { autoIncrement: true, keyPath: 'id' });
+                    todoStore.createIndex('timestamp', 'timestamp', { unique: false });
+                    todoStore.createIndex('status', 'status', { unique: false });
                 }
             };
         });
@@ -270,4 +276,77 @@ export const DbManager = {
         });
     },
 
+    // Todo CRUD operations
+    async getAllTodos() {
+        const db = await this.openDb();
+        return new Promise((resolve) => {
+            const request = db
+                .transaction(this.stores.todos, 'readonly')
+                .objectStore(this.stores.todos)
+                .getAll();
+            request.onerror = () => resolve([]);
+            request.onsuccess = () => resolve(request.result || []);
+        });
+    },
+
+    async addTodo(todoData) {
+        const db = await this.openDb();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction(this.stores.todos, 'readwrite');
+            const store = transaction.objectStore(this.stores.todos);
+            const request = store.add({
+                ...todoData,
+                timestamp: todoData.timestamp || Date.now()
+            });
+            request.onerror = () => reject('Error adding todo item.');
+            request.onsuccess = (event) => resolve(event.target.result); // Returns the auto-generated ID
+        });
+    },
+
+    async updateTodo(id, todoData) {
+        const db = await this.openDb();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction(this.stores.todos, 'readwrite');
+            const store = transaction.objectStore(this.stores.todos);
+            const request = store.get(id);
+            
+            request.onerror = () => reject('Error getting todo item for update.');
+            request.onsuccess = () => {
+                const data = request.result;
+                if (!data) {
+                    reject('Todo item not found.');
+                    return;
+                }
+                
+                const updatedTodo = { ...data, ...todoData };
+                const updateRequest = store.put(updatedTodo);
+                updateRequest.onerror = () => reject('Error updating todo item.');
+                updateRequest.onsuccess = () => resolve();
+            };
+        });
+    },
+
+    async deleteTodo(id) {
+        const db = await this.openDb();
+        return new Promise((resolve, reject) => {
+            const request = db
+                .transaction(this.stores.todos, 'readwrite')
+                .objectStore(this.stores.todos)
+                .delete(id);
+            request.onerror = () => reject('Error deleting todo item.');
+            request.onsuccess = () => resolve();
+        });
+    },
+
+    async getTodoById(id) {
+        const db = await this.openDb();
+        return new Promise((resolve) => {
+            const request = db
+                .transaction(this.stores.todos, 'readonly')
+                .objectStore(this.stores.todos)
+                .get(id);
+            request.onerror = () => resolve(null);
+            request.onsuccess = () => resolve(request.result || null);
+        });
+    },
 };
