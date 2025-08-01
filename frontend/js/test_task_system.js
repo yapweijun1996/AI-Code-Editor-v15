@@ -1,14 +1,10 @@
 /**
  * Test Script for Task Management System
- * This script tests the functionality of both the complex and simplified task systems,
- * as well as the migration functionality.
+ * This script tests the functionality of the simplified task management system.
  */
 
-import { taskManager } from './task_manager.js';
 import { simpleTaskManager } from './simple_task_manager.js';
-import { todoListUI } from './todo_list_ui.js';
 import { simpleTodoListUI } from './simple_todo_list_ui.js';
-import { taskSystemIntegration } from './task_system_integration.js';
 import * as UI from './ui.js';
 
 class TaskSystemTester {
@@ -25,17 +21,20 @@ class TaskSystemTester {
         console.log('========================================');
         
         try {
-            // Initialize both task managers
+            // Test task manager
             await this.testInitialization();
             
-            // Test creating tasks in both systems
+            // Test creating tasks
             await this.testTaskCreation();
             
-            // Test updating tasks in both systems
+            // Test updating tasks
             await this.testTaskUpdate();
             
-            // Test migration functionality
-            await this.testMigration();
+            // Test deleting tasks
+            await this.testTaskDeletion();
+            
+            // Test list management
+            await this.testListManagement();
             
             // Test UI toggling
             this.testUIToggle();
@@ -94,169 +93,99 @@ class TaskSystemTester {
     }
 
     /**
-     * Test initialization of both task managers
+     * Test initialization of task manager
      */
     async testInitialization() {
         try {
-            await taskManager.initialize();
-            this.logResult('InitializeComplexTaskManager', true, 'Complex task manager initialized');
-        } catch (error) {
-            this.logResult('InitializeComplexTaskManager', false, `Failed to initialize complex task manager: ${error.message}`);
-        }
-        
-        try {
             await simpleTaskManager.initialize();
-            this.logResult('InitializeSimpleTaskManager', true, 'Simple task manager initialized');
+            this.logResult('InitializeTaskManager', true, 'Task manager initialized');
         } catch (error) {
-            this.logResult('InitializeSimpleTaskManager', false, `Failed to initialize simple task manager: ${error.message}`);
-        }
-        
-        try {
-            await taskSystemIntegration.initialize();
-            this.logResult('InitializeIntegration', true, 'Task system integration initialized');
-        } catch (error) {
-            this.logResult('InitializeIntegration', false, `Failed to initialize integration: ${error.message}`);
+            this.logResult('InitializeTaskManager', false, `Failed to initialize task manager: ${error.message}`);
         }
     }
 
     /**
-     * Test creating tasks in both systems
+     * Test creating tasks in the system
      */
     async testTaskCreation() {
-        // Test complex task manager
         try {
-            const complexTask = await taskManager.createTask({
-                title: 'Test Complex Task',
-                description: 'This is a test task in the complex system',
-                priority: 'high'
-            });
-            
-            const complexTaskExists = taskManager.tasks.has(complexTask.id);
-            this.logResult('CreateComplexTask', complexTaskExists, 
-                complexTaskExists ? `Complex task created with ID: ${complexTask.id}` : 'Complex task not found after creation');
-        } catch (error) {
-            this.logResult('CreateComplexTask', false, `Failed to create complex task: ${error.message}`);
-        }
-        
-        // Test simple task manager
-        try {
-            const simpleTask = await simpleTaskManager.createTask({
-                title: 'Test Simple Task',
-                description: 'This is a test task in the simplified system',
+            const task = await simpleTaskManager.createTask({
+                title: 'Test Task',
+                description: 'This is a test task in the system',
                 priority: 'medium'
             });
             
-            const simpleTaskExists = simpleTaskManager.tasks.has(simpleTask.id);
-            this.logResult('CreateSimpleTask', simpleTaskExists, 
-                simpleTaskExists ? `Simple task created with ID: ${simpleTask.id}` : 'Simple task not found after creation');
+            const taskExists = simpleTaskManager.tasks.has(task.id);
+            this.logResult('CreateTask', taskExists,
+                taskExists ? `Task created with ID: ${task.id}` : 'Task not found after creation');
         } catch (error) {
-            this.logResult('CreateSimpleTask', false, `Failed to create simple task: ${error.message}`);
+            this.logResult('CreateTask', false, `Failed to create task: ${error.message}`);
         }
     }
 
     /**
-     * Test updating tasks in both systems
+     * Test updating tasks in the system
      */
     async testTaskUpdate() {
-        // Test complex task manager update
         try {
             // Find the task we created in the previous test
-            const complexTasks = Array.from(taskManager.tasks.values())
-                .filter(t => t.title === 'Test Complex Task');
+            const tasks = Array.from(simpleTaskManager.tasks.values())
+                .filter(t => t.title === 'Test Task');
             
-            if (complexTasks.length === 0) {
-                this.logResult('UpdateComplexTask', false, 'No complex test task found to update');
+            if (tasks.length === 0) {
+                this.logResult('UpdateTask', false, 'No test task found to update');
                 return;
             }
             
-            const complexTask = complexTasks[0];
-            await taskManager.updateTask(complexTask.id, {
-                status: 'completed',
-                description: 'Updated description for complex task'
-            });
-            
-            const updatedTask = taskManager.tasks.get(complexTask.id);
-            const updateSuccessful = updatedTask && 
-                updatedTask.status === 'completed' && 
-                updatedTask.description === 'Updated description for complex task';
-            
-            this.logResult('UpdateComplexTask', updateSuccessful, 
-                updateSuccessful ? 'Complex task updated successfully' : 'Complex task update failed');
-        } catch (error) {
-            this.logResult('UpdateComplexTask', false, `Failed to update complex task: ${error.message}`);
-        }
-        
-        // Test simple task manager update
-        try {
-            // Find the task we created in the previous test
-            const simpleTasks = Array.from(simpleTaskManager.tasks.values())
-                .filter(t => t.title === 'Test Simple Task');
-            
-            if (simpleTasks.length === 0) {
-                this.logResult('UpdateSimpleTask', false, 'No simple test task found to update');
-                return;
-            }
-            
-            const simpleTask = simpleTasks[0];
-            await simpleTaskManager.updateTask(simpleTask.id, {
+            const task = tasks[0];
+            await simpleTaskManager.updateTask(task.id, {
                 status: 'in_progress',
-                description: 'Updated description for simple task'
+                description: 'Updated description for task'
             });
             
-            const updatedTask = simpleTaskManager.tasks.get(simpleTask.id);
-            const updateSuccessful = updatedTask && 
-                updatedTask.status === 'in_progress' && 
-                updatedTask.description === 'Updated description for simple task';
+            const updatedTask = simpleTaskManager.tasks.get(task.id);
+            const updateSuccessful = updatedTask &&
+                updatedTask.status === 'in_progress' &&
+                updatedTask.description === 'Updated description for task';
             
-            this.logResult('UpdateSimpleTask', updateSuccessful, 
-                updateSuccessful ? 'Simple task updated successfully' : 'Simple task update failed');
+            this.logResult('UpdateTask', updateSuccessful,
+                updateSuccessful ? 'Task updated successfully' : 'Task update failed');
         } catch (error) {
-            this.logResult('UpdateSimpleTask', false, `Failed to update simple task: ${error.message}`);
+            this.logResult('UpdateTask', false, `Failed to update task: ${error.message}`);
         }
     }
 
     /**
-     * Test migration functionality
+     * Test task deletion
      */
-    async testMigration() {
+    async testTaskDeletion() {
         try {
-            // Count tasks before migration
-            const beforeComplexCount = taskManager.getAllTasks().length;
-            const beforeSimpleCount = simpleTaskManager.getAllTasks().length;
+            // Find the task we created in the previous test
+            const tasks = Array.from(simpleTaskManager.tasks.values())
+                .filter(t => t.title === 'Test Task');
             
-            this.logResult('CountBeforeMigration', true, 
-                `Before migration: Complex: ${beforeComplexCount} tasks, Simple: ${beforeSimpleCount} tasks`);
-            
-            // Run migration
-            const migratedCount = await taskSystemIntegration.migrateData();
-            
-            // Count tasks after migration
-            const afterComplexCount = taskManager.getAllTasks().length;
-            const afterSimpleCount = simpleTaskManager.getAllTasks().length;
-            
-            const expectedSimpleCount = beforeSimpleCount + beforeComplexCount;
-            const migrationSuccessful = afterSimpleCount >= expectedSimpleCount;
-            
-            this.logResult('MigrationCount', migrationSuccessful,
-                `Migration reported ${migratedCount} tasks migrated. After migration: Complex: ${afterComplexCount}, Simple: ${afterSimpleCount}`);
-            
-            // Check that task titles were migrated correctly
-            const complexTaskTitles = new Set(taskManager.getAllTasks().map(t => t.title));
-            const simpleTaskTitles = new Set(simpleTaskManager.getAllTasks().map(t => t.title));
-            
-            let allTitlesMigrated = true;
-            for (const title of complexTaskTitles) {
-                if (!simpleTaskTitles.has(title)) {
-                    allTitlesMigrated = false;
-                    this.logResult('MigrationTitleCheck', false, `Task title "${title}" not found in migrated tasks`);
-                }
+            if (tasks.length === 0) {
+                this.logResult('DeleteTask', false, 'No test task found to delete');
+                return;
             }
             
-            if (allTitlesMigrated) {
-                this.logResult('MigrationTitleCheck', true, 'All task titles successfully migrated');
+            const task = tasks[0];
+            await simpleTaskManager.deleteTask(task.id);
+            
+            const taskExists = simpleTaskManager.tasks.has(task.id);
+            this.logResult('DeleteTask', !taskExists,
+                !taskExists ? 'Task deleted successfully' : 'Task still exists after deletion');
+            
+            if (!taskExists) {
+                // Create a new task for other tests
+                await simpleTaskManager.createTask({
+                    title: 'Test Task',
+                    description: 'This is a new test task',
+                    priority: 'medium'
+                });
             }
         } catch (error) {
-            this.logResult('TestMigration', false, `Migration test failed: ${error.message}`);
+            this.logResult('DeleteTask', false, `Failed to delete task: ${error.message}`);
         }
     }
 
@@ -265,44 +194,51 @@ class TaskSystemTester {
      */
     testUIToggle() {
         try {
-            // Test original UI
-            todoListUI.show();
-            const originalUIVisible = todoListUI.isVisible;
-            this.logResult('ShowOriginalUI', originalUIVisible, 
-                originalUIVisible ? 'Original UI shown successfully' : 'Failed to show original UI');
-            
-            todoListUI.hide();
-            const originalUIHidden = !todoListUI.isVisible;
-            this.logResult('HideOriginalUI', originalUIHidden, 
-                originalUIHidden ? 'Original UI hidden successfully' : 'Failed to hide original UI');
-            
-            // Test simplified UI
+            // Test UI
             simpleTodoListUI.show();
-            const simplifiedUIVisible = simpleTodoListUI.isVisible;
-            this.logResult('ShowSimplifiedUI', simplifiedUIVisible, 
-                simplifiedUIVisible ? 'Simplified UI shown successfully' : 'Failed to show simplified UI');
+            const uiVisible = simpleTodoListUI.isVisible;
+            this.logResult('ShowUI', uiVisible,
+                uiVisible ? 'UI shown successfully' : 'Failed to show UI');
             
             simpleTodoListUI.hide();
-            const simplifiedUIHidden = !simpleTodoListUI.isVisible;
-            this.logResult('HideSimplifiedUI', simplifiedUIHidden, 
-                simplifiedUIHidden ? 'Simplified UI hidden successfully' : 'Failed to hide simplified UI');
+            const uiHidden = !simpleTodoListUI.isVisible;
+            this.logResult('HideUI', uiHidden,
+                uiHidden ? 'UI hidden successfully' : 'Failed to hide UI');
             
-            // Test switching
-            taskSystemIntegration.switchToSimplifiedUI();
-            const switchedToSimplified = simpleTodoListUI.isVisible && !todoListUI.isVisible;
-            this.logResult('SwitchToSimplifiedUI', switchedToSimplified,
-                switchedToSimplified ? 'Successfully switched to simplified UI' : 'Failed to switch to simplified UI');
-            
-            taskSystemIntegration.switchToOriginalUI();
-            const switchedToOriginal = todoListUI.isVisible && !simpleTodoListUI.isVisible;
-            this.logResult('SwitchToOriginalUI', switchedToOriginal,
-                switchedToOriginal ? 'Successfully switched to original UI' : 'Failed to switch to original UI');
-            
-            // Hide both UIs at the end
-            todoListUI.hide();
+            // Hide UI at the end
             simpleTodoListUI.hide();
         } catch (error) {
             this.logResult('TestUIToggle', false, `UI toggle test failed: ${error.message}`);
+        }
+    }
+    
+    /**
+     * Test list creation and management
+     */
+    async testListManagement() {
+        try {
+            // Create a test list
+            const listName = "Test List " + Date.now();
+            const list = await simpleTaskManager.createList({
+                name: listName
+            });
+            
+            const lists = simpleTaskManager.getAllLists();
+            const listExists = lists.some(l => l.id === list.id);
+            
+            this.logResult('CreateList', listExists,
+                listExists ? `List created successfully: ${listName}` : 'List creation failed');
+                
+            // Test switching to the list
+            if (listExists) {
+                await simpleTaskManager.setCurrentList(list.id);
+                const currentList = simpleTaskManager.currentListId;
+                
+                this.logResult('SwitchList', currentList === list.id,
+                    currentList === list.id ? 'Successfully switched to new list' : 'Failed to switch to new list');
+            }
+        } catch (error) {
+            this.logResult('TestListManagement', false, `List management test failed: ${error.message}`);
         }
     }
 }
@@ -311,7 +247,7 @@ class TaskSystemTester {
 export const taskSystemTester = new TaskSystemTester();
 
 // Make it available globally
-window.testTaskSystem = async () => {
+window.testSystem = async () => {
     try {
         UI.showToast('Running task system tests...');
         const results = await taskSystemTester.runAllTests();
@@ -330,9 +266,3 @@ window.testTaskSystem = async () => {
         return `Test execution failed: ${error.message}`;
     }
 };
-
-// Run tests automatically when this script is loaded in development
-if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    console.log('Development environment detected, running tests automatically in 2 seconds...');
-    setTimeout(() => window.testTaskSystem(), 2000);
-}

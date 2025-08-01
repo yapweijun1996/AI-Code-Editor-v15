@@ -1,7 +1,10 @@
 /**
  * Task Management System Integration
- * Provides integration between the old complex task management system
- * and the new simplified todo list implementation.
+ * Provides complete replacement of the complex task management system
+ * with the simplified todo list implementation.
+ *
+ * This module handles the migration of data and the transition to the
+ * simplified system exclusively.
  */
 
 import { taskManager } from './task_manager.js';
@@ -13,6 +16,7 @@ import * as UI from './ui.js';
 export class TaskSystemIntegration {
     constructor() {
         this.initialized = false;
+        this.migrationComplete = false;
     }
 
     /**
@@ -21,12 +25,53 @@ export class TaskSystemIntegration {
     async initialize() {
         if (this.initialized) return;
         
-        // Make sure both task managers are initialized
-        await taskManager.initialize();
-        await simpleTaskManager.initialize();
-        
-        this.initialized = true;
-        console.log('[TaskSystemIntegration] Initialized');
+        try {
+            // Initialize only the necessary system based on migration status
+            if (await this.isMigrationComplete()) {
+                // If migration is complete, only initialize the simplified system
+                await simpleTaskManager.initialize();
+                this.migrationComplete = true;
+                
+                // Disable the complex system
+                this.disableComplexSystem();
+            } else {
+                // If migration is not complete, initialize both systems
+                await taskManager.initialize();
+                await simpleTaskManager.initialize();
+            }
+            
+            this.initialized = true;
+            console.log('[TaskSystemIntegration] Initialized');
+        } catch (error) {
+            console.error('[TaskSystemIntegration] Initialization failed:', error);
+            throw error;
+        }
+    }
+    
+    /**
+     * Check if migration has been completed
+     */
+    async isMigrationComplete() {
+        try {
+            // Check a flag in localStorage to determine if migration is complete
+            return localStorage.getItem('taskSystem_migrationComplete') === 'true';
+        } catch (error) {
+            console.error('[TaskSystemIntegration] Error checking migration status:', error);
+            return false;
+        }
+    }
+    
+    /**
+     * Set the migration status
+     */
+    async setMigrationComplete(complete = true) {
+        try {
+            localStorage.setItem('taskSystem_migrationComplete', complete ? 'true' : 'false');
+            this.migrationComplete = complete;
+            console.log(`[TaskSystemIntegration] Migration status set to: ${complete}`);
+        } catch (error) {
+            console.error('[TaskSystemIntegration] Error setting migration status:', error);
+        }
     }
 
     /**
@@ -171,25 +216,148 @@ export class TaskSystemIntegration {
         
         console.log('[TaskSystemIntegration] Registered Alt+T shortcut for simplified todo list');
     }
+    /**
+     * Disable the complex task management system completely
+     * This function ensures the old system can no longer be activated
+     */
+    disableComplexSystem() {
+        try {
+            // Remove event listeners for the complex system
+            this.removeComplexSystemKeyboardShortcuts();
+            
+            // Nullify the todoListUI toggle function to prevent it from being used
+            if (window.todoListUI) {
+                const originalToggle = window.todoListUI.toggle;
+                window.todoListUI.toggle = () => {
+                    console.log('[TaskSystemIntegration] Complex task system has been replaced. Using simplified system instead.');
+                    simpleTodoListUI.toggle();
+                };
+                
+                window.todoListUI.show = () => {
+                    console.log('[TaskSystemIntegration] Complex task system has been replaced. Using simplified system instead.');
+                    simpleTodoListUI.show();
+                };
+                
+                // Block all methods that modify tasks
+                window.todoListUI.handleSaveTask = () => {
+                    console.log('[TaskSystemIntegration] Complex task system has been replaced. Using simplified system instead.');
+                    return false;
+                };
+            }
+            
+            console.log('[TaskSystemIntegration] Complex task system disabled successfully');
+        } catch (error) {
+            console.error('[TaskSystemIntegration] Error disabling complex system:', error);
+        }
+    }
+    
+    /**
+     * Remove keyboard shortcuts for the complex system
+     */
+    removeComplexSystemKeyboardShortcuts() {
+        try {
+            // Create a new replacement keyboard handler that redirects to the simplified system
+            const replacementHandler = (e) => {
+                // Intercept Ctrl+T for the complex system and redirect to the simplified system
+                if (e.ctrlKey && e.key === 't' && !e.shiftKey && !e.altKey) {
+                    e.preventDefault();
+                    console.log('[TaskSystemIntegration] Redirecting shortcut to simplified system');
+                    simpleTodoListUI.toggle();
+                }
+            };
+            
+            // Replace the existing event listeners - we can't directly remove the old ones
+            // so we add our interceptor that will run first
+            document.addEventListener('keydown', replacementHandler, true);
+            
+            console.log('[TaskSystemIntegration] Complex system keyboard shortcuts redirected');
+        } catch (error) {
+            console.error('[TaskSystemIntegration] Error removing complex system shortcuts:', error);
+        }
+    }
+    
+    /**
+     * Update keyboard shortcuts to use Ctrl+T for the simplified system
+     */
+    updateKeyboardShortcuts() {
+        try {
+            // Add Ctrl+T listener for the simplified system
+            document.addEventListener('keydown', (e) => {
+                // Ctrl+T to toggle simplified todo list
+                if (e.ctrlKey && e.key === 't' && !e.shiftKey && !e.altKey) {
+                    e.preventDefault();
+                    simpleTodoListUI.toggle();
+                }
+            });
+            
+            console.log('[TaskSystemIntegration] Updated keyboard shortcuts to use Ctrl+T for simplified system');
+        } catch (error) {
+            console.error('[TaskSystemIntegration] Error updating keyboard shortcuts:', error);
+        }
+    }
+    
+    /**
+     * Update entry points throughout the codebase
+     * This replaces references to the complex system with the simplified one
+     */
+    updateSystemReferences() {
+        try {
+            // Replace global references
+            if (window.taskManager) {
+                // Create proxies that redirect to simpleTaskManager
+                window.taskManager = new Proxy({}, {
+                    get: function(target, prop) {
+                        console.log(`[TaskSystemIntegration] Redirecting taskManager.${prop} to simpleTaskManager`);
+                        return simpleTaskManager[prop];
+                    }
+                });
+            }
+            
+            // Replace TodoListUI with SimpleTodoListUI
+            if (window.todoListUI) {
+                window.todoListUI = new Proxy({}, {
+                    get: function(target, prop) {
+                        console.log(`[TaskSystemIntegration] Redirecting todoListUI.${prop} to simpleTodoListUI`);
+                        return simpleTodoListUI[prop];
+                    }
+                });
+            }
+            
+            console.log('[TaskSystemIntegration] System references updated successfully');
+            return true;
+        } catch (error) {
+            console.error('[TaskSystemIntegration] Error updating system references:', error);
+            return false;
+        }
+    }
 }
 
 // Create global instance
 export const taskSystemIntegration = new TaskSystemIntegration();
 
-// Register the simplified keyboard shortcut
-taskSystemIntegration.registerSimplifiedShortcut();
-
-// Add a toggle function to the window object for easy access
-window.toggleSimplifiedTodoList = () => {
-    simpleTodoListUI.toggle();
-};
-
 // Add a migration function to the window object
 window.migrateToSimplifiedTaskSystem = async () => {
     try {
+        // Perform the migration
         const result = await taskSystemIntegration.transitionToSimplifiedSystem();
-        return `Successfully migrated ${result} tasks to the simplified system.`;
+        
+        // Disable the complex system
+        taskSystemIntegration.disableComplexSystem();
+        
+        // Update keyboard shortcuts
+        taskSystemIntegration.updateKeyboardShortcuts();
+        
+        // Update system references
+        taskSystemIntegration.updateSystemReferences();
+        
+        // Mark migration as complete
+        await taskSystemIntegration.setMigrationComplete(true);
+        
+        return `Successfully migrated ${result} tasks to the simplified system. The complex system has been completely replaced.`;
     } catch (error) {
         return `Migration failed: ${error.message}`;
     }
 };
+
+// Alias for convenience - allows existing code to work while using the simplified system
+window.toggleTodoList = () => simpleTodoListUI.toggle();

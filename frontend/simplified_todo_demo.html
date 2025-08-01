@@ -168,33 +168,25 @@
     <div class="demo-container">
         <div class="demo-header">
             <div>
-                <h1 class="demo-title">Simplified Todo System</h1>
+                <h1 class="demo-title">Task Management System</h1>
                 <p class="demo-subtitle">A streamlined task management experience</p>
             </div>
         </div>
 
         <div class="demo-section">
-            <h3>Try Both Systems</h3>
+            <h3>Task Management</h3>
             <div class="demo-buttons">
-                <button class="btn-modern" onclick="todoListUI.toggle()">
+                <button class="btn-modern" onclick="simpleTodoListUI.toggle()">
                     <i class="fas fa-tasks"></i>
-                    Original Task System (Ctrl+T)
-                </button>
-                <button class="btn-modern btn-secondary" onclick="simpleTodoListUI.toggle()">
-                    <i class="fas fa-check-square"></i>
-                    Simplified Todo System (Alt+T)
+                    Open Task Manager (Ctrl+T)
                 </button>
             </div>
         </div>
 
         <div class="demo-section">
-            <h3>Data Migration</h3>
-            <p>Migrate your existing tasks from the complex system to the simplified one:</p>
+            <h3>System Management</h3>
+            <p>Run system tests to ensure everything is working correctly:</p>
             <div class="demo-buttons">
-                <button class="btn-modern" onclick="migrateData()">
-                    <i class="fas fa-exchange-alt"></i>
-                    Migrate Tasks
-                </button>
                 <button class="btn-modern btn-secondary" onclick="testSystem()">
                     <i class="fas fa-vial"></i>
                     Run System Tests
@@ -204,30 +196,16 @@
         </div>
 
         <div class="demo-section">
-            <h3>Feature Comparison</h3>
-            <div class="feature-comparison">
-                <div class="system-column">
-                    <h4>Original Complex System</h4>
-                    <ul class="feature-list">
-                        <li><i class="fas fa-check"></i> Advanced task breakdown with AI</li>
-                        <li><i class="fas fa-check"></i> Complex dependency management</li>
-                        <li><i class="fas fa-check"></i> Hierarchical subtasks</li>
-                        <li><i class="fas fa-check"></i> Automatic cleanup of stale tasks</li>
-                        <li><i class="fas fa-check"></i> Progress tracking and metrics</li>
-                        <li><i class="fas fa-check"></i> Extensive task metadata</li>
-                    </ul>
-                </div>
-                <div class="system-column">
-                    <h4>Simplified System</h4>
-                    <ul class="feature-list">
-                        <li><i class="fas fa-check"></i> Clean, focused interface</li>
-                        <li><i class="fas fa-check"></i> Basic task management</li>
-                        <li><i class="fas fa-check"></i> Simpler data structure</li>
-                        <li><i class="fas fa-check"></i> Better performance</li>
-                        <li><i class="fas fa-check"></i> Reduced complexity</li>
-                        <li><i class="fas fa-check"></i> Streamlined workflow</li>
-                    </ul>
-                </div>
+            <h3>System Features</h3>
+            <div class="feature-list-container">
+                <ul class="feature-list">
+                    <li><i class="fas fa-check"></i> Clean, focused interface for maximum productivity</li>
+                    <li><i class="fas fa-check"></i> Efficient task management with minimal overhead</li>
+                    <li><i class="fas fa-check"></i> Optimized data structure for better performance</li>
+                    <li><i class="fas fa-check"></i> Fast response time with reduced complexity</li>
+                    <li><i class="fas fa-check"></i> Streamlined workflow for rapid task entry</li>
+                    <li><i class="fas fa-check"></i> Easy filtering and organization options</li>
+                </ul>
             </div>
         </div>
 
@@ -236,32 +214,26 @@
             <table class="shortcut-table">
                 <tr>
                     <th>Action</th>
-                    <th>Original System</th>
-                    <th>Simplified System</th>
+                    <th>Shortcut</th>
                 </tr>
                 <tr>
                     <td>Toggle task list</td>
                     <td><kbd>Ctrl</kbd> + <kbd>T</kbd></td>
-                    <td><kbd>Alt</kbd> + <kbd>T</kbd></td>
                 </tr>
                 <tr>
                     <td>New task</td>
-                    <td><kbd>Ctrl</kbd> + <kbd>N</kbd></td>
                     <td><kbd>Ctrl</kbd> + <kbd>N</kbd></td>
                 </tr>
                 <tr>
                     <td>Search</td>
                     <td><kbd>Ctrl</kbd> + <kbd>F</kbd></td>
-                    <td><kbd>Ctrl</kbd> + <kbd>F</kbd></td>
                 </tr>
                 <tr>
                     <td>Save task</td>
                     <td><kbd>Ctrl</kbd> + <kbd>Enter</kbd></td>
-                    <td><kbd>Ctrl</kbd> + <kbd>Enter</kbd></td>
                 </tr>
                 <tr>
                     <td>Select all tasks</td>
-                    <td><kbd>Ctrl</kbd> + <kbd>A</kbd></td>
                     <td><kbd>Ctrl</kbd> + <kbd>A</kbd></td>
                 </tr>
             </table>
@@ -270,28 +242,12 @@
 
     <!-- Include necessary scripts -->
     <script type="module">
-        import { todoListUI } from './js/todo_list_ui.js';
         import { simpleTodoListUI } from './js/simple_todo_list_ui.js';
         import { taskSystemIntegration } from './js/task_system_integration.js';
         import { taskSystemTester } from './js/test_task_system.js';
         
         // Make them available globally for the buttons
-        window.todoListUI = todoListUI;
         window.simpleTodoListUI = simpleTodoListUI;
-        
-        // Migration function
-        window.migrateData = async function() {
-            const logs = document.getElementById('logs');
-            logs.innerHTML = 'Starting migration...\n';
-            
-            try {
-                const migratedCount = await taskSystemIntegration.transitionToSimplifiedSystem();
-                logs.innerHTML += `Migration complete! ${migratedCount} tasks migrated.\n`;
-                logs.innerHTML += 'Simplified todo system is now active.\n';
-            } catch (error) {
-                logs.innerHTML += `ERROR: Migration failed: ${error.message}\n`;
-            }
-        };
         
         // Test function
         window.testSystem = async function() {
