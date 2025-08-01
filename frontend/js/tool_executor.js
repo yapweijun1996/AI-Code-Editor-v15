@@ -1014,16 +1014,37 @@ async function _applyDiff({ filename, diff }, rootHandle) {
                 }
             }
         }
+
+        // Strategy 2.5: If nearby fuzzy search fails, scan the entire file for the anchor
+        if (!matches) {
+            console.log(`[ApplyDiff] Scanning entire file for search content...`);
+            for (let searchIndex = 0; searchIndex <= modifiedLines.length - searchLines.length; searchIndex++) {
+                let wholeFileMatches = true;
+                for (let i = 0; i < searchLines.length; i++) {
+                    const lineIndex = searchIndex + i;
+                    if (lineIndex >= modifiedLines.length || 
+                        modifiedLines[lineIndex].trim() !== searchLines[i].trim()) {
+                        wholeFileMatches = false;
+                        break;
+                    }
+                }
+                
+                if (wholeFileMatches) {
+                    matches = true;
+                    actualStartIndex = searchIndex;
+                    console.log(`[ApplyDiff] Found whole-file search match at line ${actualStartIndex + 1} (originally expected line ${startLine})`);
+                    break;
+                }
+            }
+        }
         
-        // Strategy 3: Try partial content match (match first and last lines)
+        // Strategy 3: Try partial content match (match first and last lines) - enhanced whole file search
         if (!matches && searchLines.length > 2) {
             const firstLine = searchLines[0].trim();
             const lastLine = searchLines[searchLines.length - 1].trim();
             
-            for (let searchIndex = Math.max(0, actualStartIndex - 5); 
-                 searchIndex <= Math.min(modifiedLines.length - searchLines.length, actualStartIndex + 5); 
-                 searchIndex++) {
-                
+            // Search the entire file for partial matches
+            for (let searchIndex = 0; searchIndex <= modifiedLines.length - searchLines.length; searchIndex++) {
                 if (searchIndex < modifiedLines.length && 
                     searchIndex + searchLines.length - 1 < modifiedLines.length &&
                     modifiedLines[searchIndex].trim() === firstLine &&
@@ -1031,8 +1052,61 @@ async function _applyDiff({ filename, diff }, rootHandle) {
                     
                     matches = true;
                     actualStartIndex = searchIndex;
-                    console.log(`[ApplyDiff] Found partial match (first/last lines) at line ${actualStartIndex + 1}`);
+                    console.log(`[ApplyDiff] Found partial match (first/last lines) at line ${actualStartIndex + 1} (originally expected line ${startLine})`);
                     break;
+                }
+            }
+        }
+
+        // Strategy 4: Try semantic anchor matching (ignore empty lines and comments)
+        if (!matches) {
+            console.log(`[ApplyDiff] Attempting semantic anchor matching...`);
+            
+            // Filter out empty lines and comments from search content
+            const semanticSearchLines = searchLines.filter(line => {
+                const trimmed = line.trim();
+                return trimmed !== '' && 
+                       !trimmed.startsWith('//') && 
+                       !trimmed.startsWith('/*') && 
+                       !trimmed.startsWith('*') &&
+                       !trimmed.startsWith('#') &&
+                       !trimmed.startsWith('<!--');
+            });
+            
+            if (semanticSearchLines.length > 0) {
+                for (let searchIndex = 0; searchIndex <= modifiedLines.length - semanticSearchLines.length; searchIndex++) {
+                    let semanticMatches = true;
+                    let fileLineIndex = searchIndex;
+                    
+                    for (let i = 0; i < semanticSearchLines.length; i++) {
+                        // Find the next semantic line in the file
+                        while (fileLineIndex < modifiedLines.length) {
+                            const fileLine = modifiedLines[fileLineIndex].trim();
+                            if (fileLine !== '' && 
+                                !fileLine.startsWith('//') && 
+                                !fileLine.startsWith('/*') && 
+                                !fileLine.startsWith('*') &&
+                                !fileLine.startsWith('#') &&
+                                !fileLine.startsWith('<!--')) {
+                                break;
+                            }
+                            fileLineIndex++;
+                        }
+                        
+                        if (fileLineIndex >= modifiedLines.length || 
+                            modifiedLines[fileLineIndex].trim() !== semanticSearchLines[i].trim()) {
+                            semanticMatches = false;
+                            break;
+                        }
+                        fileLineIndex++;
+                    }
+                    
+                    if (semanticMatches) {
+                        matches = true;
+                        actualStartIndex = searchIndex;
+                        console.log(`[ApplyDiff] Found semantic match at line ${actualStartIndex + 1} (originally expected line ${startLine})`);
+                        break;
+                    }
                 }
             }
         }
@@ -1385,6 +1459,132 @@ async function _smartReplace({ filename, old_content, new_content, similarity_th
     } catch (error) {
         throw new Error(`Failed to smart replace in ${filename}: ${error.message}`);
     }
+}
+
+// Extract code region with context mapping for better AI patching
+async function _extractCodeRegion({ filename, start_line, end_line, include_context = true }, rootHandle) {
+    if (!filename) throw new Error("The 'filename' parameter is required.");
+    if (!start_line) throw new Error("The 'start_line' parameter is required.");
+    if (!end_line) throw new Error("The 'end_line' parameter is required.");
+    
+    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
+    const file = await fileHandle.getFile();
+    const content = await file.text();
+    const lines = content.split(/\r?\n/);
+    
+    if (start_line < 1 || start_line > lines.length) {
+        throw new Error(`start_line ${start_line} is out of range. File has ${lines.length} lines.`);
+    }
+    if (end_line < 1 || end_line > lines.length) {
+        throw new Error(`end_line ${end_line} is out of range. File has ${lines.length} lines.`);
+    }
+    if (start_line > end_line) {
+        throw new Error(`start_line ${start_line} cannot be greater than end_line ${end_line}.`);
+    }
+    
+    const extractedLines = lines.slice(start_line - 1, end_line);
+    let contextBefore = [];
+    let contextAfter = [];
+    
+    if (include_context) {
+        // Include 3 lines before and after for context
+        const contextSize = 3;
+        contextBefore = lines.slice(Math.max(0, start_line - 1 - contextSize), start_line - 1);
+        contextAfter = lines.slice(end_line, Math.min(lines.length, end_line + contextSize));
+    }
+    
+    return {
+        message: `Extracted ${extractedLines.length} lines from ${filename}`,
+        region: {
+            filename,
+            start_line,
+            end_line,
+            extracted_content: extractedLines.join('\n'),
+            context_before: contextBefore.join('\n'),
+            context_after: contextAfter.join('\n'),
+            full_context: include_context ? 
+                [...contextBefore, ...extractedLines, ...contextAfter].join('\n') : 
+                extractedLines.join('\n'),
+            mapping: {
+                region_start_in_full_context: contextBefore.length,
+                region_end_in_full_context: contextBefore.length + extractedLines.length - 1,
+                original_file_start_line: start_line,
+                original_file_end_line: end_line
+            }
+        }
+    };
+}
+
+// Apply region-aware patch using extracted context mapping
+async function _applyRegionPatch({ filename, region_mapping, old_content, new_content }, rootHandle) {
+    if (!filename) throw new Error("The 'filename' parameter is required.");
+    if (!region_mapping) throw new Error("The 'region_mapping' parameter is required.");
+    if (!old_content) throw new Error("The 'old_content' parameter is required.");
+    if (new_content === undefined) throw new Error("The 'new_content' parameter is required.");
+    
+    const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
+    const file = await fileHandle.getFile();
+    const originalContent = await file.text();
+    UndoManager.push(filename, originalContent);
+    
+    const lines = originalContent.split(/\r?\n/);
+    const { original_file_start_line, original_file_end_line } = region_mapping;
+    
+    // Validate that the old content still matches the region
+    const currentRegionContent = lines.slice(original_file_start_line - 1, original_file_end_line).join('\n');
+    
+    if (currentRegionContent.trim() !== old_content.trim()) {
+        // Try fuzzy matching
+        const similarity = calculateSimilarity(currentRegionContent.trim(), old_content.trim());
+        if (similarity < 0.7) {
+            throw new Error(`Region content has changed since extraction. Current content:\n${currentRegionContent}\n\nExpected content:\n${old_content}\n\nSimilarity: ${(similarity * 100).toFixed(1)}%`);
+        }
+        console.warn(`[RegionPatch] Using fuzzy match with ${(similarity * 100).toFixed(1)}% similarity`);
+    }
+    
+    // Apply the patch to the specific region
+    const newContentLines = new_content.split(/\r?\n/);
+    const before = lines.slice(0, original_file_start_line - 1);
+    const after = lines.slice(original_file_end_line);
+    const modifiedLines = [...before, ...newContentLines, ...after];
+    
+    const lineEnding = originalContent.includes('\r\n') ? '\r\n' : '\n';
+    const newFileContent = modifiedLines.join(lineEnding);
+    
+    await FileSystem.writeFile(fileHandle, newFileContent);
+    
+    // Update editor if file is open
+    if (Editor.getOpenFiles().has(filename)) {
+        Editor.getOpenFiles().get(filename)?.model.setValue(newFileContent);
+    }
+    
+    return {
+        message: `Successfully applied region patch to ${filename}`,
+        details: {
+            filename,
+            original_region: `lines ${original_file_start_line}-${original_file_end_line}`,
+            lines_before: before.length,
+            lines_replaced: original_file_end_line - original_file_start_line + 1,
+            lines_added: newContentLines.length,
+            lines_after: after.length,
+            total_lines: modifiedLines.length
+        }
+    };
+}
+
+// Helper function for similarity calculation (moved here for reuse)
+function calculateSimilarity(str1, str2) {
+    const longer = str1.length > str2.length ? str1 : str2;
+    const shorter = str1.length > str2.length ? str2 : str1;
+    
+    if (longer.length === 0) return 1.0;
+    
+    let matches = 0;
+    for (let i = 0; i < shorter.length; i++) {
+        if (longer[i] === shorter[i]) matches++;
+    }
+    
+    return matches / longer.length;
 }
 
 // Smart file editing - efficient for large files, safe for small ones
@@ -3895,6 +4095,8 @@ const toolRegistry = {
     insert_at_line: { handler: _insertAtLine, requiresProject: true, createsCheckpoint: true },
     replace_lines: { handler: _replaceLines, requiresProject: true, createsCheckpoint: true },
     smart_replace: { handler: _smartReplace, requiresProject: true, createsCheckpoint: true },
+    extract_code_region: { handler: _extractCodeRegion, requiresProject: true, createsCheckpoint: false },
+    apply_region_patch: { handler: _applyRegionPatch, requiresProject: true, createsCheckpoint: true },
     
     // Batch processing tools for efficient bulk operations
     batch_analyze_files: { handler: _batchAnalyzeFiles, requiresProject: true, createsCheckpoint: false },
@@ -4080,13 +4282,15 @@ export function getToolDefinitions() {
             { name: 'append_to_file', description: "Fast append content to end of file without reading full content. Ideal for logs, incremental updates.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'Content to append. Will add newline separator automatically.' } }, required: ['filename', 'content'] } },
             { name: 'get_file_info', description: "Get file metadata (size, last modified, type) without reading content. Use before editing large files.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' } }, required: ['filename'] } },
             { name: 'rewrite_file', description: "DEPRECATED. Use 'edit_file' instead. This tool rewrites an entire file.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, content: { type: 'STRING', description: 'The new, raw text content of the file. CRITICAL: Do NOT wrap this content in markdown backticks (```).' } }, required: ['filename', 'content'] } },
-            { name: 'apply_diff', description: "🔧 RECOMMENDED: Apply precise, surgical changes to files using diff blocks. This is the safest and most reliable way to edit files. Use this instead of edit_file when you need to make targeted changes. CRITICAL: The diff parameter must contain properly formatted diff blocks with EXACT format:\n\n<<<<<<< SEARCH\n:start_line:10\n-------\nold code here\n=======\nnew code here\n>>>>>>> REPLACE\n\nMANDATORY REQUIREMENTS:\n1. Must include ':start_line:N' where N is the line number\n2. Must include '-------' separator line after start_line\n3. Must include '=======' separator between old and new content\n4. Each line must be exact, including whitespace and indentation\n5. Use read_file with include_line_numbers=true first to get accurate content", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING', description: 'Path to the file to modify' }, diff: { type: 'STRING', description: 'One or more diff blocks in the EXACT format: <<<<<<< SEARCH\\n:start_line:N\\n-------\\nold content\\n=======\\nnew content\\n>>>>>>> REPLACE. The -------  separator line is MANDATORY.' } }, required: ['filename', 'diff'] } },
+            { name: 'apply_diff', description: "🔧 ENHANCED: Apply precise, surgical changes to files using diff blocks. Now with improved anchor detection that scans the entire file! Handles files with headers/comments that don't start with code. Uses 4-strategy matching: exact, nearby fuzzy, whole-file search, and semantic matching.\n\nFormat: <<<<<<< SEARCH\n:start_line:10\n-------\nold code here\n=======\nnew code here\n>>>>>>> REPLACE\n\nREQUIREMENTS:\n1. Include ':start_line:N' (line number can be approximate now)\n2. Include '-------' separator after start_line\n3. Include '=======' separator between old/new content\n4. Content should match file content (fuzzy matching available)\n5. Use read_file with line numbers for best results", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING', description: 'Path to the file to modify' }, diff: { type: 'STRING', description: 'One or more diff blocks in the EXACT format: <<<<<<< SEARCH\\n:start_line:N\\n-------\\nold content\\n=======\\nnew content\\n>>>>>>> REPLACE. Enhanced matching now handles approximate line numbers.' } }, required: ['filename', 'diff'] } },
             
             // Alternative file editing tools - more reliable than apply_diff in many cases
             { name: 'find_and_replace', description: "🔍 Simple and reliable text replacement. Perfect when you know the exact text to replace. Safer than apply_diff for simple changes.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, find_text: { type: 'STRING', description: 'Exact text to find and replace' }, replace_text: { type: 'STRING', description: 'New text to replace with' }, all_occurrences: { type: 'BOOLEAN', description: 'Replace all occurrences (default: false - only first occurrence)' } }, required: ['filename', 'find_text', 'replace_text'] } },
             { name: 'insert_at_line', description: "📝 Insert content at a specific line number. Very reliable when you know exactly where to add content.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, line_number: { type: 'NUMBER', description: 'Line number where to insert (1-based)' }, content: { type: 'STRING', description: 'Content to insert' }, insert_mode: { type: 'STRING', enum: ['before', 'after', 'replace'], description: 'Insert before, after, or replace the line (default: after)' } }, required: ['filename', 'line_number', 'content'] } },
             { name: 'replace_lines', description: "📄 Replace a range of lines with new content. Ideal for replacing entire sections or functions.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, start_line: { type: 'NUMBER', description: 'First line to replace (1-based)' }, end_line: { type: 'NUMBER', description: 'Last line to replace (1-based)' }, new_content: { type: 'STRING', description: 'New content to replace the line range with' } }, required: ['filename', 'start_line', 'end_line', 'new_content'] } },
             { name: 'smart_replace', description: "🧠 Fuzzy matching replacement. Finds and replaces similar content even if not exactly matching. Use when content might have changed slightly.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, old_content: { type: 'STRING', description: 'Content to find (allows some differences)' }, new_content: { type: 'STRING', description: 'New content to replace with' }, similarity_threshold: { type: 'NUMBER', description: 'Minimum similarity required (0.0-1.0, default: 0.8)' } }, required: ['filename', 'old_content', 'new_content'] } },
+            { name: 'extract_code_region', description: "📦 Extract a code region with context mapping for region-aware patching. Perfect for AI workflow where you need to send specific code sections for upgrade and then patch them back precisely.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, start_line: { type: 'NUMBER', description: 'Starting line number (1-based)' }, end_line: { type: 'NUMBER', description: 'Ending line number (1-based)' }, include_context: { type: 'BOOLEAN', description: 'Include surrounding context lines (default: true)' } }, required: ['filename', 'start_line', 'end_line'] } },
+            { name: 'apply_region_patch', description: "🎯 Apply region-aware patch using extracted context mapping. Use with extract_code_region for precise, context-aware code updates. Resolves AI context/region mismatch issues.", parameters: { type: 'OBJECT', properties: { filename: { type: 'STRING' }, region_mapping: { type: 'OBJECT', description: 'Mapping object from extract_code_region' }, old_content: { type: 'STRING', description: 'Original extracted content' }, new_content: { type: 'STRING', description: 'Updated content to apply' } }, required: ['filename', 'region_mapping', 'old_content', 'new_content'] } },
             
             // --- Unified Task Management System ---
             { name: 'task_create', description: "Creates a new task. This is the starting point for any new goal.", parameters: { type: 'OBJECT', properties: { title: { type: 'STRING' }, description: { type: 'STRING' }, priority: { type: 'STRING', enum: ['low', 'medium', 'high', 'urgent'] }, parentId: { type: 'STRING' }, listId: { type: 'STRING' } }, required: ['title'] } },
