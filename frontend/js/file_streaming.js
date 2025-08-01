@@ -51,11 +51,27 @@ export class FileInfo {
     isText() {
         // Common text file extensions
         const textExtensions = new Set([
-            'js', 'ts', 'jsx', 'tsx', 'vue', 'html', 'css', 'scss', 'sass',
-            'json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'conf',
-            'md', 'txt', 'log', 'csv', 'tsv',
+            // JavaScript/TypeScript and frontend
+            'js', 'ts', 'jsx', 'tsx', 'vue', 'html', 'css', 'scss', 'sass', 'less', 'svelte', 'astro',
+            // Data formats
+            'json', 'xml', 'yaml', 'yml', 'toml', 'ini', 'conf', 'properties',
+            // Documentation/text
+            'md', 'txt', 'log', 'csv', 'tsv', 'rst', 'adoc', 'tex',
+            // Programming languages
             'py', 'java', 'c', 'cpp', 'h', 'hpp', 'cs', 'php', 'rb', 'go', 'rs', 'swift',
-            'sql', 'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd'
+            'kt', 'scala', 'groovy', 'dart', 'lua', 'pl', 'pm', 'ex', 'exs', 'erl', 'hrl',
+            // SQL and database
+            'sql', 'prisma', 'graphql', 'gql',
+            // Shell/scripts
+            'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd',
+            // Template files
+            'ejs', 'hbs', 'mustache', 'twig', 'liquid', 'pug', 'jade', 'haml',
+            // ColdFusion file extensions
+            'cfm', 'cfc', 'cfml',
+            // Config files
+            'env', 'gitignore', 'editorconfig', 'htaccess',
+            // Other web technologies
+            'wasm', 'wat', 'webmanifest'
         ]);
         
         return textExtensions.has(this.extension) || 

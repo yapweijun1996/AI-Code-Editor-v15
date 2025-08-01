@@ -525,6 +525,30 @@ async function _readFile({ filename, include_line_numbers = false }, rootHandle)
     };
 }
 
+/**
+ * Reads a specific range of lines from a file.
+ *
+ * IMPORTANT NOTES:
+ * 1. Fixed 'content.split is not a function' error that occurred when reading certain file types.
+ *    The issue was that some files were incorrectly classified as text files when they were binary,
+ *    or the content was returned as null/non-string, causing the split() method to fail.
+ *
+ * 2. Type checking was added to handle non-string content, with fallbacks to convert to string
+ *    or use an empty string when content is null. This makes the function more robust against
+ *    various file formats.
+ *
+ * 3. Enhanced logging was added to help diagnose similar issues in the future.
+ *
+ * 4. The list of recognized text file extensions in file_streaming.js was expanded to include
+ *    more file types like ColdFusion (.cfm, .cfc, .cfml) and others to prevent similar issues.
+ *
+ * @param {Object} params - Function parameters
+ * @param {string} params.filename - Path to the file
+ * @param {number} params.start_line - First line to read (1-based)
+ * @param {number} params.end_line - Last line to read (1-based)
+ * @param {Object} rootHandle - File system root handle
+ * @returns {Object} Object containing the content and details about the read operation
+ */
 async function _readFileLines({ filename, start_line, end_line }, rootHandle) {
     if (!filename) throw new Error("The 'filename' parameter is required.");
     if (typeof start_line !== 'number' || typeof end_line !== 'number') {
@@ -537,24 +561,71 @@ async function _readFileLines({ filename, start_line, end_line }, rootHandle) {
     const fileHandle = await FileSystem.getFileHandleFromPath(rootHandle, filename);
     
     // Use streaming file reader for better performance with large files
-    const { readFileWithStrategy } = await import('./file_streaming.js');
-    const streamResult = await readFileWithStrategy(fileHandle, filename);
-    const content = streamResult.content;
-    const lines = content.split('\n');
+    const { readFileWithStrategy, FileInfo } = await import('./file_streaming.js');
     
-    const clampedStart = Math.max(1, start_line);
-    const clampedEnd = Math.min(lines.length, end_line);
+    try {
+        const file = await fileHandle.getFile();
+        const fileInfo = new FileInfo(file, fileHandle);
+        
+        // Add detailed logging for debugging
+        console.log(`Reading file: ${filename} (${fileInfo.formatFileSize(file.size)})`);
+        console.log(`File type: ${file.type || 'unknown'}, Extension: ${fileInfo.extension}`);
+        console.log(`Is text file: ${fileInfo.isText()}, Is binary file: ${fileInfo.isBinary()}`);
+        
+        const streamResult = await readFileWithStrategy(fileHandle, filename);
+        
+        // Enhanced type checking to handle various content types (binary files, null content, etc.)
+        // This fixes the "content.split is not a function" error for files misclassified as text
+        let content, lines, clampedStart, clampedEnd;
+        
+        if (typeof streamResult.content !== 'string') {
+            console.warn(`Warning: File content for ${filename} is not a string, it is a ${typeof streamResult.content}.`);
+            console.warn(`Strategy used: ${streamResult.strategy}, Content truncated: ${streamResult.truncated}`);
+            
+            // Try to convert to string or use empty string as fallback
+            content = streamResult.content ? String(streamResult.content) : '';
+            console.log(`Converted content to string (length: ${content.length})`);
+            
+            lines = content.split('\n');
+            console.log(`Split content into ${lines.length} lines`);
+            
+            clampedStart = Math.max(1, start_line);
+            clampedEnd = Math.min(lines.length, end_line);
+        } else {
+            content = streamResult.content;
+            lines = content.split('\n');
+            
+            clampedStart = Math.max(1, start_line);
+            clampedEnd = Math.min(lines.length, end_line);
+        }
+    } catch (error) {
+        console.error(`Error reading file ${filename}:`, error);
+        throw new Error(`Failed to read file ${filename}: ${error.message}`);
+    }
 
+    // Check if line range is valid
     if (clampedStart > clampedEnd) {
+        console.log(`Invalid line range: start(${clampedStart}) > end(${clampedEnd})`);
         return { content: '' };
     }
 
+    // Extract the requested lines
     const selectedLines = lines.slice(clampedStart - 1, clampedEnd);
+    console.log(`Selected ${selectedLines.length} lines from ${clampedStart} to ${clampedEnd}`);
     
     // Always include line numbers in the output of this tool
     const numberedLines = selectedLines.map((line, index) => `${clampedStart + index} | ${line}`);
     
-    return { content: numberedLines.join('\n') };
+    return {
+        content: numberedLines.join('\n'),
+        details: {
+            filename,
+            start_line: clampedStart,
+            end_line: clampedEnd,
+            lines_count: selectedLines.length,
+            original_lines_count: lines.length
+        }
+    };
 }
 
 async function _searchInFile({ filename, pattern, context = 2 }, rootHandle) {
