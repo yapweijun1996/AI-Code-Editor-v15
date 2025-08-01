@@ -41,16 +41,76 @@ export const ChatService = {
     },
 
     async _initializeLLMService() {
-        const llmSettings = Settings.getLLMSettings();
-        this.llmService = LLMServiceFactory.create(llmSettings.provider, llmSettings);
+        console.log(`[DEBUG] _initializeLLMService: Starting initialization`);
         
-        // Initialize provider-specific optimizations
-        this.currentProvider = llmSettings.provider;
-        console.log(`LLM Service initialized with provider: ${llmSettings.provider}`);
+        // Add initialization timeout to prevent hanging
+        const INIT_TIMEOUT_MS = 10000; // 10 seconds timeout for initialization
         
-        // Set up performance monitoring
-        performanceOptimizer.startTimer('llm_initialization');
-        performanceOptimizer.endTimer('llm_initialization');
+        const initPromise = new Promise(async (resolve, reject) => {
+            try {
+                console.log(`[DEBUG] _initializeLLMService: Getting LLM settings`);
+                const llmSettings = Settings.getLLMSettings();
+                console.log(`[DEBUG] _initializeLLMService: Got settings, provider: ${llmSettings.provider}`);
+                
+                if (!llmSettings || !llmSettings.provider) {
+                    throw new Error("Invalid LLM settings or missing provider");
+                }
+                
+                console.log(`[DEBUG] _initializeLLMService: Creating LLM service instance via factory`);
+                const llmService = LLMServiceFactory.create(llmSettings.provider, llmSettings);
+                console.log(`[DEBUG] _initializeLLMService: LLM service instance created: ${llmService?.constructor?.name || 'unknown'}`);
+                
+                if (!llmService) {
+                    throw new Error(`Failed to create LLM service for provider: ${llmSettings.provider}`);
+                }
+                
+                // Initialize provider-specific optimizations
+                this.currentProvider = llmSettings.provider;
+                console.log(`[DEBUG] _initializeLLMService: Provider set to: ${this.currentProvider}`);
+                
+                // Set up performance monitoring
+                console.log(`[DEBUG] _initializeLLMService: Starting performance monitoring`);
+                performanceOptimizer.startTimer('llm_initialization');
+                performanceOptimizer.endTimer('llm_initialization');
+                console.log(`[DEBUG] _initializeLLMService: Performance monitoring complete`);
+                
+                console.log(`[DEBUG] _initializeLLMService: Initialization completed successfully`);
+                this.llmService = llmService;
+                resolve(llmService);
+            } catch (error) {
+                console.error(`[ERROR] _initializeLLMService: Failed to initialize LLM service:`, error);
+                console.error(`[ERROR] _initializeLLMService: Stack trace:`, error.stack);
+                reject(error);
+            }
+        });
+        
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => {
+                reject(new Error(`LLM service initialization timed out after ${INIT_TIMEOUT_MS}ms`));
+            }, INIT_TIMEOUT_MS);
+        });
+        
+        try {
+            // Race the initialization against a timeout
+            const llmService = await Promise.race([initPromise, timeoutPromise]);
+            return llmService;
+        } catch (error) {
+            console.error(`[ERROR] _initializeLLMService: ${error.message}`);
+            
+            // Create a fallback minimal service for graceful degradation
+            const fallbackService = {
+                isConfigured: async () => false,
+                sendMessageStream: async function*() {
+                    yield { text: "LLM service unavailable due to initialization error." };
+                }
+            };
+            
+            // Store the fallback service but mark it as unconfigured
+            this.llmService = fallbackService;
+            
+            // Still throw the error to notify callers
+            throw error;
+        }
     },
 
     async _startChat(history = []) {
@@ -412,36 +472,91 @@ export const ChatService = {
      * Simplified method for programmatic API calls (used by TaskManager, etc.)
      */
     async sendPrompt(prompt, options = {}) {
+        console.log(`[DEBUG] sendPrompt: Starting with prompt length: ${prompt?.length || 0}`);
         try {
+            console.log(`[DEBUG] sendPrompt: About to initialize LLM service`);
             await this._initializeLLMService();
+            console.log(`[DEBUG] sendPrompt: LLM service initialized, provider: ${this.llmService?.constructor?.name || 'unknown'}`);
             
             if (!(await this.llmService.isConfigured())) {
+                console.error(`[ERROR] sendPrompt: LLM service not configured`);
                 throw new Error("LLM service not configured");
             }
+            console.log(`[DEBUG] sendPrompt: LLM service configuration verified`);
 
             const history = options.history || [];
             const tools = options.tools || ToolExecutor.getToolDefinitions();
             const customRules = options.customRules || '';
+            console.log(`[DEBUG] sendPrompt: Options processed, history length: ${history.length}`);
 
             // Create a simple message history
             const messageHistory = [...history, {
                 role: 'user',
                 parts: [{ text: prompt }]
             }];
+            console.log(`[DEBUG] sendPrompt: Message history created, total entries: ${messageHistory.length}`);
 
             let fullResponse = '';
-            const streamGenerator = this.llmService.sendMessageStream(messageHistory, tools, customRules);
+            console.log(`[DEBUG] sendPrompt: About to call sendMessageStream`);
             
-            for await (const chunk of streamGenerator) {
-                if (chunk.text) {
-                    fullResponse += chunk.text;
+            // Add timeout protection to prevent hanging on stream processing
+            const STREAM_TIMEOUT_MS = 30000; // 30 seconds timeout
+            let timeoutId;
+            
+            const streamPromise = new Promise(async (resolve, reject) => {
+                try {
+                    console.log(`[DEBUG] sendPrompt: Creating stream generator`);
+                    const streamGenerator = this.llmService.sendMessageStream(messageHistory, tools, customRules);
+                    console.log(`[DEBUG] sendPrompt: Stream generator created, beginning to process stream chunks`);
+                    
+                    let chunkCount = 0;
+                    let lastChunkTime = Date.now();
+                    
+                    for await (const chunk of streamGenerator) {
+                        // Reset timeout on each chunk
+                        lastChunkTime = Date.now();
+                        
+                        chunkCount++;
+                        if (chunk.text) {
+                            fullResponse += chunk.text;
+                            if (chunkCount % 10 === 0) { // Log every 10 chunks to avoid log flooding
+                                console.log(`[DEBUG] sendPrompt: Processed ${chunkCount} chunks, current response length: ${fullResponse.length}`);
+                            }
+                        }
+                    }
+                    console.log(`[DEBUG] sendPrompt: Stream processing complete, total chunks: ${chunkCount}, final response length: ${fullResponse.length}`);
+                    resolve(fullResponse);
+                } catch (error) {
+                    console.error(`[ERROR] sendPrompt: Stream processing error:`, error);
+                    reject(error);
                 }
+            });
+            
+            const timeoutPromise = new Promise((_, reject) => {
+                timeoutId = setTimeout(() => {
+                    reject(new Error(`LLM stream processing timed out after ${STREAM_TIMEOUT_MS}ms`));
+                }, STREAM_TIMEOUT_MS);
+            });
+            
+            try {
+                // Race the stream processing against a timeout
+                fullResponse = await Promise.race([streamPromise, timeoutPromise]);
+                console.log(`[DEBUG] sendPrompt: Stream processing completed within timeout`);
+            } catch (error) {
+                console.error(`[ERROR] sendPrompt: ${error.message}`);
+                fullResponse = "I apologize, but I'm having trouble generating a response right now. The operation timed out.";
+            } finally {
+                // Clear the timeout to prevent memory leaks
+                if (timeoutId) clearTimeout(timeoutId);
             }
 
+            console.log(`[DEBUG] sendPrompt: Returning response`);
             return fullResponse.trim();
         } catch (error) {
-            console.error('[ChatService] sendPrompt failed:', error);
-            throw error;
+            console.error('[ERROR] sendPrompt failed:', error);
+            console.error('[ERROR] sendPrompt stack trace:', error.stack);
+            // Return a fallback response instead of throwing to avoid hanging the system
+            return "I apologize, but I encountered an error while processing your request. Please try again.";
         }
     },
 
@@ -677,42 +792,49 @@ export const ChatService = {
            `;
            
            console.log('[DEBUG] Sending initial prompt to AI for task planning');
+           console.log('[DEBUG] _handleTodoListQuery: About to call sendPrompt with initialPrompt');
            const initialResponse = await this.sendPrompt(initialPrompt, {
                customRules: 'You are a task planning assistant that breaks down complex requests into clear, actionable steps.'
            });
-           console.log('[DEBUG] Received AI response for task planning:', initialResponse);
+           console.log('[DEBUG] _handleTodoListQuery: Received AI response for task planning, length:', initialResponse?.length || 0);
            
            // Generate todo items from the AI response
-           console.log('[DEBUG] Generating todo items from AI response');
+           console.log('[DEBUG] _handleTodoListQuery: About to call AITodoManager.generateTodoList');
            const todoItems = await AITodoManager.generateTodoList(userQuery, initialResponse);
-           console.log('[DEBUG] Generated todo items:', todoItems);
+           console.log('[DEBUG] _handleTodoListQuery: Generated todo items count:', todoItems?.length || 0);
            
            // Update the UI with todo list
-           console.log('[DEBUG] Updating UI with todo list');
+           console.log('[DEBUG] _handleTodoListQuery: Updating UI with todo list');
            UI.updateTodoList(todoItems);
            
            // Format and display the initial plan response
+           console.log('[DEBUG] _handleTodoListQuery: Formatting AI response');
            const formattedResponse = AITodoManager.formatAIResponse('initial', todoItems);
+           console.log('[DEBUG] _handleTodoListQuery: Appending formatted response to chat');
            UI.appendMessage(chatMessages, formattedResponse, 'ai');
            
            // Set todo mode active
-           console.log('[DEBUG] Setting todo mode to active');
+           console.log('[DEBUG] _handleTodoListQuery: Setting todo mode to active');
            this.todoMode = true;
            
            // Start working on the first task
            if (todoItems.length > 0) {
                const firstTask = todoItems[0];
-               console.log('[DEBUG] Setting first task to IN_PROGRESS:', firstTask);
+               console.log('[DEBUG] _handleTodoListQuery: Setting first task to IN_PROGRESS, ID:', firstTask.id);
                await AITodoManager.updateTodoStatus(firstTask.id, TodoStatus.IN_PROGRESS);
                
                // Execute the first task
-               console.log('[DEBUG] Executing first task');
-               await this._executeTodoTask(firstTask, chatMessages);
+               console.log('[DEBUG] _handleTodoListQuery: About to execute first task, ID:', firstTask.id);
+               const executionResult = await this._executeTodoTask(firstTask, chatMessages);
+               console.log('[DEBUG] _handleTodoListQuery: First task execution completed with result:', executionResult);
            } else {
-               console.log('[DEBUG] No todo items were generated');
+               console.log('[DEBUG] _handleTodoListQuery: No todo items were generated');
            }
+           
+           console.log('[DEBUG] _handleTodoListQuery: Method completed successfully');
        } catch (error) {
-           console.error('Error handling todo list query:', error);
+           console.error('[ERROR] _handleTodoListQuery: Error handling todo list query:', error);
+           console.error('[ERROR] _handleTodoListQuery: Stack trace:', error.stack);
            UI.appendMessage(chatMessages, 'Sorry, I encountered an error while creating your todo list plan.', 'ai');
            this.todoMode = false;
        }
@@ -808,32 +930,83 @@ export const ChatService = {
     * @param {HTMLElement} chatMessages - The chat messages container
     */
    async _executeTodoTask(todoItem, chatMessages) {
+       console.log(`[DEBUG] _executeTodoTask: Starting execution for task ID ${todoItem.id}: "${todoItem.text}"`);
+       
+       // Add a timeout mechanism for the entire task execution
+       const TASK_EXECUTION_TIMEOUT_MS = 60000; // 60 seconds timeout
+       
+       const executionPromise = new Promise(async (resolve, reject) => {
+           try {
+               // Generate a detailed prompt based on the task
+               const taskPrompt = `
+                   I'm helping the user with this overall goal: "${this.lastUserQuery}"
+                   
+                   I'm now working on this specific task: "${todoItem.text}"
+                   
+                   Please provide a detailed response addressing this specific task.
+                   Be thorough but focused only on this particular step.
+               `;
+               
+               console.log(`[DEBUG] _executeTodoTask: Generated task prompt`);
+               
+               // Show thinking indicator
+               UI.showThinkingIndicator(chatMessages, `Working on task: ${todoItem.text}...`);
+               
+               console.log(`[DEBUG] _executeTodoTask: About to call sendPrompt`);
+               // Get AI response for this task
+               const taskResponsePromise = this.sendPrompt(taskPrompt);
+               console.log(`[DEBUG] _executeTodoTask: sendPrompt called, waiting for response`);
+               
+               const taskResponse = await taskResponsePromise;
+               console.log(`[DEBUG] _executeTodoTask: Received response from sendPrompt, length: ${taskResponse?.length || 0}`);
+               
+               if (!taskResponse) {
+                   throw new Error("No response received from AI service");
+               }
+               
+               // Show task response to user
+               UI.appendMessage(chatMessages, taskResponse, 'ai');
+               console.log(`[DEBUG] _executeTodoTask: Appended response to UI`);
+               
+               // Update the todo list UI
+               const allTodos = await todoManager.getAllTodos();
+               console.log(`[DEBUG] _executeTodoTask: Retrieved all todos, count: ${allTodos.length}`);
+               UI.updateTodoList(allTodos);
+               console.log(`[DEBUG] _executeTodoTask: Updated todo list UI`);
+               
+               console.log(`[DEBUG] _executeTodoTask: Task execution completed successfully`);
+               resolve(true); // Indicate successful completion
+           } catch (error) {
+               console.error(`[ERROR] _executeTodoTask: Error executing todo task "${todoItem.text}":`, error);
+               console.error(`[ERROR] _executeTodoTask: Stack trace:`, error.stack);
+               UI.appendMessage(chatMessages, `I encountered an error while working on the task "${todoItem.text}". Let me know if you'd like to continue or try a different approach.`, 'ai');
+               resolve(false); // Resolve with failure rather than rejecting to ensure promise completes
+           }
+       });
+       
+       const timeoutPromise = new Promise((_, reject) => {
+           setTimeout(() => {
+               reject(new Error(`Task execution timed out after ${TASK_EXECUTION_TIMEOUT_MS/1000} seconds`));
+           }, TASK_EXECUTION_TIMEOUT_MS);
+       });
+       
        try {
-           // Generate a detailed prompt based on the task
-           const taskPrompt = `
-               I'm helping the user with this overall goal: "${this.lastUserQuery}"
-               
-               I'm now working on this specific task: "${todoItem.text}"
-               
-               Please provide a detailed response addressing this specific task.
-               Be thorough but focused only on this particular step.
-           `;
-           
-           // Show thinking indicator
-           UI.showThinkingIndicator(chatMessages, `Working on task: ${todoItem.text}...`);
-           
-           // Get AI response for this task
-           const taskResponse = await this.sendPrompt(taskPrompt);
-           
-           // Show task response to user
-           UI.appendMessage(chatMessages, taskResponse, 'ai');
-           
-           // Update the todo list UI
-           UI.updateTodoList(await todoManager.getAllTodos());
-           
+           // Race the execution against the timeout
+           return await Promise.race([executionPromise, timeoutPromise]);
        } catch (error) {
-           console.error(`Error executing todo task "${todoItem.text}":`, error);
-           UI.appendMessage(chatMessages, `I encountered an error while working on the task "${todoItem.text}". Let me know if you'd like to continue or try a different approach.`, 'ai');
+           console.error(`[ERROR] _executeTodoTask: ${error.message}`);
+           UI.appendMessage(chatMessages, `I'm sorry, but the task "${todoItem.text}" is taking longer than expected. Let me know if you'd like to try again or move to the next task.`, 'ai');
+           
+           // Mark the current task as having issues
+           try {
+               console.log(`[DEBUG] _executeTodoTask: Updating UI due to timeout`);
+               const allTodos = await todoManager.getAllTodos();
+               UI.updateTodoList(allTodos);
+           } catch (e) {
+               console.error(`[ERROR] _executeTodoTask: Error updating todos after timeout:`, e);
+           }
+           
+           return false;
        }
    }
 };
